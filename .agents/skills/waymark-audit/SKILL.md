@@ -23,8 +23,11 @@ the default journal is not appropriate.
    disposable worktree outside the target.
 3. Run `node bin/waymark.mjs --db <journal> investigation run --run <run-id>`.
    This is the only supported launcher. It dispatches candidate and independent
-   roles in parallel, imports the candidate's cited findings as claims, then
-   dispatches the orchestrator. All three roles run as fresh, non-resumed
+   roles in parallel, imports only the candidate's cited, dimension-tagged
+   navigation findings with explicit friction statements as claims, then
+   dispatches the orchestrator. Feature-surface understanding is
+   persisted separately as validator-only `probe.result` evidence and must
+   never support a recommendation. All three roles run as fresh, non-resumed
    provider processes with assignment-only context and a read-only sandbox. The
    orchestrator stores challenges, deterministic verification requests, and
    structured recommendation drafts. Never replace this command with subagents
@@ -40,10 +43,13 @@ the default journal is not appropriate.
    calibration-ineligible. Count only the audited role processes:
    development, debugging, UI checks, and operator conversation never enter the
    run.
-5. Review the imported candidate claims and the orchestrator's challenges and
-   verification requests. The independent researcher and orchestrator may expose
-   missing consumers, hidden dependencies, unsupported certainty, and
-   conflicting instructions, but agreement is not proof.
+5. Review the imported navigation claims and the orchestrator's challenges and
+   verification requests. Separately use each validator-only probe result to
+   judge whether the agent found and understood enough of the requested feature
+   surface for the navigation evidence to be adequate. Feature mechanics are
+   validation evidence, not report content. The independent researcher and
+   orchestrator may expose missing consumers, hidden dependencies, unsupported
+   certainty, and conflicting instructions, but agreement is not proof.
 6. Verify every critical claim deterministically where possible. Prefer static
    inspection and safe executable probes. Record `verified`, `contradicted`, or
    `unverified`; never silently drop unresolved claims. Include `citationStatus`
@@ -74,12 +80,16 @@ the default journal is not appropriate.
     the report narrative only; it never changes scores, reliability, or token
     records.
 
-If a phase exceeds its declared hard token limit, append `budget.exceeded` with
-the measured breakdown and finish the run as failed or calibration-ineligible.
-If orchestration otherwise cannot continue, append a failure event and finish
-the run as `failed` or `cancelled`; do not manufacture missing evidence.
-Keep failed calibration attempts as separate unscored runs. Never reuse their
-context or silently raise a hard limit after observing the result.
+If a provider reports a hard-token-limit overrun only after returning a complete
+structured result, append `budget.exceeded`, retain that result, continue the
+workflow, and record that the result exceeded its declared resource reference.
+The overrun is scored navigability evidence, not a reason to discard
+already-paid work or invalidate an otherwise protocol-compliant benchmark. A
+live interruption with no complete result still finishes the run as failed. If
+orchestration otherwise cannot continue, append a failure event and finish the
+run as `failed` or `cancelled`; do not manufacture missing evidence. Keep
+failed attempts as separate runs. Never reuse their context or silently raise a
+hard limit after observing the result.
 
 ## Fresh-session preflight
 

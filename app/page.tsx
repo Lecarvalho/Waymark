@@ -359,11 +359,13 @@ export default function Home() {
               ? "provider-reported"
               : participant.tokenSource === "measured"
                 ? "host-measured"
-                : participant.tokenSource === "estimated"
-                  ? "estimated"
-                  : participant.tokenSource === "mixed"
-                    ? "mixed sources"
-                    : "usage unavailable"
+                : participant.tokenSource === "measured_live"
+                  ? "live session log"
+                  : participant.tokenSource === "estimated"
+                    ? "estimated"
+                    : participant.tokenSource === "mixed"
+                      ? "mixed sources"
+                      : "usage unavailable"
           } · ${
             participant.status === "Active"
               ? (activePhaseByRole[participant.role] ?? snapshot.phase)
@@ -382,6 +384,7 @@ export default function Home() {
   const tokenUsage = snapshot?.tokenUsage ?? null;
   const totalAuditTokens = tokenUsage?.overall.totalTokens ?? null;
   const candidateBudget = tokenUsage?.candidateBudget ?? null;
+  const candidateSession = tokenUsage?.candidateSession ?? null;
   const candidateTokenBreakdown =
     tokenUsage?.byPhase.find(
       (phase) => phase.phase === "candidate_navigation",
@@ -634,6 +637,14 @@ export default function Home() {
                     Started {new Date(snapshot.startedAt).toLocaleString()}
                   </span>
                   <span>Read-only target</span>
+                  <span>
+                    {snapshot.calibration.status ===
+                    "eligible_with_resource_overrun"
+                      ? "Benchmark valid · resource reference exceeded"
+                      : snapshot.calibration.eligible
+                        ? "Calibration eligible"
+                        : "Diagnostic only · protocol issue"}
+                  </span>
                   {snapshot.status === "running" ? (
                     <span>{snapshot.activeAgentCount} active agents</span>
                   ) : null}
@@ -992,6 +1003,37 @@ export default function Home() {
                         </div>
                       </div>
 
+                      <div className="token-budget-callout is-within">
+                        <div>
+                          <span>Fresh-session capability</span>
+                          <strong>
+                            {candidateSession?.completedInSingleSession
+                              ? "Completed in one session"
+                              : snapshot.status === "failed"
+                                ? "Did not complete"
+                                : "In progress"}
+                          </strong>
+                        </div>
+                        <div>
+                          <strong>
+                            {formatTokenCount(
+                              candidateSession?.effectiveContextTokens ?? null,
+                            )}{" "}
+                            effective context
+                          </strong>
+                          <span>
+                            {candidateSession?.processedSessionEquivalents ===
+                              null ||
+                            candidateSession?.processedSessionEquivalents ===
+                              undefined
+                              ? "Processed-session equivalent pending"
+                              : `${candidateSession.processedSessionEquivalents.toFixed(
+                                  2,
+                                )}× capacity processed cumulatively`}
+                          </span>
+                        </div>
+                      </div>
+
                       <div className="token-methodology">
                         <div className="token-methodology-heading">
                           <div>
@@ -1088,14 +1130,59 @@ export default function Home() {
                             <dd>
                               {candidateBudget?.measurementScope ??
                                 "Unavailable"}
+                              </dd>
+                          </div>
+                          <div>
+                            <dt>Current context occupancy</dt>
+                            <dd>
+                              {candidateSession?.currentContextTokens ===
+                                null ||
+                              candidateSession?.currentContextTokens ===
+                                undefined
+                                ? "Waiting for provider session telemetry"
+                                : `${formatTokenCount(
+                                    candidateSession.currentContextTokens,
+                                  )}${
+                                    candidateSession.currentContextPercent ===
+                                      null ||
+                                    candidateSession.currentContextPercent ===
+                                      undefined
+                                      ? ""
+                                      : ` · ${candidateSession.currentContextPercent.toFixed(
+                                          1,
+                                        )}%`
+                                  }`}
+                            </dd>
+                          </div>
+                          <div>
+                            <dt>Peak context occupancy</dt>
+                            <dd>
+                              {candidateSession?.peakContextTokens === null ||
+                              candidateSession?.peakContextTokens === undefined
+                                ? `Unavailable · ${
+                                    candidateSession?.telemetryReason ??
+                                    "not recorded"
+                                  }`
+                                : `${formatTokenCount(
+                                    candidateSession.peakContextTokens,
+                                  )} · provider session log`}
+                            </dd>
+                          </div>
+                          <div>
+                            <dt>Context capability source</dt>
+                            <dd>
+                              {candidateSession?.capabilitySource ??
+                                "Unavailable"}
                             </dd>
                           </div>
                         </dl>
                         <p>
                           Processed tokens equal input plus output. Cached input
                           is already included in input and is not added again.
-                          This measures the completed candidate navigation run;
-                          it does not predict the cost of a future change.
+                          Cumulative processed tokens are work/cost, not peak
+                          context occupancy. Single-session completion proves
+                          capability; context pressure comes from normalized
+                          local provider-session snapshots when available.
                         </p>
                       </div>
 
@@ -1137,9 +1224,9 @@ export default function Home() {
                     <span className="section-kicker">Audit validation</span>
                     <h2>Evidence behind the score</h2>
                     <p>
-                      These claims let validators reproduce and challenge the
-                      score. They are supporting provenance, not the primary
-                      recommendation report.
+                      These navigation claims let validators reproduce and
+                      challenge the score. Probe-feature findings stay in the
+                      validator record and are not recommendation evidence.
                     </p>
                   </div>
                   <button
@@ -1354,11 +1441,7 @@ export default function Home() {
                         <div className="recommendation-summary-meta">
                           <strong>
                             {item.evidence.length > 0
-                              ? `${item.evidence.length} cited ${
-                                  item.evidence.length === 1
-                                    ? "location"
-                                    : "locations"
-                                }`
+                              ? "Evidence linked"
                               : "Evidence pending"}
                           </strong>
                           {item.effort ? <span>{item.effort}</span> : null}
@@ -1372,36 +1455,6 @@ export default function Home() {
                       </summary>
 
                       <div className="recommendation-detail-body">
-                        {item.evidence.length > 0 ? (
-                          <section className="recommendation-evidence">
-                            <h4>Verified repository evidence</h4>
-                            <div>
-                              {item.evidence.map((evidence) => (
-                                <article
-                                  key={`${evidence.claimId}-${evidence.path}-${evidence.startLine ?? "file"}`}
-                                >
-                                  <code>
-                                    {evidence.path}
-                                    {evidence.startLine
-                                      ? `:${evidence.startLine}${
-                                          evidence.endLine &&
-                                          evidence.endLine !==
-                                            evidence.startLine
-                                            ? `-${evidence.endLine}`
-                                            : ""
-                                        }`
-                                      : ""}
-                                  </code>
-                                  <p>{evidence.assertion}</p>
-                                  <span>
-                                    {evidence.verdict} · {evidence.method}
-                                  </span>
-                                </article>
-                              ))}
-                            </div>
-                          </section>
-                        ) : null}
-
                         {item.tokenMechanism ? (
                           <section className="recommendation-token-effect">
                             <h4>Why this should reduce navigation tokens</h4>

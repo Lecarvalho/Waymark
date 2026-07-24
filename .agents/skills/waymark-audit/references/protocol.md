@@ -33,7 +33,7 @@ node bin/waymark.mjs --db <journal> run create --input-file <run.json>
     "orchestratorReasoningEffort": "high",
     "execution": {
       "isolation": "fresh_process",
-      "sessionPersistence": "ephemeral",
+      "sessionPersistence": "local_telemetry_log",
       "contextPolicy": "assignment_only",
       "measurementScope": "role_process_only",
       "shellCommandBudget": {
@@ -63,16 +63,19 @@ unique. Candidate and orchestrator are required.
 ## Isolated role execution
 
 Audited roles must not inherit the controlling conversation. For Codex, launch
-each role as a new non-resumed process with `codex exec --ephemeral --json`,
-the target as its working directory, and a read-only sandbox. Pass only the
-rendered assignment prompt and required repository instructions. Do not include
-operator conversation, Waymark source changes, previous agent traces, or UI
-debugging context.
+each role as a new non-resumed process with `codex exec --json`, the target as
+its working directory, and a read-only sandbox. Pass only the rendered
+assignment prompt and required repository instructions. Do not include operator
+conversation, Waymark source changes, previous agent traces, or UI debugging
+context.
 
 Parse the JSONL stream as it arrives. `turn.completed.usage` supplies input,
 cached-input, and output tokens. Cached input is a subset of input, so processed
-tokens are `input + output`, not `input + cached input + output`. Persist live
-tool events during the turn and the final host-measured usage at completion.
+tokens are `input + output`, not `input + cached input + output`. Match the
+emitted provider session ID to its local Codex rollout file and persist only
+normalized cumulative/current-context snapshots; never copy rollout contents
+into the audit journal. Persist live tool events during the turn and the final
+host-measured usage at completion.
 
 For the built-in Codex adapter, run the isolated candidate, independent, and
 orchestrator processes for an existing active run with:
@@ -86,15 +89,18 @@ launcher discovery is unavailable. Candidate and independent research runs in
 parallel. The runner imports candidate findings, then launches the orchestrator
 with only the task, immutable target, run policy, cited claims, and bounded
 investigation results. A successful command keeps the run active for
-deterministic verification. A provider failure, interruption, missing
-structured result, or hard-limit overrun finishes the run as failed or
-cancelled and calibration-ineligible.
+deterministic verification. A provider failure, interruption, or missing
+structured result finishes the run as failed or cancelled. A completion-only
+hard-limit overrun retains the structured result, continues the benchmark, and
+records a failed resource-envelope outcome.
 
 Every run declares the budget object shown above. Interrupt providers that
 expose live cumulative usage when a hard limit is reached. Providers that only
-report usage at turn completion must append `budget.exceeded` and disqualify
-the run when the final value crosses the limit. A single-turn reporting
-limitation must never be described as preemptive enforcement.
+report usage at turn completion must append `budget.exceeded`, retain the
+complete result, and continue the audit when the final value crosses the limit.
+The report remains valid evidence and must distinguish task completion from the
+failed resource-envelope outcome. A single-turn reporting limitation must
+never be described as preemptive enforcement.
 Shell command budgets are enforced from live command-start events. Command N+1
 terminates the role, appends `policy.violation`, and disqualifies the run. A
 provider-declined command still counts because the attempted command has already
@@ -102,8 +108,10 @@ consumed navigation budget.
 The target is the efficiency objective; the hard limit is a separately
 calibrated validity ceiling. Establish the ceiling before the run from a prior
 bounded measurement for the same host/model/task class. Do not raise it after
-seeing the current result. Preserve any over-budget attempt as a distinct,
-failed, unscored run.
+seeing the current result. Preserve any over-budget attempt as a distinct
+report. Score its verified navigability evidence and label the resource
+envelope as exceeded rather than claiming that it stayed within the declared
+reference.
 
 Use a preflight to confirm the exact provider launcher and read-command policy.
 Start or reuse the observer at the web URL visible to the user, connect its
@@ -127,9 +135,16 @@ node bin/waymark.mjs --db <journal> token record --input-file <token.json>
 
 Recommended event types are `investigation.started`, `search.performed`,
 `file.opened`, `dead_end.encountered`, `rule.found`, `answer.recorded`,
-`challenge.raised`, `challenge.resolved`, `probe.executed`,
+`challenge.raised`, `challenge.resolved`, `probe.result`, `probe.executed`,
 `investigation.completed`, and `investigation.failed`. Event actors and types
 beginning with `waymark`, plus `score.*` and `run.finished`, are reserved.
+
+Candidate claims are cited facts about repository navigability only. Each must
+name one scored Waymark dimension and the concrete navigation friction it
+caused. The feature request is a probe used to test whether the agent found and
+understood the relevant surface. Persist that understanding as a
+validator-only `probe.result`; never link it to recommendations or present
+feature mechanics as the report's primary evidence.
 
 After recording deterministic verdicts for every recommendation claim, finalize
 the fresh orchestrator draft:

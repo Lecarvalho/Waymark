@@ -12,6 +12,33 @@ export type WaymarkRunSnapshot = {
   };
   name?: string;
   task: string;
+  calibration: {
+    eligible: boolean;
+    status:
+      | "eligible"
+      | "eligible_with_resource_overrun"
+      | "diagnostic_only";
+    issues: Array<{
+      type: "policy_violation";
+      actor: string | null;
+      reason: string;
+      phase: string | null;
+      observedTokens: null;
+      hardLimitTokens: null;
+      observedCommands: number | null;
+      declaredLimit: number | null;
+    }>;
+    resourceSignals: Array<{
+      type: "hard_token_limit_exceeded";
+      actor: string | null;
+      reason: string;
+      phase: string | null;
+      observedTokens: number | null;
+      hardLimitTokens: number | null;
+      observedCommands: number | null;
+      declaredLimit: number | null;
+    }>;
+  };
   phase: string;
   progress: number;
   startedAt: string;
@@ -31,6 +58,7 @@ export type WaymarkRunSnapshot = {
     tokenSource:
       | "provider_reported"
       | "measured"
+      | "measured_live"
       | "estimated"
       | "mixed"
       | null;
@@ -119,6 +147,20 @@ export type WaymarkRunSnapshot = {
       measurementMethod: string | null;
       isForecast: false;
     };
+    candidateSession: {
+      completedInSingleSession: boolean;
+      maximumContextTokens: number | null;
+      effectiveContextTokens: number | null;
+      effectiveContextPercent: number | null;
+      currentContextTokens: number | null;
+      currentContextPercent: number | null;
+      peakContextTokens: number | null;
+      peakContextSource: "provider_session_log" | "unavailable";
+      processedTokens: number | null;
+      processedSessionEquivalents: number | null;
+      capabilitySource: string;
+      telemetryReason: string;
+    };
     monetaryCost: {
       status: "unavailable";
       amount: null;
@@ -142,6 +184,7 @@ export type WaymarkRunSnapshot = {
     candidateTokenSource:
       | "provider_reported"
       | "measured"
+      | "measured_live"
       | "estimated"
       | "mixed"
       | null;

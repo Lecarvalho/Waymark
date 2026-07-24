@@ -26,7 +26,7 @@ export interface RepositoryTarget {
 
 export interface AuditExecutionPolicy {
   isolation: "fresh_process";
-  sessionPersistence: "ephemeral";
+  sessionPersistence: "local_telemetry_log";
   contextPolicy: "assignment_only";
   measurementScope: "role_process_only";
 }
@@ -60,9 +60,17 @@ export interface AuditAssignment {
 }
 
 export interface InvestigationFinding {
-  kind: "repository_fact";
+  kind: "navigation_fact";
+  dimension:
+    | "discoveryEfficiency"
+    | "ownershipClarity"
+    | "dependencyClarity"
+    | "changeSurfaceRecall"
+    | "verificationDiscoverability"
+    | "instructionQuality";
   subject: string;
   assertion: string;
+  friction: string;
   confidence: number;
   criticality: ClaimCriticality;
   citations: readonly {

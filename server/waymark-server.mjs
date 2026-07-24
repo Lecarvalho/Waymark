@@ -66,6 +66,21 @@ function conciseTaskName(task) {
   return `${clipped.slice(0, lastSpace > 40 ? lastSpace : 69).trimEnd()}…`;
 }
 
+const INTERNAL_AUDIT_ID =
+  /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/i;
+
+function userFacingText(value) {
+  return typeof value === "string" && !INTERNAL_AUDIT_ID.test(value)
+    ? value
+    : null;
+}
+
+function userFacingList(values) {
+  return Array.isArray(values)
+    ? values.filter((value) => userFacingText(value) !== null)
+    : [];
+}
+
 function tokenSource(measurements) {
   if (measurements.length === 0) return null;
   const sources = new Set(measurements.map((measurement) => measurement.source));
@@ -329,7 +344,9 @@ function participantStatus(role, events, runStatus) {
     roleEvents.some((event) => types.includes(event.type));
 
   if (
-    hasType("budget.exceeded", "investigation.failed", "orchestration.failed")
+    hasType("investigation.failed", "orchestration.failed") ||
+    (hasType("budget.exceeded") &&
+      !hasType("investigation.completed", "orchestration.completed"))
   ) {
     return "Failed";
   }
@@ -346,6 +363,18 @@ function participantStatus(role, events, runStatus) {
     return roleEvents.length > 0 ? "Complete" : "Not run";
   }
   return roleEvents.length > 0 ? "Interrupted" : "Not run";
+}
+
+function commandProgress(event) {
+  const declared = positiveNumberOrNull(event?.payload?.declaredCommands);
+  if (declared === null) return 0;
+  const started = Math.max(0, numberOrNull(event.payload.startedCommands) ?? 0);
+  const completed = Math.max(
+    0,
+    numberOrNull(event.payload.completedCommands) ?? 0,
+  );
+  const activeCredit = started > completed ? 0.5 : 0;
+  return Math.min(1, (completed + activeCredit) / declared);
 }
 
 function humanizeReason(value) {
@@ -437,6 +466,27 @@ export function toRunSnapshot(report, runCount) {
     measurements.push(token);
     tokenMeasurementsByActor.set(token.actor, measurements);
   }
+  const latestLiveUsageByActor = new Map();
+  const peakContextByActor = new Map();
+  const latestRoleProgressByActor = new Map();
+  for (const event of events) {
+    if (
+      event.type === "provider.usage.updated" &&
+      typeof event.actor === "string"
+    ) {
+      latestLiveUsageByActor.set(event.actor, event.payload);
+      const contextTokens = numberOrNull(event.payload?.context?.totalTokens);
+      if (contextTokens !== null) {
+        peakContextByActor.set(
+          event.actor,
+          Math.max(peakContextByActor.get(event.actor) ?? 0, contextTokens),
+        );
+      }
+    }
+    if (event.type === "role.progress" && typeof event.actor === "string") {
+      latestRoleProgressByActor.set(event.actor, event);
+    }
+  }
   const candidateNavigationMeasurements = report.tokens.filter(
     (token) => token.phase === "candidate_navigation",
   );
@@ -476,6 +526,26 @@ export function toRunSnapshot(report, runCount) {
         ? "completed"
         : "failed";
   const recordedProgress = numberOrNull(progressEvent?.payload?.progress) ?? 0;
+  const investigationRoles = run.participants
+    .filter(({ role }) => ["candidate", "independent"].includes(role))
+    .map(({ role }) => role);
+  const investigationRoleProgress =
+    investigationRoles.length === 0
+      ? 0
+      : investigationRoles.reduce(
+          (total, role) =>
+            total + commandProgress(latestRoleProgressByActor.get(role)),
+          0,
+        ) / investigationRoles.length;
+  const orchestrationRoleProgress = commandProgress(
+    latestRoleProgressByActor.get("orchestrator"),
+  );
+  const liveRoleProgress =
+    recordedProgress < 40
+      ? 5 + Math.round(investigationRoleProgress * 34)
+      : recordedProgress < 65
+        ? 40 + Math.round(orchestrationRoleProgress * 24)
+        : recordedProgress;
   const verificationProgress =
     report.claims.length === 0 || report.verifications.length === 0
       ? 0
@@ -495,6 +565,7 @@ export function toRunSnapshot(report, runCount) {
       ? 100
       : Math.max(
           recordedProgress,
+          liveRoleProgress,
           verificationProgress,
           recommendationsFinalized ? 90 : 0,
         );
@@ -514,7 +585,10 @@ export function toRunSnapshot(report, runCount) {
   const candidateHardLimitTokens = positiveNumberOrNull(
     configuredCandidateBudget?.hardLimitTokens,
   );
-  const candidateUsedTokens = candidateNavigationUsage.totalTokens;
+  const candidateLiveUsage = latestLiveUsageByActor.get("candidate");
+  const candidateUsedTokens =
+    candidateNavigationUsage.totalTokens ??
+    numberOrNull(candidateLiveUsage?.cumulative?.totalTokens);
   const candidateTargetMultiple =
     candidateUsedTokens === null || candidateTargetTokens === null
       ? null
@@ -523,6 +597,117 @@ export function toRunSnapshot(report, runCount) {
     candidateUsedTokens === null || candidateHardLimitTokens === null
       ? null
       : candidateUsedTokens > candidateHardLimitTokens;
+  const candidateContextCapability =
+    run.runConditions?.modelContextCapabilities?.candidate;
+  const candidateMaximumContextTokens = positiveNumberOrNull(
+    candidateContextCapability?.maximumTokens,
+  );
+  const candidateEffectiveContextTokens = positiveNumberOrNull(
+    candidateContextCapability?.effectiveTokens,
+  );
+  const candidateEffectiveContextPercent = positiveNumberOrNull(
+    candidateContextCapability?.effectivePercent,
+  );
+  const candidateCompletedInSingleSession = events.some(
+    (event) =>
+      event.actor === "candidate" &&
+      event.type === "investigation.completed",
+  );
+  const candidateProcessedSessionEquivalents =
+    candidateUsedTokens === null || candidateEffectiveContextTokens === null
+      ? null
+      : Math.round(
+          (candidateUsedTokens / candidateEffectiveContextTokens) * 100,
+        ) / 100;
+  const candidateCurrentContextTokens = numberOrNull(
+    candidateLiveUsage?.context?.totalTokens,
+  );
+  const candidateCurrentContextPercent =
+    numberOrNull(candidateLiveUsage?.contextPercent) ??
+    (candidateCurrentContextTokens === null ||
+    candidateEffectiveContextTokens === null
+      ? null
+      : Math.round(
+          (candidateCurrentContextTokens / candidateEffectiveContextTokens) *
+            10_000,
+        ) / 100);
+  const candidatePeakContextTokens =
+    peakContextByActor.get("candidate") ?? null;
+  const resourceSignals = events
+    .filter((event) => event.type === "budget.exceeded")
+    .map((event) => ({
+      type: "hard_token_limit_exceeded",
+      actor: event.actor,
+      reason:
+        typeof event.payload?.reason === "string"
+          ? event.payload.reason
+          : "budget.exceeded",
+      phase:
+        typeof event.payload?.phase === "string"
+          ? event.payload.phase
+          : null,
+      observedTokens:
+        numberOrNull(event.payload?.observedTokens) ??
+        numberOrNull(event.payload?.measuredTokens),
+      hardLimitTokens: numberOrNull(event.payload?.hardLimitTokens),
+      observedCommands: numberOrNull(event.payload?.observedCommands),
+      declaredLimit: numberOrNull(event.payload?.declaredLimit),
+    }));
+  const overrunPhases = new Set(
+    resourceSignals.map((issue) => issue.phase),
+  );
+  for (const phaseUsage of tokenUsageByPhase) {
+    const phaseBudget = run.runConditions?.tokenBudgets?.[phaseUsage.phase];
+    const hardLimitTokens = positiveNumberOrNull(
+      phaseBudget?.hardLimitTokens,
+    );
+    if (
+      phaseUsage.totalTokens !== null &&
+      hardLimitTokens !== null &&
+      phaseUsage.totalTokens > hardLimitTokens &&
+      !overrunPhases.has(phaseUsage.phase)
+    ) {
+      resourceSignals.push({
+        type: "hard_token_limit_exceeded",
+        actor: null,
+        reason: "hard_token_limit_exceeded",
+        phase: phaseUsage.phase,
+        observedTokens: phaseUsage.totalTokens,
+        hardLimitTokens,
+        observedCommands: null,
+        declaredLimit: null,
+      });
+    }
+  }
+  const calibrationIssues = events
+    .filter((event) => event.type === "policy.violation")
+    .map((event) => ({
+      type: "policy_violation",
+      actor: event.actor,
+      reason:
+        typeof event.payload?.reason === "string"
+          ? event.payload.reason
+          : event.type,
+      phase:
+        typeof event.payload?.phase === "string"
+          ? event.payload.phase
+          : null,
+      observedTokens: null,
+      hardLimitTokens: null,
+      observedCommands: numberOrNull(event.payload?.observedCommands),
+      declaredLimit: numberOrNull(event.payload?.declaredLimit),
+    }));
+  const calibration = {
+    eligible: calibrationIssues.length === 0,
+    status:
+      calibrationIssues.length > 0
+        ? "diagnostic_only"
+        : resourceSignals.length > 0
+          ? "eligible_with_resource_overrun"
+          : "eligible",
+    issues: calibrationIssues,
+    resourceSignals,
+  };
   const candidateTargetBasis =
     positiveNumberOrNull(configuredCandidateBudget?.targetTokens) !== null
       ? "run_declared"
@@ -547,7 +732,9 @@ export function toRunSnapshot(report, runCount) {
           ? "Provider-reported usage"
           : candidateNavigationUsage.source === "estimated"
             ? "Explicit estimate"
-            : null;
+            : candidateLiveUsage
+              ? "Provider session log · live"
+              : null;
   const latestEvent = events.at(-1);
   const latestEventText =
     typeof latestEvent?.payload?.message === "string"
@@ -556,7 +743,11 @@ export function toRunSnapshot(report, runCount) {
         ? "Evidence-linked recommendations added."
         : latestEvent?.type === "run.finished"
           ? run.status === "completed"
-            ? "Audit completed and saved."
+            ? calibration.status === "eligible_with_resource_overrun"
+              ? "Audit completed and saved with a resource overrun."
+              : calibration.eligible
+                ? "Audit completed and saved."
+                : "Audit completed and saved as diagnostic-only."
             : `Audit failed: ${humanizeReason(
                 latestEvent.payload?.summary?.reason,
               )}.`
@@ -576,10 +767,13 @@ export function toRunSnapshot(report, runCount) {
         : participantStatus(participant.role, events, run.status),
       tokens: tokensByActor.has(participant.role)
         ? tokensByActor.get(participant.role)
-        : null,
+        : (numberOrNull(
+            latestLiveUsageByActor.get(participant.role)?.cumulative
+              ?.totalTokens,
+          ) ?? null),
       tokenSource: tokenSource(
         tokenMeasurementsByActor.get(participant.role) ?? [],
-      ),
+      ) ?? (latestLiveUsageByActor.has(participant.role) ? "measured_live" : null),
     };
   });
   const structuredRecommendationEvent = lastDefinedEvent(
@@ -595,16 +789,22 @@ export function toRunSnapshot(report, runCount) {
       (recommendation) => ({
         id: recommendation.id,
         priority: recommendation.priority,
-        title: recommendation.title,
-        description: recommendation.problem,
-        problem: recommendation.problem,
-        change: recommendation.change,
-        repositoryChanges: recommendation.repositoryChanges,
+        title:
+          userFacingText(recommendation.title) ??
+          "Improve repository navigation",
+        description:
+          userFacingText(recommendation.problem) ??
+          "Verified navigation friction needs a repository-level remedy.",
+        problem: userFacingText(recommendation.problem),
+        change: userFacingText(recommendation.change),
+        repositoryChanges: userFacingList(
+          recommendation.repositoryChanges,
+        ),
         practiceIds: recommendation.practiceIds,
         affectedDimensions: recommendation.affectedDimensions,
-        tokenMechanism: recommendation.tokenMechanism,
-        validationChecks: recommendation.validationChecks,
-        limitations: recommendation.limitations,
+        tokenMechanism: userFacingText(recommendation.tokenMechanism),
+        validationChecks: userFacingList(recommendation.validationChecks),
+        limitations: userFacingList(recommendation.limitations),
         evidence: recommendation.claimIds.flatMap((claimId) => {
           const claim = claimsById.get(claimId);
           const verification = latestVerificationByClaim.get(claimId);
@@ -642,6 +842,7 @@ export function toRunSnapshot(report, runCount) {
     },
     name: run.name ?? conciseTaskName(run.task),
     task: run.task,
+    calibration,
     phase,
     progress: Math.max(0, Math.min(100, Math.round(progress))),
     startedAt: run.createdAt,
@@ -726,15 +927,12 @@ export function toRunSnapshot(report, runCount) {
                 ? event.payload.priority
                 : "P1",
             title:
-              typeof event.payload.title === "string"
-                ? event.payload.title
-                : "Untitled recommendation",
+              userFacingText(event.payload.title) ??
+              "Improve repository navigation",
             description:
-              typeof event.payload.description === "string"
-                ? event.payload.description
-                : typeof event.payload.detail === "string"
-                  ? event.payload.detail
-                  : "",
+              userFacingText(event.payload.description) ??
+              userFacingText(event.payload.detail) ??
+              "",
             problem: null,
             change: null,
             repositoryChanges: [],
@@ -753,9 +951,7 @@ export function toRunSnapshot(report, runCount) {
                 )
               : [],
             tokenMechanism:
-              typeof event.payload.tokenMechanism === "string"
-                ? event.payload.tokenMechanism
-                : null,
+              userFacingText(event.payload.tokenMechanism),
             validationChecks: [],
             limitations: [],
             evidence: [],
@@ -796,6 +992,29 @@ export function toRunSnapshot(report, runCount) {
         measurementScope: candidateMeasurementScope,
         measurementMethod: candidateMeasurementMethod,
         isForecast: false,
+      },
+      candidateSession: {
+        completedInSingleSession: candidateCompletedInSingleSession,
+        maximumContextTokens: candidateMaximumContextTokens,
+        effectiveContextTokens: candidateEffectiveContextTokens,
+        effectiveContextPercent: candidateEffectiveContextPercent,
+        currentContextTokens: candidateCurrentContextTokens,
+        currentContextPercent: candidateCurrentContextPercent,
+        peakContextTokens: candidatePeakContextTokens,
+        peakContextSource:
+          candidatePeakContextTokens === null
+            ? "unavailable"
+            : "provider_session_log",
+        processedTokens: candidateUsedTokens,
+        processedSessionEquivalents: candidateProcessedSessionEquivalents,
+        capabilitySource:
+          typeof candidateContextCapability?.source === "string"
+            ? candidateContextCapability.source
+            : "unavailable",
+        telemetryReason:
+          candidatePeakContextTokens === null
+            ? "No provider-session token snapshots have been recorded yet."
+            : "Peak observed from normalized Codex provider-session token snapshots.",
       },
       monetaryCost: {
         status: "unavailable",

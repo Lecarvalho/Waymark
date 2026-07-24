@@ -274,6 +274,12 @@ function calculateScore(store, options) {
     throw error;
   }
   const report = store.readReport(runId);
+  const calibrationIssues = report.events.filter(
+    (event) => event.type === "policy.violation",
+  );
+  const resourceOverruns = report.events.filter(
+    (event) => event.type === "budget.exceeded",
+  );
   const builtInput = buildScoreInput(
     report,
     observationsFile.observations ?? observationsFile,
@@ -291,6 +297,9 @@ function calculateScore(store, options) {
     summary: {
       rubricVersion: RUBRIC_VERSION,
       scoringInputHash: inputHash,
+      calibrationEligible: calibrationIssues.length === 0,
+      calibrationIssueCount: calibrationIssues.length,
+      resourceOverrunCount: resourceOverruns.length,
     },
   });
 

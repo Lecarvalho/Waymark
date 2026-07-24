@@ -30,6 +30,10 @@ function lifecycleForRole(role) {
   return role === "orchestrator" ? "orchestration" : "investigation";
 }
 
+function roleCompleted(status) {
+  return status === "completed" || status === "completed_over_budget";
+}
+
 function boundedResult(value) {
   if (value === undefined) return null;
   const serialized = JSON.stringify(value);
@@ -243,9 +247,56 @@ async function executeAssignment({
   let finalOutput;
   let budgetExceeded = false;
   let shellCommandCount = 0;
+  let completedShellCommandCount = 0;
   let shellCommandBudgetExceeded = false;
   let normalizedEventCount = 0;
+  let latestRolloutUsage = null;
+  let stopUsageMonitor = null;
   let processResult;
+
+  const appendRoleProgress = (message) => {
+    store.appendEvent({
+      runId: assignment.runId,
+      actor: role,
+      type: "role.progress",
+      payload: {
+        phase,
+        role,
+        startedCommands: shellCommandCount,
+        completedCommands: completedShellCommandCount,
+        declaredCommands: shellCommandBudget ?? null,
+        cumulativeTokens: latestUsage?.totalTokens ?? null,
+        contextTokens: latestRolloutUsage?.context?.totalTokens ?? null,
+        contextWindowTokens:
+          latestRolloutUsage?.contextWindowTokens ?? null,
+        contextPercent: latestRolloutUsage?.contextPercent ?? null,
+        message,
+      },
+    });
+  };
+  const recordLiveUsage = (usage) => {
+    latestRolloutUsage = usage;
+    latestUsage = usage.cumulative;
+    if (usage.cumulative.totalTokens > tokenBudget.hardLimitTokens) {
+      budgetExceeded = true;
+    }
+    store.appendEvent({
+      runId: assignment.runId,
+      actor: role,
+      type: "provider.usage.updated",
+      payload: {
+        phase,
+        cumulative: usage.cumulative,
+        context: usage.context,
+        contextWindowTokens: usage.contextWindowTokens ?? null,
+        contextPercent: usage.contextPercent ?? null,
+        message: `${role}: ${usage.cumulative.totalTokens.toLocaleString("en-US")} cumulative tokens · ${usage.context.totalTokens.toLocaleString("en-US")} in current context`,
+      },
+    });
+    appendRoleProgress(
+      `${role}: ${completedShellCommandCount}/${shellCommandBudget ?? "?"} commands completed · ${usage.cumulative.totalTokens.toLocaleString("en-US")} tokens`,
+    );
+  };
 
   try {
     const launch = adapter.createLaunchSpec(
@@ -277,16 +328,51 @@ async function executeAssignment({
             payload: normalized.payload,
           });
           if (
+            normalized.type === "provider.session.started" &&
+            typeof normalized.payload?.providerSessionId === "string" &&
+            typeof adapter.startUsageMonitor === "function" &&
+            stopUsageMonitor === null
+          ) {
+            try {
+              stopUsageMonitor = adapter.startUsageMonitor({
+                providerSessionId: normalized.payload.providerSessionId,
+                onUsage: recordLiveUsage,
+              });
+            } catch (error) {
+              store.appendEvent({
+                runId: assignment.runId,
+                actor: role,
+                type: "provider.telemetry.unavailable",
+                payload: {
+                  reason: "usage_monitor_start_failed",
+                  error: processFailure(error),
+                },
+              });
+            }
+          }
+          if (
             normalized.type === "provider.tool.started" &&
             normalized.payload?.toolType === "command_execution"
           ) {
             shellCommandCount += 1;
+            appendRoleProgress(
+              `${role}: command ${shellCommandCount}/${shellCommandBudget ?? "?"} started`,
+            );
             if (
               shellCommandBudget !== undefined &&
               shellCommandCount > shellCommandBudget
             ) {
               shellCommandBudgetExceeded = true;
             }
+          }
+          if (
+            normalized.type === "provider.tool.completed" &&
+            normalized.payload?.toolType === "command_execution"
+          ) {
+            completedShellCommandCount += 1;
+            appendRoleProgress(
+              `${role}: ${completedShellCommandCount}/${shellCommandBudget ?? "?"} commands completed`,
+            );
           }
         }
 
@@ -311,6 +397,20 @@ async function executeAssignment({
       payload: failure,
     });
     return { role, status: "failed", failure };
+  } finally {
+    try {
+      stopUsageMonitor?.();
+    } catch (error) {
+      store.appendEvent({
+        runId: assignment.runId,
+        actor: role,
+        type: "provider.telemetry.unavailable",
+        payload: {
+          reason: "usage_monitor_stop_failed",
+          error: processFailure(error),
+        },
+      });
+    }
   }
 
   if (latestUsage !== null) {
@@ -361,8 +461,30 @@ async function executeAssignment({
     return { role, status: "policy_exceeded", failure };
   }
 
+  let completionOnlyOverrun = null;
+  let completionOnlyOverrunRecorded = false;
+  const recordCompletionOnlyOverrun = (resultRetained, workflowContinued) => {
+    if (
+      completionOnlyOverrun === null ||
+      completionOnlyOverrunRecorded
+    ) {
+      return;
+    }
+    completionOnlyOverrun = {
+      ...completionOnlyOverrun,
+      resultRetained,
+      workflowContinued,
+    };
+    store.appendEvent({
+      runId: assignment.runId,
+      actor: role,
+      type: "budget.exceeded",
+      payload: completionOnlyOverrun,
+    });
+    completionOnlyOverrunRecorded = true;
+  };
   if (budgetExceeded) {
-    const failure = {
+    const overrun = {
       reason: "hard_token_limit_exceeded",
       phase,
       targetTokens: tokenBudget.targetTokens,
@@ -373,24 +495,34 @@ async function executeAssignment({
         processResult.terminationReason === "hard_token_limit"
           ? "live_stream_interrupt"
           : "post_completion",
-      calibrationEligible: false,
+      calibrationEligible: adapter.usageEnforcement === "post_completion",
+      withinDeclaredResourceEnvelope: false,
     };
-    store.appendEvent({
-      runId: assignment.runId,
-      actor: role,
-      type: "budget.exceeded",
-      payload: failure,
-    });
-    store.appendEvent({
-      runId: assignment.runId,
-      actor: role,
-      type: `${lifecycle}.failed`,
-      payload: failure,
-    });
-    return { role, status: "budget_exceeded", failure };
+    if (adapter.usageEnforcement === "post_completion") {
+      completionOnlyOverrun = overrun;
+    } else {
+      store.appendEvent({
+        runId: assignment.runId,
+        actor: role,
+        type: "budget.exceeded",
+        payload: {
+          ...overrun,
+          resultRetained: false,
+          workflowContinued: false,
+        },
+      });
+      store.appendEvent({
+        runId: assignment.runId,
+        actor: role,
+        type: `${lifecycle}.failed`,
+        payload: overrun,
+      });
+      return { role, status: "budget_exceeded", failure: overrun };
+    }
   }
 
   if (signal?.aborted || processResult.terminationReason === "aborted") {
+    recordCompletionOnlyOverrun(false, false);
     const failure = { reason: "interrupted", phase };
     store.appendEvent({
       runId: assignment.runId,
@@ -402,6 +534,7 @@ async function executeAssignment({
   }
 
   if (processResult.exitCode !== 0) {
+    recordCompletionOnlyOverrun(false, false);
     const failure = {
       reason: "provider_process_failed",
       exitCode: processResult.exitCode,
@@ -418,6 +551,7 @@ async function executeAssignment({
   }
 
   if (adapter.requiresFinalOutput === true && finalOutput === undefined) {
+    recordCompletionOnlyOverrun(false, false);
     const failure = { reason: "provider_result_missing" };
     store.appendEvent({
       runId: assignment.runId,
@@ -428,12 +562,17 @@ async function executeAssignment({
     return { role, status: "failed", failure };
   }
 
+  recordCompletionOnlyOverrun(true, true);
   const completion = {
     role,
     provider: participant.provider,
     model: participant.model,
     normalizedEventCount,
     tokenMeasurement: latestUsage === null ? "unavailable" : "measured",
+    calibrationEligible: completionOnlyOverrun === null,
+    ...(completionOnlyOverrun === null
+      ? {}
+      : { budgetOverrun: completionOnlyOverrun }),
     result: boundedResult(finalOutput),
   };
   store.appendEvent({
@@ -442,7 +581,14 @@ async function executeAssignment({
     type: `${lifecycle}.completed`,
     payload: completion,
   });
-  return { role, status: "completed", completion };
+  return {
+    role,
+    status:
+      completionOnlyOverrun === null
+        ? "completed"
+        : "completed_over_budget",
+    completion,
+  };
 }
 
 function normalizeCitation(citation) {
@@ -460,6 +606,59 @@ function normalizeCitation(citation) {
   };
 }
 
+function validateCitations(citations, path) {
+  if (!Array.isArray(citations) || citations.length === 0) {
+    throw new OrchestrationError(
+      "CITATIONS_REQUIRED",
+      `${path} must include at least one line-range citation`,
+    );
+  }
+  for (const [citationIndex, citation] of citations.entries()) {
+    if (
+      typeof citation?.path !== "string" ||
+      citation.path.trim() === "" ||
+      !Number.isSafeInteger(citation.startLine) ||
+      citation.startLine < 1 ||
+      !Number.isSafeInteger(citation.endLine) ||
+      citation.endLine < citation.startLine
+    ) {
+      throw new OrchestrationError(
+        "CITATION_INVALID",
+        `${path}[${citationIndex}] must name a valid one-based line range`,
+      );
+    }
+  }
+}
+
+function persistProbeResult(store, runId, role, investigationResult) {
+  const probeResult = investigationResult?.probeResult;
+  if (
+    probeResult === null ||
+    typeof probeResult !== "object" ||
+    !["adequate", "partial", "inadequate"].includes(probeResult.status) ||
+    typeof probeResult.summary !== "string" ||
+    probeResult.summary.trim() === ""
+  ) {
+    throw new OrchestrationError(
+      "PROBE_RESULT_REQUIRED",
+      `${role} must return a validator-only probeResult`,
+    );
+  }
+  validateCitations(probeResult.citations, `${role}.probeResult.citations`);
+  return store.appendEvent({
+    runId,
+    actor: role,
+    type: "probe.result",
+    payload: {
+      status: probeResult.status,
+      summary: probeResult.summary,
+      citations: probeResult.citations.map(normalizeCitation),
+      recommendationEvidence: false,
+      visibility: "validator_only",
+    },
+  });
+}
+
 function importCandidateClaims(store, runId, candidateResult) {
   const findings = candidateResult?.findings;
   if (!Array.isArray(findings) || findings.length === 0) {
@@ -468,38 +667,41 @@ function importCandidateClaims(store, runId, candidateResult) {
       "The candidate process returned no findings to verify",
     );
   }
+  const navigationDimensions = new Set([
+    "discoveryEfficiency",
+    "ownershipClarity",
+    "dependencyClarity",
+    "changeSurfaceRecall",
+    "verificationDiscoverability",
+    "instructionQuality",
+  ]);
   return findings.map((finding, index) => {
-    if (finding?.kind !== "repository_fact") {
+    if (finding?.kind !== "navigation_fact") {
       throw new OrchestrationError(
         "CANDIDATE_FINDING_KIND_REQUIRED",
-        `findings[${index}] must be an atomic repository_fact`,
+        `findings[${index}] must be an atomic navigation_fact`,
       );
     }
-    if (!Array.isArray(finding.citations) || finding.citations.length === 0) {
+    if (!navigationDimensions.has(finding.dimension)) {
       throw new OrchestrationError(
-        "CANDIDATE_FINDING_CITATION_REQUIRED",
-        `findings[${index}] must include at least one line-range citation`,
+        "CANDIDATE_FINDING_DIMENSION_REQUIRED",
+        `findings[${index}] must name one Waymark navigability dimension`,
       );
     }
-    for (const [citationIndex, citation] of finding.citations.entries()) {
-      if (
-        typeof citation?.path !== "string" ||
-        citation.path.trim() === "" ||
-        !Number.isSafeInteger(citation.startLine) ||
-        citation.startLine < 1 ||
-        !Number.isSafeInteger(citation.endLine) ||
-        citation.endLine < citation.startLine
-      ) {
-        throw new OrchestrationError(
-          "CANDIDATE_FINDING_CITATION_INVALID",
-          `findings[${index}].citations[${citationIndex}] must name a valid one-based line range`,
-        );
-      }
+    if (
+      typeof finding.friction !== "string" ||
+      finding.friction.trim() === ""
+    ) {
+      throw new OrchestrationError(
+        "CANDIDATE_FINDING_FRICTION_REQUIRED",
+        `findings[${index}] must state concrete navigation friction`,
+      );
     }
+    validateCitations(finding.citations, `findings[${index}].citations`);
     return store.submitClaim({
       runId,
-      subject: finding.subject,
-      assertion: finding.assertion,
+      subject: `${finding.dimension}: ${finding.subject}`,
+      assertion: `${finding.assertion} Navigation friction: ${finding.friction}`,
       claimant: "candidate",
       citations: finding.citations.map(normalizeCitation),
       confidence: finding.confidence,
@@ -762,14 +964,19 @@ export async function runInvestigationPhase({
     ),
   );
   const cancelled = results.some(({ status }) => status === "cancelled");
-  const failed = results.some(({ status }) => status !== "completed");
+  const failed = results.some(({ status }) => !roleCompleted(status));
 
   if (failed) {
     const status = cancelled ? "cancelled" : "failed";
+    const failedResult = results.find(
+      ({ status: roleStatus }) => !roleCompleted(roleStatus),
+    );
     store.finishRun(runId, {
       status,
       summary: {
         stage: "parallel_investigation",
+        reason:
+          failedResult?.failure?.reason ?? "parallel_investigation_failed",
         calibrationEligible: false,
         roles: results.map(({ role, status: roleStatus }) => ({
           role,
@@ -793,6 +1000,14 @@ export async function runInvestigationPhase({
 
   let claims;
   try {
+    for (const result of results) {
+      persistProbeResult(
+        store,
+        runId,
+        result.role,
+        result.completion?.result,
+      );
+    }
     const candidateResult = results.find(({ role }) => role === "candidate")
       ?.completion?.result;
     claims = importCandidateClaims(store, runId, candidateResult);
@@ -839,12 +1054,14 @@ export async function runInvestigationPhase({
     signal,
     killGraceMs,
   });
-  if (orchestration.status !== "completed") {
+  if (!roleCompleted(orchestration.status)) {
     const status = orchestration.status === "cancelled" ? "cancelled" : "failed";
     store.finishRun(runId, {
       status,
       summary: {
         stage: "fresh_orchestration",
+        reason:
+          orchestration.failure?.reason ?? "fresh_orchestration_failed",
         calibrationEligible: false,
         roleStatus: orchestration.status,
       },

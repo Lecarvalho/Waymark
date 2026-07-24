@@ -153,6 +153,7 @@ test("snapshot explains authoritative dimensions and qualified claims", () => {
                 "Add a feature map beside the owning application command.",
               repositoryChanges: [
                 "Link the entry point, owner, consumers, and focused tests.",
+                "Link paths cited by claim 397ac7cd-0764-4657-9cb6-090f055cae3c.",
               ],
               claimIds: ["claim-1"],
               practiceIds: ["01", "02"],
@@ -164,6 +165,7 @@ test("snapshot explains authoritative dimensions and qualified claims", () => {
                 "One owner removes repeated cross-layer searches.",
               validationChecks: [
                 "A fresh agent finds the owner without a global search.",
+                "Resolve verification 4b96299d-acde-425b-b796-10676911b2c2.",
               ],
               limitations: ["Point impact is not modeled."],
               effort: null,

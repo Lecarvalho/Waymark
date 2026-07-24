@@ -111,10 +111,13 @@ if (mode === "failure") {
               kind:
                 mode === "invalid-finding-kind"
                   ? "proposed_change"
-                  : "repository_fact",
-              subject: "test change surface",
+                  : "navigation_fact",
+              dimension: "verificationDiscoverability",
+              subject: "script discoverability",
               assertion:
-                "package.json is the canonical entry point for repository scripts.",
+                "package.json exposes the repository's named verification scripts in one discoverable entry point.",
+              friction:
+                "Without this single index, an agent would need to search neighboring configuration files for the canonical verification command.",
               confidence: 0.95,
               criticality: "critical",
               citations: [
@@ -127,6 +130,19 @@ if (mode === "failure") {
               ],
             },
           ],
+          probeResult: {
+            status: "adequate",
+            summary:
+              "Located the requested test change surface well enough for validator review.",
+            citations: [
+              {
+                path: "package.json",
+                startLine: 1,
+                endLine: 20,
+                symbol: null,
+              },
+            ],
+          },
           deadEnds: [],
           instructions: [],
           verificationWorkflows: [],
@@ -142,6 +158,11 @@ if (mode === "failure") {
           hasForbiddenPolicy: prompt.includes(
             "Forbidden tool action: editing target files",
           ),
+          hasDirectReadPolicy:
+            prompt.includes("Use direct read-only command shapes only") &&
+            prompt.includes(
+              "Do not retry a declined or failed command with a syntactic variant",
+            ),
         };
   emit({
     type: "item.completed",

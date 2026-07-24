@@ -3,11 +3,14 @@ export const READ_ONLY_CONSTRAINTS = Object.freeze([
   "Do not install dependencies or generate files in the target.",
   "Cite repository-relative paths with one-based line ranges.",
   "Report unknowns and dead ends explicitly.",
+  "Use direct read-only command shapes only: rg for bounded discovery/search and Get-Content -LiteralPath with -TotalCount or Select-Object -Skip/-First for bounded reads.",
+  "Do not use shell variables, .NET file APIs, output redirection, command substitution, or commands that can write.",
+  "Do not retry a declined or failed command with a syntactic variant; record the dead end unless a different allowed read is essential.",
 ]);
 
 export const FRESH_EXECUTION_POLICY = Object.freeze({
   isolation: "fresh_process",
-  sessionPersistence: "ephemeral",
+  sessionPersistence: "local_telemetry_log",
   contextPolicy: "assignment_only",
   measurementScope: "role_process_only",
 });
@@ -40,7 +43,8 @@ const CANDIDATE_EVIDENCE = Object.freeze([
   "ownership and dependency answers",
   "observed existing consumers and dependency edges",
   "applicable instructions and verification workflow",
-  "atomic current-repository facts with confidence and citations that support the entire assertion",
+  "atomic repository-navigation facts with confidence and citations that support the entire assertion",
+  "a separate concise probeResult proving task understanding for validator use only",
 ]);
 
 const INDEPENDENT_EVIDENCE = Object.freeze([
@@ -52,7 +56,7 @@ const INDEPENDENT_EVIDENCE = Object.freeze([
 const ORCHESTRATOR_EVIDENCE = Object.freeze([
   "cross-examination of every candidate claim that needs qualification",
   "deterministic verification requests with concrete checks",
-  "repository-navigation recommendations linked only to supplied current-repository fact claims",
+  "repository-navigation recommendations linked only to supplied navigation-fact claims",
   "a named repository change and repeatable before/after check per recommendation",
 ]);
 const REASONING_EFFORTS = new Set([
@@ -135,9 +139,12 @@ export function createInvestigationAssignments(input) {
       : {}),
     constraints: Object.freeze([
       ...READ_ONLY_CONSTRAINTS,
-      "Each finding must have kind repository_fact and state one atomic fact about the repository as it exists at the target commit.",
-      "Do not put implementation advice, desired future architecture, or a proposed change surface in findings.",
+      "Each finding must have kind navigation_fact and state one atomic fact about discoverability, ownership clarity, dependency clarity, change-surface visibility, verification discoverability, or instruction quality.",
+      "Each navigation finding must name one Waymark dimension and state the concrete navigation friction: searches, file hops, ambiguity, hidden edges, or an undiscoverable verification path.",
+      "Do not put probe-feature behavior, implementation advice, desired future architecture, or a proposed feature change surface in findings.",
+      "Valid finding example: 'No repository map connects the notification producers and worker; locating the surface required searches across three projects.' Invalid finding example: 'The worker resolves IEmailSender per message.' Put the invalid example's kind of feature behavior only in probeResult.",
       "Every finding must include at least one line-range citation that supports the entire assertion.",
+      "Record feature-surface understanding only in probeResult. It exists to let validators judge navigation adequacy and must not contain implementation advice.",
       ...(input.additionalConstraints?.candidate ?? []),
     ]),
     expectedEvidence: CANDIDATE_EVIDENCE,
@@ -195,9 +202,11 @@ export function createOrchestratorAssignment(input) {
       ...READ_ONLY_CONSTRAINTS,
       ...(input.additionalConstraints ?? []),
       "Use only the supplied claim IDs in challenges, verification requests, and recommendations.",
-      "Recommendation claim IDs must reference atomic current-repository facts, never implementation advice, desired architecture, or proposed change-surface assertions.",
+      "Recommendation claim IDs must reference atomic repository-navigation facts. Never use probe results, feature behavior, implementation advice, desired architecture, or proposed feature change-surface assertions as recommendation evidence.",
       "If a proposed recommendation lacks a supported factual claim, omit that recommendation rather than citing a speculative claim.",
       "Recommend repository navigation improvements, never implementation of the probe feature.",
+      "Write every user-facing recommendation field about navigation friction and repository-level remedies: discoverability, ownership clarity, dependency clarity, verification discoverability, or token efficiency.",
+      "Do not restate probe-feature behavior or propose the probe feature's implementation in recommendation titles, problems, changes, steps, token mechanisms, or validation checks; claim IDs are provenance only.",
       "Do not assign or predict a Waymark score.",
     ]),
     expectedEvidence: ORCHESTRATOR_EVIDENCE,
@@ -219,7 +228,7 @@ export function renderAssignmentPrompt(assignment) {
     `Task: ${assignment.task}`,
     "Execution:",
     "- Run in a fresh process with no inherited conversation history.",
-    "- Persist no provider session and measure only this role process.",
+    "- Start a new non-resumed provider session; its local rollout log is used only for normalized live telemetry.",
     `- Target ${assignment.tokenBudget.targetTokens} processed tokens; hard limit ${assignment.tokenBudget.hardLimitTokens}.`,
     "Constraints:",
     constraints,

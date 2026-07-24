@@ -333,6 +333,127 @@ Remediation completed after the second attempt:
   fresh orchestration, deterministic verification, finalized recommendations,
   scoring, or the completed-report UI gate.
 
+### Milestone 1 completion-gate calibration attempts 4 through 6
+
+- Attempt 4 (`clapline-email-outbox-d692d68-20260724-04`) proved that the
+  repaired launcher could complete the candidate's fixed eight-command
+  envelope, but the candidate reported 207,798 processed tokens after the old
+  180,000-token completion-only ceiling. The old runner discarded the already
+  completed structured result. That behavior was rejected as a measurement
+  error: a completion-only resource overrun is navigability evidence, not a
+  reason to erase paid work.
+- Attempt 5 (`clapline-email-outbox-d692d68-20260724-05`) failed before model
+  work because the controlling desktop sandbox blocked the provider socket. It
+  recorded no role-token measurements and remains an infrastructure diagnostic,
+  not a model benchmark.
+- Attempt 6 (`clapline-email-outbox-d692d68-20260724-06`) completed the full
+  authoritative workflow on clean journal
+  `.waymark/clapline-20260724-attempt6.sqlite`: fresh parallel candidate and
+  independent roles, fresh orchestrator, deterministic static verification,
+  report finalization, scoring, and the completed observer projection.
+- Attempt 6 measured 194,051 candidate, 243,900 independent, and 181,700
+  orchestrator processed tokens (619,600 role-process tokens total). All seven
+  claims received deterministic verdicts; six citation ranges were valid and
+  one was invalid by one line while its assertion remained true. Two
+  recommendations finalized.
+- Attempt 6 scored 63.24/100 with 65% reliability. Token efficiency remained
+  ineligible because no executable probe passed the adequacy gate. The run was
+  calibration-eligible with no resource overrun. Live observer checks showed
+  the completed score, reliability, measured token totals, seven claims, two
+  recommendations, single-session capability, and the distinction between
+  cumulative processed work and peak context occupancy.
+
+Remediation after attempts 4 through 6:
+
+- Completion-only hard-limit overruns now retain the structured result, append
+  a visible `budget.exceeded` resource outcome, continue validation and
+  reporting, and remain valid benchmark evidence. A live interruption without
+  a complete result and a command-policy violation still fail the run.
+- The calibration projection separates protocol validity from resource
+  outcomes. `eligible_with_resource_overrun` is successful benchmark evidence
+  outside its declared resource reference; only a protocol/policy violation is
+  diagnostic-only.
+- Model capability records now expose the 272,000-token maximum and 258,400
+  effective (95%) session capacity. Cumulative processed tokens are reported as
+  work/cost and session-capacity equivalents, never mislabeled as peak context
+  occupancy.
+
+### Milestone 1 completion-gate calibration attempt 7
+
+- Successful calibration run:
+  `clapline-email-outbox-d692d68-20260724-07`, protocol `1.1.0`, on clean
+  journal `.waymark/clapline-20260724-attempt7.sqlite`.
+- The target was verified clean and read-only at immutable Clapline commit
+  `d692d68afa2680309e702b12752016b8d943a793`. The authoritative launcher ran
+  fresh, non-resumed, assignment-only candidate, independent, and orchestrator
+  Codex processes. Candidate and independent used 8/8 commands; orchestrator
+  used 6/6. No role crossed its fixed completion-time resource reference.
+- The candidate used 204,562 processed tokens (201,400 input, 173,056 cached
+  input, and 3,162 output), the independent used 220,937 (215,299 input,
+  186,804 cached input, and 5,638 output), and the orchestrator used 204,812
+  (197,403 input, 164,091 cached input, and 7,409 output). Total measured
+  role-process usage was 630,311 tokens.
+- The Codex adapter matched each emitted provider session ID to its local
+  rollout file and persisted normalized live snapshots only. Candidate,
+  independent, and orchestrator produced 9, 9, and 7 usage snapshots plus 25,
+  25, and 19 role-progress events before completion. Peak observed context was
+  27,701 candidate tokens (10.72% of effective capacity), 31,003 independent,
+  and 38,988 orchestrator. Candidate cumulative work was 0.79 times effective
+  session capacity while still completing in one fresh session.
+- Six claims received deterministic static verdicts. Five submitted citation
+  sets were valid; one omitted the later `IEmailSender` resolution lines and
+  was explicitly recorded with `citationStatus: invalid`. All orchestrator
+  challenges and qualifications remained in the ledger. Three
+  repository-navigation recommendations finalized without exposing internal
+  claim UUIDs in user-facing text.
+- Deterministic scoring produced 61.75/100, reliability 60%, and input hash
+  `8efbd5d9ec7f8f82702dacb568cc87104b946adfca19b184216083963593f3e2`.
+  Reliability was capped for insufficient critical verification and no
+  executable probe. Candidate token efficiency was correctly ineligible after
+  the adequacy gate, while the measured 204,562-token cost remained visible.
+- The final read model projected `completed`, 100%, calibration `eligible`, no
+  protocol issues, no resource signals, live-session context telemetry, and
+  three actionable navigability recommendations. A deterministic projection
+  check confirmed that no recommendation title, problem, change, validation
+  check, or repository action exposed an internal UUID.
+- The run exposed a semantic protocol weakness without invalidating its stored
+  outcome: four candidate items labeled `navigation_fact` still described
+  probe-feature behavior. Their separate candidate and independent
+  `probe.result` records were correctly validator-only, but a label alone did
+  not prevent feature facts entering the claim ledger.
+
+Post-calibration report and protocol remediation:
+
+- The primary recommendation panel no longer repeats raw feature claims,
+  citations, `verified · static_inspection`, or internal UUIDs. It presents only
+  observed navigation friction, the repository-level navigation change, its
+  token mechanism, before/after validation, and limitations. Raw provenance
+  remains behind the secondary Audit evidence dialog.
+- The evidence layout was visually checked after the change: the repeated
+  labels were absent and the expanded recommendation panel's scroll width
+  equaled its client width at a 1,265-pixel viewport. Long verification commands
+  now wrap instead of widening the page.
+- Investigation output now separates recommendation-eligible navigation
+  findings from validator-only `probeResult` feature understanding. Navigation
+  findings must name a scored Waymark dimension and state concrete friction
+  such as searches, file hops, ambiguity, hidden edges, or an undiscoverable
+  verification path. Assignment examples explicitly reject production-behavior
+  statements disguised with the word “discoverable.”
+- The reporter contract prohibits copying probe behavior, implementation
+  advice, claim IDs, or verification IDs into any user-facing recommendation
+  field. The service independently filters internal UUID-bearing text so old
+  stored reports cannot leak ledger identifiers.
+- Live progress now advances from persisted command starts/completions within
+  the 5–39% research and 40–64% orchestration ranges. Participant cards and the
+  candidate token panel fall back to live cumulative usage until the final
+  authoritative token row is recorded. Current and peak context occupancy are
+  derived from provider-session snapshots and labeled separately from
+  cumulative processed work.
+- Production build, lint, all 33 deterministic tests, and `git diff --check`
+  pass after the remediation. Attempt 7 satisfies the Milestone 1 end-to-end
+  completion gate. The stricter dimension-plus-friction finding contract is
+  fixture-tested and must remain part of every subsequent real calibration.
+
 ### Deliverables
 
 1. Domain types for runs, events, claims, verification, token measurements, and

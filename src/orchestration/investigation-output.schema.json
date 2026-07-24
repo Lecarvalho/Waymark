@@ -5,6 +5,7 @@
   "required": [
     "summary",
     "findings",
+    "probeResult",
     "deadEnds",
     "instructions",
     "verificationWorkflows"
@@ -20,8 +21,10 @@
         "additionalProperties": false,
         "required": [
           "kind",
+          "dimension",
           "subject",
           "assertion",
+          "friction",
           "confidence",
           "criticality",
           "citations"
@@ -29,15 +32,31 @@
         "properties": {
           "kind": {
             "type": "string",
-            "enum": ["repository_fact"],
-            "description": "An atomic assertion about repository state at the target commit, never implementation advice or desired future architecture."
+            "enum": ["navigation_fact"],
+            "description": "An atomic, cited assertion about repository navigability at the target commit. Probe-feature behavior belongs only in probeResult."
+          },
+          "dimension": {
+            "type": "string",
+            "enum": [
+              "discoveryEfficiency",
+              "ownershipClarity",
+              "dependencyClarity",
+              "changeSurfaceRecall",
+              "verificationDiscoverability",
+              "instructionQuality"
+            ],
+            "description": "The Waymark navigability dimension directly evidenced by this finding."
           },
           "subject": {
             "type": "string"
           },
           "assertion": {
             "type": "string",
-            "description": "One atomic current-repository fact fully supported by every necessary citation."
+            "description": "One atomic fact about discoverability, ownership clarity, dependency clarity, change-surface visibility, verification discoverability, or instruction quality."
+          },
+          "friction": {
+            "type": "string",
+            "description": "The concrete extra navigation work caused by this repository condition, such as searches, file hops, ambiguity, or an undiscoverable verification path."
           },
           "confidence": {
             "type": "number",
@@ -70,6 +89,47 @@
                 "symbol": {
                   "type": ["string", "null"]
                 }
+              }
+            }
+          }
+        }
+      }
+    },
+    "probeResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "summary", "citations"],
+      "description": "Validator-only evidence that the navigation probe was understood. This must not become recommendation evidence.",
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": ["adequate", "partial", "inadequate"]
+        },
+        "summary": {
+          "type": "string",
+          "description": "A concise task-understanding result for validation, not implementation advice."
+        },
+        "citations": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["path", "startLine", "endLine", "symbol"],
+            "properties": {
+              "path": {
+                "type": "string"
+              },
+              "startLine": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "endLine": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "symbol": {
+                "type": ["string", "null"]
               }
             }
           }

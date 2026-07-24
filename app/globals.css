@@ -2479,6 +2479,7 @@ code {
 }
 
 .recommendation-panel {
+  min-width: 0;
   padding-bottom: 8px;
 }
 
@@ -2622,9 +2623,13 @@ code {
 
 .recommendation-list {
   display: grid;
+  min-width: 0;
 }
 
 .recommendation-detail {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
   border-top: 1px solid var(--line);
 }
 
@@ -2636,6 +2641,14 @@ code {
   padding: 20px 0;
   cursor: pointer;
   list-style: none;
+}
+
+.recommendation-detail > summary > *,
+.recommendation-copy,
+.recommendation-detail-body,
+.recommendation-evidence,
+.recommendation-evidence article {
+  min-width: 0;
 }
 
 .recommendation-detail > summary::-webkit-details-marker {
@@ -2681,16 +2694,20 @@ code {
 }
 
 .recommendation-detail[open] .recommendation-toggle {
-  transform: rotate(45deg);
+  transform: rotate(45deg) scale(0.7);
 }
 
 .recommendation-detail-body {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 0;
+  width: 100%;
+  max-width: 100%;
   padding: 0 0 24px 42px;
 }
 
 .recommendation-detail-body > section {
+  min-width: 0;
   padding: 18px 0;
   border-top: 1px solid var(--line);
 }
@@ -2730,7 +2747,7 @@ code {
 
 .recommendation-evidence article {
   display: grid;
-  grid-template-columns: minmax(190px, 0.8fr) minmax(0, 1.2fr) auto;
+  grid-template-columns: minmax(190px, 0.8fr) minmax(0, 1.2fr);
   align-items: start;
   gap: 16px;
   padding: 13px 0;
@@ -2749,19 +2766,14 @@ code {
   color: var(--muted-bright);
   font-size: 13px;
   line-height: 1.6;
-}
-
-.recommendation-evidence article > span {
-  color: var(--lime);
-  font-family: var(--font-geist-mono), monospace;
-  font-size: 11px;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 
 .recommendation-steps ol,
 .recommendation-checks ul,
 .recommendation-limitations ul {
   display: grid;
+  min-width: 0;
   gap: 9px;
   margin: 0;
   padding-left: 22px;
@@ -2774,6 +2786,7 @@ code {
   color: var(--muted-bright);
   font-size: 14px;
   line-height: 1.65;
+  overflow-wrap: anywhere;
 }
 
 .recommendation-checks li::marker {
@@ -2829,6 +2842,7 @@ code {
   color: var(--muted);
   font-size: 14px;
   line-height: 1.6;
+  overflow-wrap: anywhere;
 }
 
 .recommendation-copy small {
@@ -4119,10 +4133,6 @@ code {
   .recommendation-evidence article {
     grid-template-columns: 1fr;
     gap: 6px;
-  }
-
-  .recommendation-evidence article > span {
-    white-space: normal;
   }
 
   .recommendation-impact {

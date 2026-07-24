@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync } from "node:fs";
+import {
+  appendFileSync,
+  mkdirSync,
+  mkdtempSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -8,8 +13,10 @@ import process from "node:process";
 import test from "node:test";
 
 import {
+  createCodexRolloutUsageMonitor,
   createCodexProcessAdapter,
   extractCodexFinalOutput,
+  extractCodexRolloutUsage,
   extractCodexUsage,
   normalizeCodexEvent,
 } from "../src/orchestration/codex-adapter.mjs";
@@ -55,7 +62,7 @@ function createRun(
       independentReasoningEffort: "high",
       execution: {
         isolation: "fresh_process",
-        sessionPersistence: "ephemeral",
+        sessionPersistence: "local_telemetry_log",
         contextPolicy: "assignment_only",
         measurementScope: "role_process_only",
         shellCommandBudget: {
@@ -78,7 +85,11 @@ function createRun(
   });
 }
 
-function fakeAdapter(modeByRole = {}, usageEnforcement = "post_completion") {
+function fakeAdapter(
+  modeByRole = {},
+  usageEnforcement = "post_completion",
+  usageMonitor = null,
+) {
   return {
     id: "fake",
     requiresFinalOutput: true,
@@ -104,6 +115,9 @@ function fakeAdapter(modeByRole = {}, usageEnforcement = "post_completion") {
     extractUsage: extractCodexUsage,
     extractFinalOutput: extractCodexFinalOutput,
     normalizeEvent: normalizeCodexEvent,
+    ...(usageMonitor === null
+      ? {}
+      : { startUsageMonitor: usageMonitor }),
   };
 }
 
@@ -169,6 +183,11 @@ test("fresh candidate and independent processes stream evidence and keep a succe
       ({ payload }) => payload.result.hasForbiddenPolicy === true,
     ),
   );
+  assert.ok(
+    completions.every(
+      ({ payload }) => payload.result.hasDirectReadPolicy === true,
+    ),
+  );
   assert.equal(report.events.at(-1).type, "phase.changed");
   assert.equal(report.events.at(-1).payload.progress, 65);
   assert.equal(report.tokens.length, 3);
@@ -177,6 +196,20 @@ test("fresh candidate and independent processes stream evidence and keep a succe
   assert.equal(report.aggregates.tokensByPhase.orchestration, 120);
   assert.ok(report.tokens.every(({ source }) => source === "measured"));
   assert.equal(report.claims.length, 1);
+  assert.equal(
+    report.events.filter(({ type }) => type === "probe.result").length,
+    2,
+  );
+  assert.ok(
+    report.events
+      .filter(({ type }) => type === "probe.result")
+      .every(
+        ({ payload }) =>
+          payload.visibility === "validator_only" &&
+          payload.recommendationEvidence === false,
+      ),
+  );
+  assert.match(report.claims[0].assertion, /discoverable entry point/i);
   assert.equal(
     report.events.some(({ type }) => type === "orchestration.completed"),
     true,
@@ -251,6 +284,64 @@ test("fresh candidate and independent processes stream evidence and keep a succe
   );
 });
 
+test("live provider usage and command progress reach the journal before completion", async (t) => {
+  const directory = mkdtempSync(join(tmpdir(), "waymark-live-progress-"));
+  const store = new AuditStore({ databasePath: join(directory, "audit.sqlite") });
+  t.after(() => store.close());
+  const run = createRun(store, { independent: false });
+  const startUsageMonitor = ({ onUsage }) => {
+    onUsage({
+      cumulative: {
+        inputTokens: 55,
+        cachedInputTokens: 25,
+        outputTokens: 15,
+        totalTokens: 70,
+      },
+      context: {
+        inputTokens: 35,
+        cachedInputTokens: 20,
+        outputTokens: 5,
+        totalTokens: 40,
+      },
+      contextWindowTokens: 258_400,
+      contextPercent: 0.02,
+    });
+    return () => {};
+  };
+
+  const result = await runInvestigationPhase({
+    store,
+    runId: run.id,
+    adapters: [
+      fakeAdapter({}, "post_completion", startUsageMonitor),
+    ],
+  });
+
+  assert.equal(result.status, "active");
+  const report = store.readReport(run.id);
+  assert.ok(
+    report.events.some(
+      ({ actor, type }) =>
+        actor === "candidate" && type === "provider.usage.updated",
+    ),
+  );
+  assert.ok(
+    report.events.some(
+      ({ actor, type, payload }) =>
+        actor === "candidate" &&
+        type === "role.progress" &&
+        payload.cumulativeTokens === 70,
+    ),
+  );
+  const snapshot = toRunSnapshot(report, 1);
+  assert.equal(snapshot.tokenUsage.candidateSession.currentContextTokens, 40);
+  assert.equal(snapshot.tokenUsage.candidateSession.peakContextTokens, 40);
+  assert.equal(
+    snapshot.tokenUsage.candidateSession.peakContextSource,
+    "provider_session_log",
+  );
+});
+
 test("the runner rejects a role on shell command N+1 and counts declined commands", async (t) => {
   const directory = mkdtempSync(join(tmpdir(), "waymark-command-budget-"));
   const store = new AuditStore({ databasePath: join(directory, "audit.sqlite") });
@@ -300,9 +391,17 @@ test("the runner rejects a role on shell command N+1 and counts declined command
   );
   assert.equal(report.events.at(-1).type, "run.finished");
   assert.equal(report.events.at(-1).payload.summary.calibrationEligible, false);
+  assert.equal(
+    report.events.at(-1).payload.summary.reason,
+    "shell_command_budget_exceeded",
+  );
+  assert.equal(
+    toRunSnapshot(report, 1).latestEvent,
+    "Audit failed: shell command budget exceeded.",
+  );
 });
 
-test("candidate evidence import rejects findings that are not repository facts", async (t) => {
+test("candidate evidence import rejects findings that are not navigation facts", async (t) => {
   const directory = mkdtempSync(join(tmpdir(), "waymark-finding-kind-"));
   const store = new AuditStore({ databasePath: join(directory, "audit.sqlite") });
   t.after(() => store.close());
@@ -330,7 +429,7 @@ test("candidate evidence import rejects findings that are not repository facts",
   );
 });
 
-test("a completion-only token overrun is persisted and disqualifies the run", async (t) => {
+test("a completion-only token overrun remains valid evidence and continues", async (t) => {
   const directory = mkdtempSync(join(tmpdir(), "waymark-budget-"));
   const store = new AuditStore({ databasePath: join(directory, "audit.sqlite") });
   t.after(() => store.close());
@@ -345,18 +444,37 @@ test("a completion-only token overrun is persisted and disqualifies the run", as
     adapters: [fakeAdapter({ candidate: "over-budget" })],
   });
 
-  assert.equal(result.status, "failed");
-  assert.equal(result.results[0].status, "budget_exceeded");
+  assert.equal(result.status, "active");
+  assert.equal(result.results[0].status, "completed_over_budget");
   const report = store.readReport(run.id);
-  assert.equal(report.run.status, "failed");
+  assert.equal(report.run.status, "active");
   assert.equal(report.aggregates.tokensByPhase.candidate_navigation, 110);
   const exceeded = report.events.find(({ type }) => type === "budget.exceeded");
   assert.equal(exceeded.payload.hardLimitTokens, 100);
   assert.equal(exceeded.payload.observedTokens, 110);
   assert.equal(exceeded.payload.enforcement, "post_completion");
-  assert.equal(exceeded.payload.calibrationEligible, false);
-  assert.equal(report.events.at(-1).type, "run.finished");
-  assert.equal(report.events.at(-1).payload.summary.calibrationEligible, false);
+  assert.equal(exceeded.payload.calibrationEligible, true);
+  assert.equal(exceeded.payload.withinDeclaredResourceEnvelope, false);
+  assert.equal(exceeded.payload.resultRetained, true);
+  assert.equal(exceeded.payload.workflowContinued, true);
+  assert.equal(report.claims.length > 0, true);
+  assert.equal(
+    report.events.some(({ type }) => type === "orchestration.completed"),
+    true,
+  );
+  assert.equal(report.events.at(-1).type, "phase.changed");
+  assert.equal(report.events.at(-1).payload.progress, 65);
+  const snapshot = toRunSnapshot(report, 1);
+  assert.equal(snapshot.calibration.eligible, true);
+  assert.equal(
+    snapshot.calibration.status,
+    "eligible_with_resource_overrun",
+  );
+  assert.equal(snapshot.calibration.resourceSignals.length, 1);
+  assert.equal(
+    snapshot.participants.find(({ role }) => role === "candidate").status,
+    "Complete",
+  );
 });
 
 test("a provider with live usage is interrupted at its hard limit", async (t) => {
@@ -405,7 +523,7 @@ test("the Codex adapter uses the JavaScript entry point and isolated exec flags"
       task: "Inspect the repository",
       executionPolicy: {
         isolation: "fresh_process",
-        sessionPersistence: "ephemeral",
+        sessionPersistence: "local_telemetry_log",
         contextPolicy: "assignment_only",
         measurementScope: "role_process_only",
       },
@@ -418,9 +536,11 @@ test("the Codex adapter uses the JavaScript entry point and isolated exec flags"
 
   assert.equal(launch.command, process.execPath);
   assert.equal(launch.arguments[0], fakeProviderPath);
-  assert.ok(launch.arguments.includes("--ephemeral"));
+  assert.ok(!launch.arguments.includes("--ephemeral"));
   assert.ok(launch.arguments.includes("--ignore-user-config"));
+  assert.ok(launch.arguments.includes("--ignore-rules"));
   assert.ok(launch.arguments.includes("--json"));
+  assert.ok(launch.arguments.includes('approval_policy="never"'));
   assert.deepEqual(
     launch.arguments.slice(
       launch.arguments.indexOf("--sandbox"),
@@ -456,6 +576,66 @@ test("the Codex adapter uses the JavaScript entry point and isolated exec flags"
     },
   });
   assert.equal(usage.totalTokens, 80);
+});
+
+test("the Codex rollout monitor normalizes cumulative and context usage", () => {
+  const codexHome = mkdtempSync(join(tmpdir(), "waymark-codex-home-"));
+  const now = new Date();
+  const sessionDirectory = join(
+    codexHome,
+    "sessions",
+    String(now.getFullYear()),
+    String(now.getMonth() + 1).padStart(2, "0"),
+    String(now.getDate()).padStart(2, "0"),
+  );
+  mkdirSync(sessionDirectory, { recursive: true });
+  const providerSessionId = "019f-test-live-usage";
+  const rolloutPath = join(
+    sessionDirectory,
+    `rollout-2026-07-24-${providerSessionId}.jsonl`,
+  );
+  const tokenRecord = (totalTokens, contextTokens) =>
+    JSON.stringify({
+      type: "event_msg",
+      payload: {
+        type: "token_count",
+        info: {
+          total_token_usage: {
+            input_tokens: totalTokens - 10,
+            cached_input_tokens: 50,
+            output_tokens: 10,
+            total_tokens: totalTokens,
+          },
+          last_token_usage: {
+            input_tokens: contextTokens - 5,
+            cached_input_tokens: 20,
+            output_tokens: 5,
+            total_tokens: contextTokens,
+          },
+          model_context_window: 258_400,
+        },
+      },
+    });
+  writeFileSync(rolloutPath, `${tokenRecord(110, 65)}\n`);
+
+  const observed = [];
+  const stop = createCodexRolloutUsageMonitor({
+    providerSessionId,
+    codexHome,
+    intervalMs: 60_000,
+    onUsage: (usage) => observed.push(usage),
+  });
+  appendFileSync(rolloutPath, tokenRecord(210, 95));
+  stop();
+
+  assert.equal(observed.length, 2);
+  assert.deepEqual(
+    extractCodexRolloutUsage(JSON.parse(tokenRecord(210, 95))),
+    observed[1],
+  );
+  assert.equal(observed[1].cumulative.totalTokens, 210);
+  assert.equal(observed[1].context.totalTokens, 95);
+  assert.equal(observed[1].contextWindowTokens, 258_400);
 });
 
 test("the CLI runs an investigation through the Codex adapter boundary", () => {
