@@ -279,6 +279,60 @@ Remediation completed after the second attempt:
   pass. Milestone 1 remains open until a new real calibration passes with the
   already declared token ceilings unchanged.
 
+### Milestone 1 completion-gate calibration attempt 3
+
+- Failed calibration run:
+  `clapline-email-outbox-d692d68-20260724-03`.
+- The run used the clean SQLite journal
+  `.waymark/clapline-20260724-attempt3.sqlite`. The observer at
+  `http://localhost:3000` reported that exact journal through service port
+  4318, exposed one intended run before launch, and emitted the SSE `ready`
+  event.
+- The Clapline target was clean and read-only at immutable commit
+  `d692d68afa2680309e702b12752016b8d943a793` before launch and remained clean
+  at that commit after the role processes stopped.
+- Preflight validation passed before paid work: the installed Codex 0.144.1
+  JavaScript entry point supported ephemeral JSONL execution, assignment stdin,
+  output schemas, and the read-only sandbox; lint, the production build, all 31
+  deterministic tests, and `git diff --check` passed.
+- The authoritative `investigation run` launcher started fresh,
+  assignment-only candidate and independent processes in parallel. The
+  candidate attempted command 7 against its fixed six-command envelope.
+  Waymark interrupted the process from the live JSONL stream, appended
+  `policy.violation` with `live_stream_interrupt`, and marked the attempt
+  calibration-ineligible. Declined and failed provider commands counted because
+  each had already consumed a command start.
+- The independent process completed its 8/8-command investigation and used
+  206,745 host-measured processed tokens against its 24,000-token target and
+  320,000-token hard ceiling: 198,302 input, 168,620 cached-input (a subset of
+  input), and 8,443 output tokens. Cache-creation tokens remained unavailable.
+  The interrupted candidate emitted no completion usage event, so candidate
+  usage remained unavailable rather than being recorded as zero.
+- The failed parallel-investigation gate imported no candidate claims and did
+  not launch the fresh orchestrator. Deterministic verification, report
+  finalization, and authoritative scoring therefore did not run. The attempt
+  has no score, reliability value, finalized recommendation, or candidate token
+  efficiency result.
+- The live observer showed the intended run at 0% before launch, then 5% with
+  candidate and independent roles active. Its terminal report showed the
+  candidate failed, the independent complete with 206.7k host-measured tokens,
+  the orchestrator and verifier not run, and score and reliability unavailable.
+  No browser console errors were present.
+- Terminal progress remained monotonic but stopped at 5% because the failure
+  occurred during the first audited phase. The UI rendered the detailed stored
+  command-budget failure as `Audit failed: unknown failure.` This diagnostic
+  projection must surface the `shell_command_budget_exceeded` reason and its
+  observed and declared counts before the next completion-gate attempt.
+- The six-command candidate envelope is below both the seven commands observed
+  in the completed candidate process from attempt 2 and the interrupted
+  command 7 in this attempt. A future run must declare a separately justified
+  command ceiling before launch; it must not rewrite this failed attempt or
+  relax a limit after observing a live run.
+- Milestone 1 remains open. Attempt 3 proves the repaired mechanical
+  command-budget enforcement against a real provider, but it did not reach
+  fresh orchestration, deterministic verification, finalized recommendations,
+  scoring, or the completed-report UI gate.
+
 ### Deliverables
 
 1. Domain types for runs, events, claims, verification, token measurements, and
