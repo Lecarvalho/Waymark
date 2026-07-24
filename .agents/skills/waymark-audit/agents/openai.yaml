@@ -1,0 +1,4 @@
+interface:
+  display_name: "Waymark Repository Audit"
+  short_description: "Audit repository navigability with verified evidence"
+  default_prompt: "Use $waymark-audit to audit this local repository for a realistic engineering task."

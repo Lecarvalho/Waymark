@@ -1,0 +1,93 @@
+{
+  "id": "navigable-modular-app",
+  "description": "Feature ownership, dependencies, consumers, instructions, and verification are easy to discover.",
+  "input": {
+    "observations": {
+      "discovery": {
+        "relevantLocationsFound": 7,
+        "relevantLocationsExpected": 7,
+        "filesOpened": 9,
+        "deadEnds": 1
+      },
+      "ownership": {
+        "correctAnswers": 6,
+        "totalAnswers": 6,
+        "ambiguousBoundaries": 0
+      },
+      "dependencies": {
+        "requiredEdgesFound": 8,
+        "requiredEdgesExpected": 8,
+        "hiddenEdgesEncountered": 0
+      },
+      "changeSurface": {
+        "requiredConsumersFound": 6,
+        "requiredConsumersExpected": 6,
+        "falsePositiveConsumers": 1
+      },
+      "verification": {
+        "workflowsFound": 4,
+        "workflowsExpected": 4,
+        "successfulProbes": 3,
+        "attemptedProbes": 3
+      },
+      "instructions": {
+        "applicableRulesFound": 5,
+        "applicableRulesExpected": 5,
+        "conflictsEncountered": 0
+      }
+    },
+    "claims": [
+      {
+        "id": "owner",
+        "criticality": "critical",
+        "candidateConfidence": 0.91,
+        "verdict": "verified",
+        "verificationMethod": "static_inspection",
+        "citationStatus": "valid",
+        "independentAssessment": "agree"
+      },
+      {
+        "id": "consumer-set",
+        "criticality": "critical",
+        "candidateConfidence": 0.88,
+        "verdict": "verified",
+        "verificationMethod": "executable_probe",
+        "citationStatus": "valid",
+        "independentAssessment": "agree"
+      },
+      {
+        "id": "test-command",
+        "criticality": "high",
+        "candidateConfidence": 0.87,
+        "verdict": "verified",
+        "verificationMethod": "executable_probe",
+        "citationStatus": "valid",
+        "independentAssessment": "agree"
+      },
+      {
+        "id": "local-convention",
+        "criticality": "low",
+        "candidateConfidence": 0.8,
+        "verdict": "verified",
+        "verificationMethod": "static_inspection",
+        "citationStatus": "valid",
+        "independentAssessment": "not_checked"
+      }
+    ],
+    "tokens": {
+      "candidateNavigation": {
+        "count": 6800,
+        "source": "provider_reported",
+        "target": 12000
+      },
+      "validation": {
+        "count": 4200,
+        "source": "provider_reported"
+      },
+      "reportGeneration": {
+        "count": 1900,
+        "source": "estimated"
+      }
+    }
+  }
+}

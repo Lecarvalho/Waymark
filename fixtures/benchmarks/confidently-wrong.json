@@ -1,0 +1,98 @@
+{
+  "id": "misleading-confidently-wrong",
+  "description": "The candidate reports excellent navigability, but deterministic checks contradict critical assumptions.",
+  "input": {
+    "candidateProvidedScores": {
+      "overall": 96,
+      "reliability": 98,
+      "discoveryEfficiency": 99
+    },
+    "observations": {
+      "discovery": {
+        "relevantLocationsFound": 7,
+        "relevantLocationsExpected": 8,
+        "filesOpened": 10,
+        "deadEnds": 1
+      },
+      "ownership": {
+        "correctAnswers": 5,
+        "totalAnswers": 6,
+        "ambiguousBoundaries": 1
+      },
+      "dependencies": {
+        "requiredEdgesFound": 7,
+        "requiredEdgesExpected": 8,
+        "hiddenEdgesEncountered": 1
+      },
+      "changeSurface": {
+        "requiredConsumersFound": 7,
+        "requiredConsumersExpected": 8,
+        "falsePositiveConsumers": 1
+      },
+      "verification": {
+        "workflowsFound": 3,
+        "workflowsExpected": 4,
+        "successfulProbes": 1,
+        "attemptedProbes": 3
+      },
+      "instructions": {
+        "applicableRulesFound": 3,
+        "applicableRulesExpected": 4,
+        "conflictsEncountered": 1
+      }
+    },
+    "claims": [
+      {
+        "id": "owner",
+        "criticality": "critical",
+        "candidateConfidence": 0.98,
+        "verdict": "contradicted",
+        "verificationMethod": "static_inspection",
+        "citationStatus": "invalid",
+        "independentAssessment": "agree"
+      },
+      {
+        "id": "consumer-set",
+        "criticality": "critical",
+        "candidateConfidence": 0.97,
+        "verdict": "contradicted",
+        "verificationMethod": "executable_probe",
+        "citationStatus": "invalid",
+        "independentAssessment": "agree"
+      },
+      {
+        "id": "test-command",
+        "criticality": "high",
+        "candidateConfidence": 0.96,
+        "verdict": "verified",
+        "verificationMethod": "executable_probe",
+        "citationStatus": "valid",
+        "independentAssessment": "agree"
+      },
+      {
+        "id": "documented-hook",
+        "criticality": "high",
+        "candidateConfidence": 0.94,
+        "verdict": "contradicted",
+        "verificationMethod": "static_inspection",
+        "citationStatus": "invalid",
+        "independentAssessment": "agree"
+      }
+    ],
+    "tokens": {
+      "candidateNavigation": {
+        "count": 3900,
+        "source": "provider_reported",
+        "target": 12000
+      },
+      "validation": {
+        "count": 11900,
+        "source": "provider_reported"
+      },
+      "reportGeneration": {
+        "count": 2400,
+        "source": "estimated"
+      }
+    }
+  }
+}

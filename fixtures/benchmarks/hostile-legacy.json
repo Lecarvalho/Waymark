@@ -1,0 +1,93 @@
+{
+  "id": "hostile-legacy-monolith",
+  "description": "Ownership is mixed, consumers are hidden, verification is hard to reproduce, and instructions conflict.",
+  "input": {
+    "observations": {
+      "discovery": {
+        "relevantLocationsFound": 4,
+        "relevantLocationsExpected": 10,
+        "filesOpened": 38,
+        "deadEnds": 14
+      },
+      "ownership": {
+        "correctAnswers": 2,
+        "totalAnswers": 7,
+        "ambiguousBoundaries": 5
+      },
+      "dependencies": {
+        "requiredEdgesFound": 3,
+        "requiredEdgesExpected": 11,
+        "hiddenEdgesEncountered": 7
+      },
+      "changeSurface": {
+        "requiredConsumersFound": 3,
+        "requiredConsumersExpected": 12,
+        "falsePositiveConsumers": 6
+      },
+      "verification": {
+        "workflowsFound": 1,
+        "workflowsExpected": 5,
+        "successfulProbes": 1,
+        "attemptedProbes": 3
+      },
+      "instructions": {
+        "applicableRulesFound": 1,
+        "applicableRulesExpected": 4,
+        "conflictsEncountered": 3
+      }
+    },
+    "claims": [
+      {
+        "id": "owner",
+        "criticality": "critical",
+        "candidateConfidence": 0.62,
+        "verdict": "verified",
+        "verificationMethod": "static_inspection",
+        "citationStatus": "valid",
+        "independentAssessment": "disagree"
+      },
+      {
+        "id": "consumer-set",
+        "criticality": "critical",
+        "candidateConfidence": 0.48,
+        "verdict": "unverified",
+        "verificationMethod": "none",
+        "citationStatus": "missing",
+        "independentAssessment": "disagree"
+      },
+      {
+        "id": "test-command",
+        "criticality": "high",
+        "candidateConfidence": 0.55,
+        "verdict": "verified",
+        "verificationMethod": "executable_probe",
+        "citationStatus": "valid",
+        "independentAssessment": "agree"
+      },
+      {
+        "id": "runtime-registration",
+        "criticality": "high",
+        "candidateConfidence": 0.67,
+        "verdict": "contradicted",
+        "verificationMethod": "executable_probe",
+        "citationStatus": "invalid",
+        "independentAssessment": "disagree"
+      }
+    ],
+    "tokens": {
+      "candidateNavigation": {
+        "count": 28600,
+        "source": "provider_reported",
+        "target": 12000
+      },
+      "validation": {
+        "count": 17400,
+        "source": "provider_reported"
+      },
+      "reportGeneration": {
+        "count": 3100,
+        "source": "estimated"
+      }
+    }
+  }
+}
