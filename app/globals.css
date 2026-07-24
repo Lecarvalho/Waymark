@@ -3328,6 +3328,28 @@ code {
   font-size: 9px;
 }
 
+.history-row.is-interactive {
+  width: 100%;
+  border-right: 0;
+  border-bottom: 0;
+  border-left: 0;
+  background: transparent;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  appearance: none;
+}
+
+.history-row.is-interactive:hover {
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.history-row.is-interactive:focus-visible {
+  z-index: 1;
+  outline: 2px solid var(--text);
+  outline-offset: -2px;
+}
+
 .history-row code {
   color: var(--muted);
   font-size: 8px;
@@ -3358,6 +3380,62 @@ code {
   background: rgba(185, 244, 123, 0.08);
   color: var(--lime);
   font-family: var(--font-geist-mono), monospace;
+}
+
+.historical-report-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  margin-bottom: 18px;
+  padding: 12px 14px;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.historical-report-banner > div:first-child {
+  display: grid;
+  gap: 3px;
+}
+
+.historical-report-banner span {
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 620;
+}
+
+.historical-report-banner strong {
+  color: var(--muted-bright);
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.historical-report-banner > div:last-child {
+  display: flex;
+  gap: 8px;
+}
+
+.historical-report-banner button {
+  min-height: 34px;
+  padding: 0 11px;
+  border: 1px solid var(--line-strong);
+  border-radius: 5px;
+  background: var(--surface);
+  color: var(--muted-bright);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.historical-report-banner button:hover {
+  border-color: var(--text);
+  color: var(--text);
+}
+
+.historical-report-banner button:focus-visible {
+  outline: 2px solid var(--text);
+  outline-offset: 2px;
 }
 
 .history-summary-grid {
@@ -4078,6 +4156,14 @@ code {
 
   .project-history-meta {
     justify-content: space-between;
+  }
+
+  .historical-report-banner {
+    display: grid;
+  }
+
+  .historical-report-banner > div:last-child {
+    flex-wrap: wrap;
   }
 
   .guide-view {

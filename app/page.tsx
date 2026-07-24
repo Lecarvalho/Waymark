@@ -245,12 +245,31 @@ function formatTokenSource(
 
 export default function Home() {
   const [view, setView] = useState<"live" | "history" | "guide">("live");
+  const [selectedReportId, setSelectedReportId] = useState<string | null>(null);
   const [openPractice, setOpenPractice] = useState("01");
   const [structureView, setStructureView] = useState<
     "recommended" | "hostile"
   >("recommended");
-  const { snapshot, history, connection } = useWaymarkLive();
+  const {
+    snapshot: liveSnapshot,
+    history,
+    connection,
+  } = useWaymarkLive();
   const evidenceDialog = useRef<HTMLDialogElement>(null);
+  const selectedReport =
+    history.find((run) => run.id === selectedReportId) ?? null;
+  const snapshot = selectedReport ?? liveSnapshot;
+  const isHistoricalReport = selectedReport !== null;
+
+  const showLatestAudit = () => {
+    setSelectedReportId(null);
+    setView("live");
+  };
+
+  const showSavedReport = (runId: string) => {
+    setSelectedReportId(runId);
+    setView("live");
+  };
 
   const repositoryName = snapshot?.repository.name ?? "No audit selected";
   const repositoryCommit = snapshot?.repository.commit ?? "—";
@@ -446,7 +465,7 @@ export default function Home() {
         <nav aria-label="Primary navigation">
           <button
             className={`nav-item ${view === "live" ? "active" : ""}`}
-            onClick={() => setView("live")}
+            onClick={showLatestAudit}
             type="button"
           >
             <span className="nav-symbol">◎</span>
@@ -502,18 +521,40 @@ export default function Home() {
             </span>
             <div
               className="pairing-status"
-              title="Audit input comes from the paired coding agent"
+              title={
+                isHistoricalReport
+                  ? "Report loaded from the local SQLite archive"
+                  : "Audit input comes from the paired coding agent"
+              }
             >
               <span className="pairing-mark" aria-hidden="true">
-                CX
+                {isHistoricalReport ? "DB" : "CX"}
               </span>
               <span className="pairing-agent">
-                <small>{snapshot ? "Paired session" : "Coding agent"}</small>
-                <strong>{snapshot?.agentHost ?? "Awaiting audit"}</strong>
+                <small>
+                  {isHistoricalReport
+                    ? "Saved report"
+                    : snapshot
+                      ? "Paired session"
+                      : "Coding agent"}
+                </small>
+                <strong>
+                  {isHistoricalReport
+                    ? new Date(snapshot.startedAt).toLocaleDateString()
+                    : (snapshot?.agentHost ?? "Awaiting audit")}
+                </strong>
               </span>
               <i
-                className={`pairing-state ${snapshot ? "" : "is-idle"}`}
-                aria-label={snapshot ? "Audit connected" : "No active audit"}
+                className={`pairing-state ${
+                  snapshot && !isHistoricalReport ? "" : "is-idle"
+                }`}
+                aria-label={
+                  isHistoricalReport
+                    ? "Saved audit report"
+                    : snapshot
+                      ? "Audit connected"
+                      : "No active audit"
+                }
               />
             </div>
           </div>
@@ -526,6 +567,25 @@ export default function Home() {
               snapshot.status === "completed" ? "completed-report" : ""
             }`}
           >
+            {isHistoricalReport ? (
+              <section className="historical-report-banner" aria-label="Saved report">
+                <div>
+                  <span>Viewing saved report</span>
+                  <strong>
+                    {new Date(snapshot.startedAt).toLocaleString()} ·{" "}
+                    {snapshot.repository.commit}
+                  </strong>
+                </div>
+                <div>
+                  <button type="button" onClick={() => setView("history")}>
+                    Back to run history
+                  </button>
+                  <button type="button" onClick={showLatestAudit}>
+                    Return to latest
+                  </button>
+                </div>
+              </section>
+            ) : null}
             <section
               className={`audit-hero ${
                 snapshot.status === "completed" ? "is-complete" : ""
@@ -1421,10 +1481,9 @@ export default function Home() {
                       </header>
                       <div
                         className="history-table"
-                        role="table"
                         aria-label={`${project.name} audit reports`}
                       >
-                        <div className="history-row history-head" role="row">
+                        <div className="history-row history-head">
                           <span>Date</span>
                           <span>Commit</span>
                           <span>Task</span>
@@ -1436,10 +1495,14 @@ export default function Home() {
                         {project.runs.map((run) => {
                           const tokens = run.tokenUsage.overall.totalTokens;
                           return (
-                            <div
-                              className="history-row"
-                              role="row"
+                            <button
+                              className="history-row is-interactive"
                               key={run.id}
+                              type="button"
+                              onClick={() => showSavedReport(run.id)}
+                              aria-label={`Open ${project.name} report from ${new Date(
+                                run.startedAt,
+                              ).toLocaleDateString()}`}
                             >
                               <span>
                                 {new Date(run.startedAt).toLocaleDateString(
@@ -1459,7 +1522,7 @@ export default function Home() {
                                   : `${run.metrics.reliability}%`}
                               </span>
                               <span>{formatTokenCount(tokens)}</span>
-                            </div>
+                            </button>
                           );
                         })}
                       </div>
