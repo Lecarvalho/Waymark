@@ -41,7 +41,11 @@ export const TOKEN_PHASES = [
   "report_generation",
 ] as const;
 
-export const TOKEN_SOURCES = ["provider_reported", "estimated"] as const;
+export const TOKEN_SOURCES = [
+  "provider_reported",
+  "measured",
+  "estimated",
+] as const;
 
 export type RunStatus = (typeof RUN_STATUSES)[number];
 export type ParticipantRole = (typeof PARTICIPANT_ROLES)[number];

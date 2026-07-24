@@ -175,9 +175,11 @@ test("one audit crosses CLI, SQLite, scoring, service, and report read model", a
   const snapshot = await response.json();
   assert.equal(snapshot.id, run.id);
   assert.equal(snapshot.status, "completed");
+  assert.equal(snapshot.progress, 100);
+  assert.equal(snapshot.phase, "Complete");
   assert.ok(snapshot.metrics.navigability > 80);
   assert.equal(snapshot.metrics.reliability, 95);
   assert.equal(snapshot.metrics.candidateTokens, 6800);
   assert.equal(snapshot.metrics.totalClaims, 1);
-  assert.equal(snapshot.latestEvent, "run.finished");
+  assert.equal(snapshot.latestEvent, "Audit completed and saved.");
 });

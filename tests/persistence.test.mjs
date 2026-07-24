@@ -149,6 +149,18 @@ test("audit journal, evidence, verdicts, and tokens survive reopen", () => {
     totalTokens: 90,
     measuredAt: "2026-07-23T12:04:01.000Z",
   });
+  store.recordTokenMeasurement({
+    id: "token-3",
+    runId: run.id,
+    actor: "orchestrator",
+    phase: "orchestration",
+    source: "measured",
+    provider: "codex-host",
+    inputTokens: 30,
+    outputTokens: 10,
+    totalTokens: 40,
+    measuredAt: "2026-07-23T12:04:02.000Z",
+  });
 
   assert.throws(
     () =>
@@ -188,8 +200,9 @@ test("audit journal, evidence, verdicts, and tokens survive reopen", () => {
   assert.equal(report.verifications.length, 1);
   assert.equal(report.aggregates.verificationCoverage, 1);
   assert.equal(report.aggregates.verifiedClaimCount, 1);
-  assert.equal(report.aggregates.totalTokens, 240);
+  assert.equal(report.aggregates.totalTokens, 280);
   assert.equal(report.aggregates.tokensBySource.provider_reported, 150);
+  assert.equal(report.aggregates.tokensBySource.measured, 40);
   assert.equal(report.aggregates.tokensBySource.estimated, 90);
   assert.equal("scores" in report, false);
   assert.throws(
@@ -403,7 +416,7 @@ test("schema v1 verification rows migrate to monotonic per-run sequence", () => 
   legacy.close();
 
   const store = new AuditStore({ databasePath });
-  assert.equal(store.schemaVersion, 2);
+  assert.equal(store.schemaVersion, 3);
   assert.deepEqual(
     store
       .readSnapshot("legacy-run")

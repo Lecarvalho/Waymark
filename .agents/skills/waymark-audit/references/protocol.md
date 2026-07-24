@@ -25,13 +25,49 @@ node bin/waymark.mjs --db <journal> run create --input-file <run.json>
     {"role":"verifier","provider":"local","model":"deterministic"}
   ],
   "toolPolicy": {"target":"read-only","network":"declared"},
-  "runConditions": {"parallelResearch":true},
+  "runConditions": {
+    "parallelResearch": true,
+    "execution": {
+      "isolation": "fresh_process",
+      "sessionPersistence": "ephemeral",
+      "contextPolicy": "assignment_only",
+      "measurementScope": "role_process_only"
+    },
+    "tokenBudgets": {
+      "candidate_navigation": {"targetTokens":12000,"hardLimitTokens":24000},
+      "independent_validation": {"targetTokens":24000,"hardLimitTokens":48000},
+      "orchestration": {"targetTokens":12000,"hardLimitTokens":24000},
+      "deterministic_verification": {"targetTokens":6000,"hardLimitTokens":12000},
+      "report_generation": {"targetTokens":4000,"hardLimitTokens":8000}
+    },
+    "pricingSnapshot": null
+  },
   "protocolVersion": "1.0.0",
   "rubricVersion": "waymark-navigability/1.0.0"
 }
 ```
 
 Participant roles must be unique. Candidate and orchestrator are required.
+
+## Isolated role execution
+
+Audited roles must not inherit the controlling conversation. For Codex, launch
+each role as a new non-resumed process with `codex exec --ephemeral --json`,
+the target as its working directory, and a read-only sandbox. Pass only the
+rendered assignment prompt and required repository instructions. Do not include
+operator conversation, Waymark source changes, previous agent traces, or UI
+debugging context.
+
+Parse the JSONL stream as it arrives. `turn.completed.usage` supplies input,
+cached-input, and output tokens. Cached input is a subset of input, so processed
+tokens are `input + output`, not `input + cached input + output`. Persist live
+tool events during the turn and the final host-measured usage at completion.
+
+Every run declares the budget object shown above. Interrupt providers that
+expose live cumulative usage when a hard limit is reached. Providers that only
+report usage at turn completion must append `budget.exceeded` and disqualify
+the run when the final value crosses the limit. A single-turn reporting
+limitation must never be described as preemptive enforcement.
 
 ## Journal evidence
 
@@ -85,8 +121,15 @@ changes a deterministic verdict.
 
 Token phases are `candidate_navigation`, `independent_validation`,
 `orchestration`, `deterministic_verification`, and `report_generation`. Sources
-are `provider_reported` or `estimated`. Never merge candidate navigation into
-validation/report tokens.
+are `provider_reported`, `measured`, or `estimated`. Use `measured` for host-side
+telemetry collected independently of the audited agent, including Codex JSONL
+usage events or persisted rollout counters. Never merge candidate navigation
+into validation/report tokens. If no measurement exists, omit the token record
+and present the phase as unavailable rather than recording zero.
+Only role-process usage belongs in these records. The controlling session's
+development, debugging, browser checks, and report discussion are out of scope.
+Currency cost is unavailable unless the run records a versioned provider
+pricing snapshot; never infer current prices after the fact.
 
 ## Build and persist the score
 

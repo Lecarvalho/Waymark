@@ -28,6 +28,8 @@ the observer and durable report surface.
 - Prefer executable or deterministic verification over model agreement.
 - Preserve model identity, task, commit, token usage, evidence, and run
   conditions so comparisons remain honest.
+- Keep repository navigability, audit reliability, and audit economy visibly
+  separate; a reliable or navigable result must not hide an over-budget run.
 - Give recommendations with expected discovery and consumption impact.
 
 ## Interface Posture

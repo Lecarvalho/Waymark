@@ -18,7 +18,8 @@ scoring engine, and durable report surface.
 - Candidate confidence, candidate performance, and report reliability remain
   separate measurements.
 - Deterministic evidence outranks model agreement.
-- Mock, estimated, provider-reported, and verified values are labeled.
+- Mock, estimated, host-measured, provider-reported, unavailable, and verified
+  values are labeled.
 - The web application does not contain a prompt box or start-audit action.
 - Runs and reports are stored locally in SQLite.
 
@@ -114,7 +115,9 @@ Scoring formulas and thresholds are versioned and independent from report prose.
 - [x] React live-data connection with explicit demo fallback
 - [x] Repository-local `waymark-audit` skill and orchestration templates
 - [x] Automated end-to-end vertical-slice test
-- [ ] Run and calibrate the first real repository audit from a paired agent
+- [x] Run and calibrate the first real repository audit from a paired agent
+- [ ] Replace inherited interactive subagents with fresh provider processes and
+  mechanically enforced execution budgets
 
 ### Deliverables
 
@@ -147,6 +150,10 @@ Scoring formulas and thresholds are versioned and independent from report prose.
 ## Milestone 2 — Real Orchestration
 
 - Run candidate and independent research in parallel.
+- Launch audited roles in fresh assignment-only sessions; never charge the
+  controlling development conversation to the audit.
+- Declare phase token targets and hard limits, persist overruns, and reject
+  over-budget runs as successful calibration benchmarks.
 - Capture tool traces and token measurements where the provider exposes them.
 - Cross-examine disagreements and unsupported high-confidence claims.
 - Execute safe deterministic probes in the read-only target.

@@ -26,7 +26,13 @@ export type WaymarkRunSnapshot = {
     provider: string;
     model: string;
     status: string;
-    tokens: number;
+    tokens: number | null;
+    tokenSource:
+      | "provider_reported"
+      | "measured"
+      | "estimated"
+      | "mixed"
+      | null;
   }>;
   evidence: Array<{
     claim: string;
@@ -41,10 +47,44 @@ export type WaymarkRunSnapshot = {
     gain: string;
     cost: string;
   }>;
+  tokenUsage: {
+    overall: TokenBreakdown;
+    byPhase: Array<
+      TokenBreakdown & {
+        phase:
+          | "candidate_navigation"
+          | "independent_validation"
+          | "orchestration"
+          | "deterministic_verification"
+          | "report_generation";
+      }
+    >;
+    candidateBudget: {
+      usedTokens: number | null;
+      targetTokens: number | null;
+      hardLimitTokens: number | null;
+      targetMultiple: number | null;
+      hardLimitExceeded: boolean | null;
+      efficiencyScore: number | null;
+      eligible: boolean | null;
+    };
+    monetaryCost: {
+      status: "unavailable";
+      amount: null;
+      currency: null;
+      reason: string;
+    };
+  };
   metrics: {
     navigability: number | null;
     reliability: number | null;
-    candidateTokens: number;
+    candidateTokens: number | null;
+    candidateTokenSource:
+      | "provider_reported"
+      | "measured"
+      | "estimated"
+      | "mixed"
+      | null;
     claimsChallenged: number;
     totalClaims: number;
     openChallenges: number;
@@ -52,6 +92,24 @@ export type WaymarkRunSnapshot = {
     verifiedAccuracy: number;
   };
   runCount: number;
+};
+
+type TokenSource =
+  | "provider_reported"
+  | "measured"
+  | "estimated"
+  | "mixed"
+  | null;
+
+type TokenBreakdown = {
+  totalTokens: number | null;
+  inputTokens: number | null;
+  cachedInputTokens: number | null;
+  uncachedInputTokens: number | null;
+  outputTokens: number | null;
+  unclassifiedTokens: number | null;
+  cacheCreationTokens: number | null;
+  source: TokenSource;
 };
 
 type ConnectionState = "connecting" | "live" | "offline";

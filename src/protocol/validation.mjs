@@ -25,7 +25,11 @@ const TOKEN_PHASES = new Set([
   "deterministic_verification",
   "report_generation",
 ]);
-const TOKEN_SOURCES = new Set(["provider_reported", "estimated"]);
+const TOKEN_SOURCES = new Set([
+  "provider_reported",
+  "measured",
+  "estimated",
+]);
 
 export class ProtocolValidationError extends Error {
   constructor(message, details = undefined) {

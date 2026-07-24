@@ -24,12 +24,34 @@ export interface RepositoryTarget {
   readOnly: true;
 }
 
+export interface AuditExecutionPolicy {
+  isolation: "fresh_process";
+  sessionPersistence: "ephemeral";
+  contextPolicy: "assignment_only";
+  measurementScope: "role_process_only";
+}
+
+export interface TokenBudget {
+  targetTokens: number;
+  hardLimitTokens: number;
+}
+
+export interface AuditTokenBudgets {
+  candidate_navigation: TokenBudget;
+  independent_validation: TokenBudget;
+  orchestration: TokenBudget;
+  deterministic_verification: TokenBudget;
+  report_generation: TokenBudget;
+}
+
 export interface AuditAssignment {
   runId: string;
   role: "candidate" | "independent";
   participant: RunParticipantInput;
   target: RepositoryTarget;
   task: string;
+  executionPolicy: AuditExecutionPolicy;
+  tokenBudget: TokenBudget;
   constraints: readonly string[];
   expectedEvidence: readonly string[];
 }
@@ -66,7 +88,7 @@ export interface DeterministicVerdict {
 export interface ActorTokenRecord {
   actor: string;
   phase: TokenPhase;
-  source: "provider_reported" | "estimated";
+  source: "provider_reported" | "measured" | "estimated";
   provider?: string;
   model?: string;
   inputTokens?: number;

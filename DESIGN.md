@@ -76,6 +76,9 @@ Do:
 - Lead with the active task, current audit phase, evidence, and reliability.
 - Keep token usage, model identity, verification coverage, and mock/live status
   visible.
+- Show processed, cached-input, uncached-input, and output tokens separately;
+  show budget overruns beside the candidate measurement, not in secondary copy.
+- Never infer currency cost without a versioned provider pricing snapshot.
 - Use lime, amber, red, and blue only for their defined meanings.
 - Prefer dividers and alignment over extra containers.
 - Make every state readable without depending on color alone.

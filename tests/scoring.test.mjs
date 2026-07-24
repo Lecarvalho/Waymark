@@ -123,6 +123,29 @@ test("zero candidate navigation tokens are missing data, not perfect efficiency"
   );
 });
 
+test("missing persisted token measurements remain unavailable", async () => {
+  const observations = (await fixture("navigable")).input.observations;
+  const built = buildScoreInput(
+    {
+      run: { id: "run-no-tokens", rubricVersion: RUBRIC_VERSION },
+      claims: [],
+      verifications: [],
+      tokens: [],
+    },
+    observations,
+  );
+
+  assert.deepEqual(built.tokens, {
+    candidateNavigation: {
+      count: 0,
+      source: "unavailable",
+      target: 12000,
+    },
+    validation: { count: 0, source: "unavailable" },
+    reportGeneration: { count: 0, source: "unavailable" },
+  });
+});
+
 test("persisted criticalities and evidence map into canonical scorer input", async () => {
   const observations = (await fixture("navigable")).input.observations;
   const criticalities = ["critical", "high", "medium", "low"];
@@ -145,6 +168,10 @@ test("persisted criticalities and evidence map into canonical scorer input", asy
       claimId: claim.id,
       method: index === 0 ? "executable_probe" : "static_inspection",
       verdict: "verified",
+      evidence: {
+        citationStatus: index === 0 ? "invalid" : "valid",
+        independentAssessment: "agree",
+      },
       createdAt: "2026-07-23T09:00:00.000Z",
     },
   ]);
@@ -190,6 +217,12 @@ test("persisted criticalities and evidence map into canonical scorer input", asy
   assert.equal(built.tokens.candidateNavigation.count, 7100);
   assert.equal(built.tokens.validation.count, 2400);
   assert.equal(built.tokens.reportGeneration.count, 900);
+  assert.equal(built.claims[0].citationStatus, "invalid");
+  assert.ok(
+    built.claims.every(
+      (claim) => claim.independentAssessment === "agree",
+    ),
+  );
   assert.equal(built.canonicalHash.length, 64);
   assert.doesNotThrow(() => scoreAudit(built));
 });

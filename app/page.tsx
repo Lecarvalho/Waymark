@@ -173,6 +173,36 @@ const hostileTree = `project/
 ├── tests.ts
 └── README.md          # stale`;
 
+const tokenPhaseLabels = {
+  candidate_navigation: "Candidate navigation",
+  independent_validation: "Independent validation",
+  orchestration: "Orchestration",
+  deterministic_verification: "Deterministic verification",
+  report_generation: "Report generation",
+} as const;
+
+function formatTokenCount(value: number | null) {
+  if (value === null) return "Unavailable";
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(2)}M`;
+  if (value >= 1_000) return `${(value / 1_000).toFixed(1)}k`;
+  return value.toLocaleString();
+}
+
+function formatTokenSource(
+  source:
+    | "provider_reported"
+    | "measured"
+    | "estimated"
+    | "mixed"
+    | null,
+) {
+  if (source === "provider_reported") return "Provider-reported";
+  if (source === "measured") return "Measured by the agent host";
+  if (source === "estimated") return "Explicitly estimated";
+  if (source === "mixed") return "Mixed measurement sources";
+  return "Usage unavailable";
+}
+
 export default function Home() {
   const [view, setView] = useState<"live" | "history" | "guide">("live");
   const [reportSection, setReportSection] = useState<
@@ -191,7 +221,9 @@ export default function Home() {
   const auditProgress = snapshot?.progress ?? 0;
   const navigability = snapshot?.metrics.navigability ?? null;
   const reliability = snapshot?.metrics.reliability ?? null;
-  const candidateTokens = snapshot?.metrics.candidateTokens ?? 0;
+  const candidateTokens = snapshot?.metrics.candidateTokens ?? null;
+  const candidateTokenSource =
+    snapshot?.metrics.candidateTokenSource ?? null;
   const totalClaims = snapshot?.metrics.totalClaims ?? 0;
   const claimsChallenged = snapshot?.metrics.claimsChallenged ?? 0;
   const openChallenges = snapshot?.metrics.openChallenges ?? 0;
@@ -220,18 +252,46 @@ export default function Home() {
           model: participant.model,
           status: participant.status,
           accent: ["blue", "lime", "amber"][index] ?? "blue",
-          tokens: `${(participant.tokens / 1000).toFixed(1)}k`,
-          note: `${participant.provider} · ${snapshot.phase}`,
+          tokens:
+            participant.tokens === null
+              ? "Unavailable"
+              : formatTokenCount(participant.tokens),
+          note: `${participant.provider} · ${
+            participant.tokenSource === "provider_reported"
+              ? "provider-reported"
+              : participant.tokenSource === "measured"
+                ? "host-measured"
+                : participant.tokenSource === "estimated"
+                  ? "estimated"
+                  : participant.tokenSource === "mixed"
+                    ? "mixed sources"
+                    : "usage unavailable"
+          } · ${snapshot.phase}`,
         }))
     : [];
   const displayedEvidence = snapshot?.evidence ?? [];
   const displayedRecommendations = snapshot?.recommendations ?? [];
-  const totalAuditTokens = snapshot
-    ? snapshot.participants.reduce(
-        (total, participant) => total + participant.tokens,
-        0,
-      )
-    : 0;
+  const tokenUsage = snapshot?.tokenUsage ?? null;
+  const totalAuditTokens = tokenUsage?.overall.totalTokens ?? null;
+  const candidateBudget = tokenUsage?.candidateBudget ?? null;
+  const cachedInputShare =
+    tokenUsage?.overall.inputTokens &&
+    tokenUsage.overall.cachedInputTokens !== null
+      ? Math.round(
+          (tokenUsage.overall.cachedInputTokens /
+            tokenUsage.overall.inputTokens) *
+            1000,
+        ) / 10
+      : null;
+  const tokenCompositionTotal = totalAuditTokens ?? 0;
+  const compositionWidth = (value: number | null) =>
+    tokenCompositionTotal > 0 && value !== null
+      ? `${(value / tokenCompositionTotal) * 100}%`
+      : "0%";
+  const candidateOverTarget =
+    candidateBudget?.targetMultiple !== null &&
+    candidateBudget?.targetMultiple !== undefined &&
+    candidateBudget.targetMultiple > 1;
   const candidateConfidence = snapshot?.metrics.candidateConfidence ?? 0;
   const verifiedAccuracy = snapshot?.metrics.verifiedAccuracy ?? 0;
   const confidenceGap = candidateConfidence - verifiedAccuracy;
@@ -444,13 +504,27 @@ export default function Home() {
                 </div>
               </article>
               <article className="metric-card">
-                <div className="metric-label">Candidate tokens</div>
-                <div className="metric-value">
-                  {(candidateTokens / 1000).toFixed(1)}
-                  <span>k</span>
+                <div className="metric-label">
+                  Candidate navigation tokens
                 </div>
-                <div className="metric-foot">
-                  Provider-reported when available
+                <div className="metric-value">
+                  {candidateTokens === null
+                    ? "—"
+                    : (candidateTokens / 1000).toFixed(1)}
+                  {candidateTokens === null ? null : <span>k</span>}
+                </div>
+                <div className="metric-foot token-metric-foot">
+                  <span>{formatTokenSource(candidateTokenSource)}</span>
+                  {candidateBudget?.efficiencyScore !== null &&
+                  candidateBudget?.efficiencyScore !== undefined ? (
+                    <strong
+                      className={
+                        candidateOverTarget ? "is-over" : "is-within"
+                      }
+                    >
+                      Efficiency {candidateBudget.efficiencyScore}/100
+                    </strong>
+                  ) : null}
                 </div>
               </article>
               <article className="metric-card">
@@ -509,12 +583,12 @@ export default function Home() {
                 <ol className="phase-list">
                   {phases.map((phase, index) => {
                     const phaseStatus =
-                      index < activePhaseIndex
+                      snapshot.status === "completed"
+                        ? "complete"
+                        : index < activePhaseIndex
                         ? "complete"
                         : index === activePhaseIndex
-                          ? snapshot.status === "completed"
-                            ? "complete"
-                            : "active"
+                          ? "active"
                           : "queued";
 
                     return (
@@ -586,14 +660,152 @@ export default function Home() {
 
                 <div className="token-stack">
                   <div className="token-stack-head">
-                    <span>Total audit consumption</span>
-                    <strong>
-                      {(totalAuditTokens / 1000).toFixed(1)}k tokens
-                    </strong>
+                    <span>Total processed tokens</span>
+                    <strong>{formatTokenCount(totalAuditTokens)}</strong>
                   </div>
+                  {tokenUsage ? (
+                    <>
+                      <div
+                        className="token-composition"
+                        aria-label="Cached input, uncached input, output, and unclassified token composition"
+                      >
+                        <span
+                          className="is-cached"
+                          style={{
+                            width: compositionWidth(
+                              tokenUsage.overall.cachedInputTokens,
+                            ),
+                          }}
+                        />
+                        <span
+                          className="is-uncached"
+                          style={{
+                            width: compositionWidth(
+                              tokenUsage.overall.uncachedInputTokens,
+                            ),
+                          }}
+                        />
+                        <span
+                          className="is-output"
+                          style={{
+                            width: compositionWidth(
+                              tokenUsage.overall.outputTokens,
+                            ),
+                          }}
+                        />
+                        <span
+                          className="is-unclassified"
+                          style={{
+                            width: compositionWidth(
+                              tokenUsage.overall.unclassifiedTokens,
+                            ),
+                          }}
+                        />
+                      </div>
+
+                      <div className="token-breakdown-grid">
+                        <div>
+                          <span>Cached input</span>
+                          <strong>
+                            {formatTokenCount(
+                              tokenUsage.overall.cachedInputTokens,
+                            )}
+                          </strong>
+                          <small>
+                            {cachedInputShare === null
+                              ? "Share unavailable"
+                              : `${cachedInputShare}% of input`}
+                          </small>
+                        </div>
+                        <div>
+                          <span>Uncached input</span>
+                          <strong>
+                            {formatTokenCount(
+                              tokenUsage.overall.uncachedInputTokens,
+                            )}
+                          </strong>
+                          <small>New context processed</small>
+                        </div>
+                        <div>
+                          <span>Output</span>
+                          <strong>
+                            {formatTokenCount(
+                              tokenUsage.overall.outputTokens,
+                            )}
+                          </strong>
+                          <small>Model-generated tokens</small>
+                        </div>
+                        <div>
+                          <span>Currency cost</span>
+                          <strong>Unavailable</strong>
+                          <small>No pricing snapshot</small>
+                        </div>
+                      </div>
+
+                      <div
+                        className={`token-budget-callout ${
+                          candidateOverTarget ? "is-over" : "is-within"
+                        }`}
+                      >
+                        <div>
+                          <span>Candidate navigation budget</span>
+                          <strong>
+                            {formatTokenCount(
+                              candidateBudget?.usedTokens ?? null,
+                            )}
+                            {candidateBudget?.targetTokens === null ||
+                            candidateBudget?.targetTokens === undefined
+                              ? ""
+                              : ` / ${formatTokenCount(
+                                  candidateBudget.targetTokens,
+                                )} target`}
+                          </strong>
+                        </div>
+                        <div>
+                          <strong>
+                            {candidateBudget?.targetMultiple === null ||
+                            candidateBudget?.targetMultiple === undefined
+                              ? "Not measured"
+                              : `${candidateBudget.targetMultiple.toFixed(
+                                  1,
+                                )}× target`}
+                          </strong>
+                          <span>
+                            {candidateBudget?.hardLimitTokens === null ||
+                            candidateBudget?.hardLimitTokens === undefined
+                              ? "No hard limit declared for this run"
+                              : candidateBudget.hardLimitExceeded
+                                ? `Hard limit ${formatTokenCount(
+                                    candidateBudget.hardLimitTokens,
+                                  )} exceeded`
+                                : `Within ${formatTokenCount(
+                                    candidateBudget.hardLimitTokens,
+                                  )} hard limit`}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="token-phase-list">
+                        <div className="token-phase-heading">
+                          <span>Audit phase</span>
+                          <span>Processed</span>
+                        </div>
+                        {tokenUsage.byPhase.map((phase) => (
+                          <div key={phase.phase}>
+                            <span>{tokenPhaseLabels[phase.phase]}</span>
+                            <strong>
+                              {formatTokenCount(phase.totalTokens)}
+                            </strong>
+                          </div>
+                        ))}
+                      </div>
+                    </>
+                  ) : null}
                   <p className="live-token-note">
-                    Provider-reported and estimated measurements remain
-                    separate in the stored report.
+                    Cached input is included in processed tokens, but is shown
+                    separately because its provider price can differ. Dollar
+                    cost remains unavailable without a versioned pricing
+                    snapshot.
                   </p>
                 </div>
               </article>
@@ -687,10 +899,18 @@ export default function Home() {
               <section className="panel recommendation-panel">
               <div className="panel-heading">
                 <div>
-                  <span className="section-kicker">Early signal</span>
+                  <span className="section-kicker">
+                    {snapshot.status === "completed"
+                      ? "Verified findings"
+                      : "Early signal"}
+                  </span>
                   <h2>Likely highest-impact improvements</h2>
                 </div>
-                <span className="muted-action">Final after scoring</span>
+                <span className="muted-action">
+                  {snapshot.status === "completed"
+                    ? "Scored report"
+                    : "Final after scoring"}
+                </span>
               </div>
               <div className="recommendation-list">
                 {displayedRecommendations.length === 0 ? (
@@ -796,10 +1016,7 @@ export default function Home() {
                     <span>Tokens</span>
                   </div>
                   {history.map((run) => {
-                    const tokens = run.participants.reduce(
-                      (total, participant) => total + participant.tokens,
-                      0,
-                    );
+                    const tokens = run.tokenUsage.overall.totalTokens;
                     return (
                       <div className="history-row" role="row" key={run.id}>
                         <span>
@@ -819,7 +1036,7 @@ export default function Home() {
                             ? "—"
                             : `${run.metrics.reliability}%`}
                         </span>
-                        <span>{(tokens / 1000).toFixed(1)}k</span>
+                        <span>{formatTokenCount(tokens)}</span>
                       </div>
                     );
                   })}

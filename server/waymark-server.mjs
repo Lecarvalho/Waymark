@@ -13,6 +13,13 @@ import { hashScoreInput, scoreAudit } from "../src/scoring/index.mjs";
 
 const DEFAULT_HOST = "127.0.0.1";
 const DEFAULT_PORT = 4318;
+const TOKEN_PHASES = [
+  "candidate_navigation",
+  "independent_validation",
+  "orchestration",
+  "deterministic_verification",
+  "report_generation",
+];
 
 function json(response, status, value) {
   response.writeHead(status, {
@@ -45,6 +52,67 @@ function lastDefinedEvent(events, predicate) {
 
 function numberOrNull(value) {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function tokenSource(measurements) {
+  if (measurements.length === 0) return null;
+  const sources = new Set(measurements.map((measurement) => measurement.source));
+  return sources.size === 1 ? measurements[0].source : "mixed";
+}
+
+function summarizeTokens(measurements) {
+  if (measurements.length === 0) {
+    return {
+      totalTokens: null,
+      inputTokens: null,
+      cachedInputTokens: null,
+      uncachedInputTokens: null,
+      outputTokens: null,
+      unclassifiedTokens: null,
+      cacheCreationTokens: null,
+      source: null,
+    };
+  }
+
+  const totalTokens = measurements.reduce(
+    (total, measurement) => total + measurement.totalTokens,
+    0,
+  );
+  const inputTokens = measurements.reduce(
+    (total, measurement) => total + measurement.inputTokens,
+    0,
+  );
+  const cachedInputTokens = measurements.reduce(
+    (total, measurement) => total + measurement.cachedInputTokens,
+    0,
+  );
+  const outputTokens = measurements.reduce(
+    (total, measurement) => total + measurement.outputTokens,
+    0,
+  );
+
+  return {
+    totalTokens,
+    inputTokens,
+    cachedInputTokens,
+    uncachedInputTokens: Math.max(0, inputTokens - cachedInputTokens),
+    outputTokens,
+    unclassifiedTokens: Math.max(
+      0,
+      totalTokens - inputTokens - outputTokens,
+    ),
+    cacheCreationTokens: measurements.reduce(
+      (total, measurement) => total + measurement.cacheCreationTokens,
+      0,
+    ),
+    source: tokenSource(measurements),
+  };
+}
+
+function positiveNumberOrNull(value) {
+  return typeof value === "number" && Number.isFinite(value) && value > 0
+    ? value
+    : null;
 }
 
 function verifyAuthoritativeScore(event) {
@@ -101,12 +169,29 @@ export function toRunSnapshot(report, runCount) {
     latestVerificationByClaim.set(verification.claimId, verification);
   }
   const tokensByActor = new Map();
+  const tokenMeasurementsByActor = new Map();
   for (const token of report.tokens) {
     tokensByActor.set(
       token.actor,
       (tokensByActor.get(token.actor) ?? 0) + token.totalTokens,
     );
+    const measurements = tokenMeasurementsByActor.get(token.actor) ?? [];
+    measurements.push(token);
+    tokenMeasurementsByActor.set(token.actor, measurements);
   }
+  const candidateNavigationMeasurements = report.tokens.filter(
+    (token) => token.phase === "candidate_navigation",
+  );
+  const overallTokenUsage = summarizeTokens(report.tokens);
+  const tokenUsageByPhase = TOKEN_PHASES.map((phaseName) => ({
+    phase: phaseName,
+    ...summarizeTokens(
+      report.tokens.filter((token) => token.phase === phaseName),
+    ),
+  }));
+  const candidateNavigationUsage = summarizeTokens(
+    candidateNavigationMeasurements,
+  );
   const resolvedClaims =
     aggregates.verifiedClaimCount + aggregates.contradictedClaimCount;
   const candidateConfidence =
@@ -129,23 +214,43 @@ export function toRunSnapshot(report, runCount) {
         ? "completed"
         : "failed";
   const progress =
-    numberOrNull(progressEvent?.payload?.progress) ??
-    (status === "completed" ? 100 : 0);
+    status === "completed"
+      ? 100
+      : (numberOrNull(progressEvent?.payload?.progress) ?? 0);
   const phase =
-    typeof progressEvent?.payload?.phase === "string"
-      ? progressEvent.payload.phase
-      : status === "completed"
-        ? "Complete"
+    status === "completed"
+      ? "Complete"
+      : typeof progressEvent?.payload?.phase === "string"
+        ? progressEvent.payload.phase
         : "Discovery";
   const overall =
     numberOrNull(score?.overall?.score);
   const reliability =
     numberOrNull(score?.reliability?.score);
+  const configuredCandidateBudget =
+    run.runConditions?.tokenBudgets?.candidate_navigation;
+  const candidateTargetTokens =
+    positiveNumberOrNull(score?.tokenEfficiency?.target) ??
+    positiveNumberOrNull(configuredCandidateBudget?.targetTokens);
+  const candidateHardLimitTokens = positiveNumberOrNull(
+    configuredCandidateBudget?.hardLimitTokens,
+  );
+  const candidateUsedTokens = candidateNavigationUsage.totalTokens;
+  const candidateTargetMultiple =
+    candidateUsedTokens === null || candidateTargetTokens === null
+      ? null
+      : Math.round((candidateUsedTokens / candidateTargetTokens) * 100) / 100;
+  const candidateHardLimitExceeded =
+    candidateUsedTokens === null || candidateHardLimitTokens === null
+      ? null
+      : candidateUsedTokens > candidateHardLimitTokens;
   const latestEvent = events.at(-1);
   const latestEventText =
     typeof latestEvent?.payload?.message === "string"
       ? latestEvent.payload.message
-      : latestEvent?.type ?? "Run created";
+      : latestEvent?.type === "run.finished"
+        ? "Audit completed and saved."
+        : latestEvent?.type ?? "Run created";
 
   return {
     id: run.id,
@@ -181,7 +286,12 @@ export function toRunSnapshot(report, runCount) {
       provider: participant.provider,
       model: participant.model,
       status: status === "running" ? "Active" : "Complete",
-      tokens: tokensByActor.get(participant.role) ?? 0,
+      tokens: tokensByActor.has(participant.role)
+        ? tokensByActor.get(participant.role)
+        : null,
+      tokenSource: tokenSource(
+        tokenMeasurementsByActor.get(participant.role) ?? [],
+      ),
     })),
     evidence: report.claims.map((claim) => {
       const verification = latestVerificationByClaim.get(claim.id);
@@ -231,11 +341,36 @@ export function toRunSnapshot(report, runCount) {
             ? event.payload.cost
             : "Unestimated",
       })),
+    tokenUsage: {
+      overall: overallTokenUsage,
+      byPhase: tokenUsageByPhase,
+      candidateBudget: {
+        usedTokens: candidateUsedTokens,
+        targetTokens: candidateTargetTokens,
+        hardLimitTokens: candidateHardLimitTokens,
+        targetMultiple: candidateTargetMultiple,
+        hardLimitExceeded: candidateHardLimitExceeded,
+        efficiencyScore: numberOrNull(score?.tokenEfficiency?.score),
+        eligible:
+          typeof score?.tokenEfficiency?.eligible === "boolean"
+            ? score.tokenEfficiency.eligible
+            : null,
+      },
+      monetaryCost: {
+        status: "unavailable",
+        amount: null,
+        currency: null,
+        reason: "No versioned provider pricing snapshot was recorded.",
+      },
+    },
     metrics: {
       navigability: overall,
       reliability,
       candidateTokens:
-        aggregates.tokensByPhase.candidate_navigation ?? 0,
+        candidateNavigationMeasurements.length === 0
+          ? null
+          : aggregates.tokensByPhase.candidate_navigation,
+      candidateTokenSource: tokenSource(candidateNavigationMeasurements),
       claimsChallenged: challengedClaimIds.size,
       totalClaims: aggregates.claimCount,
       openChallenges: Math.max(

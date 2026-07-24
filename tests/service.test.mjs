@@ -26,7 +26,15 @@ test("local service exposes a normalized latest-run snapshot", async (t) => {
       { role: "independent", provider: "openai", model: "research-model" },
     ],
     toolPolicy: { target: "read-only" },
-    runConditions: { agentHost: "Codex" },
+    runConditions: {
+      agentHost: "Codex",
+      tokenBudgets: {
+        candidate_navigation: {
+          targetTokens: 12000,
+          hardLimitTokens: 24000,
+        },
+      },
+    },
     protocolVersion: "1.0.0",
     rubricVersion: "1.0.0",
   });
@@ -43,6 +51,10 @@ test("local service exposes a normalized latest-run snapshot", async (t) => {
     source: "provider_reported",
     provider: "openai",
     model: "candidate-model",
+    inputTokens: 47000,
+    cachedInputTokens: 40000,
+    cacheCreationTokens: 500,
+    outputTokens: 1200,
     totalTokens: 48200,
   });
   store.close();
@@ -64,7 +76,47 @@ test("local service exposes a normalized latest-run snapshot", async (t) => {
   assert.equal(snapshot.progress, 68);
   assert.equal(snapshot.latestEvent, "phase.changed");
   assert.equal(snapshot.metrics.candidateTokens, 48200);
+  assert.equal(snapshot.metrics.candidateTokenSource, "provider_reported");
+  assert.deepEqual(snapshot.tokenUsage.overall, {
+    totalTokens: 48200,
+    inputTokens: 47000,
+    cachedInputTokens: 40000,
+    uncachedInputTokens: 7000,
+    outputTokens: 1200,
+    unclassifiedTokens: 0,
+    cacheCreationTokens: 500,
+    source: "provider_reported",
+  });
+  assert.deepEqual(snapshot.tokenUsage.candidateBudget, {
+    usedTokens: 48200,
+    targetTokens: 12000,
+    hardLimitTokens: 24000,
+    targetMultiple: 4.02,
+    hardLimitExceeded: true,
+    efficiencyScore: null,
+    eligible: null,
+  });
+  assert.equal(
+    snapshot.tokenUsage.byPhase.find(
+      ({ phase }) => phase === "candidate_navigation",
+    ).totalTokens,
+    48200,
+  );
+  assert.equal(snapshot.tokenUsage.monetaryCost.status, "unavailable");
   assert.equal(snapshot.models.candidate, "candidate-model");
+  assert.equal(
+    snapshot.participants.find(({ role }) => role === "candidate").tokens,
+    48200,
+  );
+  assert.equal(
+    snapshot.participants.find(({ role }) => role === "independent").tokens,
+    null,
+  );
+  assert.equal(
+    snapshot.participants.find(({ role }) => role === "independent")
+      .tokenSource,
+    null,
+  );
 
   const summariesResponse = await fetch(`${service.url}/api/runs/summaries`);
   assert.equal(summariesResponse.status, 200);

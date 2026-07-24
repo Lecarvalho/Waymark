@@ -14,7 +14,7 @@ import {
   validateTokenMeasurement,
 } from "../protocol/validation.mjs";
 
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 export const DEFAULT_DATABASE_PATH = ".waymark/waymark.sqlite";
 
 const RESERVED_ACTOR_PATTERN = /^waymark(?::|$)/;
@@ -28,7 +28,7 @@ const TOKEN_PHASES = [
   "report_generation",
 ];
 
-const TOKEN_SOURCES = ["provider_reported", "estimated"];
+const TOKEN_SOURCES = ["provider_reported", "measured", "estimated"];
 
 export class AuditStoreError extends Error {
   constructor(code, message, details = undefined) {
@@ -237,7 +237,7 @@ export function bootstrapDatabase(database) {
         )
       ),
       source TEXT NOT NULL CHECK (
-        source IN ('provider_reported', 'estimated')
+        source IN ('provider_reported', 'measured', 'estimated')
       ),
       provider TEXT,
       model TEXT,
@@ -315,7 +315,95 @@ export function bootstrapDatabase(database) {
     }
   }
 
+  if (previousVersion > 0 && previousVersion < 3) {
+    database.exec("BEGIN IMMEDIATE");
+    try {
+      database.exec(`
+        DROP TRIGGER IF EXISTS token_measurements_no_update;
+        DROP TRIGGER IF EXISTS token_measurements_no_delete;
+        DROP INDEX IF EXISTS token_measurements_run;
+
+        CREATE TABLE token_measurements_v3 (
+          id TEXT PRIMARY KEY,
+          run_id TEXT NOT NULL REFERENCES audit_runs(id),
+          event_id TEXT REFERENCES audit_events(id),
+          actor TEXT NOT NULL,
+          phase TEXT NOT NULL CHECK (
+            phase IN (
+              'candidate_navigation',
+              'independent_validation',
+              'orchestration',
+              'deterministic_verification',
+              'report_generation'
+            )
+          ),
+          source TEXT NOT NULL CHECK (
+            source IN ('provider_reported', 'measured', 'estimated')
+          ),
+          provider TEXT,
+          model TEXT,
+          input_tokens INTEGER NOT NULL CHECK (input_tokens >= 0),
+          output_tokens INTEGER NOT NULL CHECK (output_tokens >= 0),
+          cached_input_tokens INTEGER NOT NULL CHECK (cached_input_tokens >= 0),
+          cache_creation_tokens INTEGER NOT NULL CHECK (cache_creation_tokens >= 0),
+          total_tokens INTEGER NOT NULL CHECK (
+            total_tokens >= input_tokens + output_tokens
+          ),
+          measured_at TEXT NOT NULL
+        ) STRICT;
+
+        INSERT INTO token_measurements_v3 (
+          id,
+          run_id,
+          event_id,
+          actor,
+          phase,
+          source,
+          provider,
+          model,
+          input_tokens,
+          output_tokens,
+          cached_input_tokens,
+          cache_creation_tokens,
+          total_tokens,
+          measured_at
+        )
+        SELECT
+          id,
+          run_id,
+          event_id,
+          actor,
+          phase,
+          source,
+          provider,
+          model,
+          input_tokens,
+          output_tokens,
+          cached_input_tokens,
+          cache_creation_tokens,
+          total_tokens,
+          measured_at
+        FROM token_measurements;
+
+        DROP TABLE token_measurements;
+        ALTER TABLE token_measurements_v3 RENAME TO token_measurements;
+      `);
+      database.exec("COMMIT");
+    } catch (error) {
+      database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
   database.exec(`
+    CREATE INDEX IF NOT EXISTS token_measurements_run
+      ON token_measurements (run_id, measured_at, id);
+    CREATE TRIGGER IF NOT EXISTS token_measurements_no_update
+      BEFORE UPDATE ON token_measurements
+      BEGIN SELECT RAISE(ABORT, 'token_measurements are append-only'); END;
+    CREATE TRIGGER IF NOT EXISTS token_measurements_no_delete
+      BEFORE DELETE ON token_measurements
+      BEGIN SELECT RAISE(ABORT, 'token_measurements are append-only'); END;
     CREATE UNIQUE INDEX IF NOT EXISTS verification_records_run_sequence
       ON verification_records (run_id, sequence);
     CREATE TRIGGER IF NOT EXISTS verification_records_no_update

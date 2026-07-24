@@ -208,7 +208,15 @@ function assertTokens(tokens) {
   ]) {
     assertObject(tokens[field], `tokens.${field}`);
     assertNonNegativeInteger(tokens[field].count, `tokens.${field}.count`);
-    if (!["provider_reported", "estimated"].includes(tokens[field].source)) {
+    if (
+      ![
+        "provider_reported",
+        "measured",
+        "estimated",
+        "mixed",
+        "unavailable",
+      ].includes(tokens[field].source)
+    ) {
       throw new RangeError(`tokens.${field}.source is not supported`);
     }
   }

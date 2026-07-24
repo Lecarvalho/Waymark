@@ -40,9 +40,16 @@ service. Never present fallback values as live measurements.
    identity, tool policy, rubric version, and run conditions with every audit.
 8. Separate candidate navigation tokens from validation and report-generation
    tokens.
-9. Provider-reported and estimated token values must be labeled distinctly.
+9. Provider-reported, host-measured, estimated, and unavailable token values
+   must be labeled distinctly.
 10. The target repository is read-only. Use an explicitly disposable worktree
     for any future implementation probe.
+11. Audited model roles run in fresh processes with assignment-only context;
+    never inherit the controlling development conversation.
+12. Every run declares phase token targets and hard limits. A hard-limit
+    overrun is visible and disqualifies the run as a successful benchmark.
+13. Count only role-process work in the audit. Waymark development, debugging,
+    UI verification, and operator conversation belong outside the run.
 
 ## Stack
 

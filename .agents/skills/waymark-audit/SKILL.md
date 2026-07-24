@@ -13,18 +13,26 @@ the default journal is not appropriate.
 
 1. Resolve the target's immutable repository identity and commit without changing
    it. Create a run with the task, candidate and orchestrator identities, declared
-   tool policy, run conditions, and protocol/rubric versions.
+   tool policy, fresh-process execution policy, phase token budgets, run
+   conditions, and protocol/rubric versions.
 2. Treat the target repository as read-only. Do not edit, install dependencies,
    format files, generate artifacts, or run commands that write into it. Use only
    safe read-only probes. A future implementation probe requires an explicitly
    disposable worktree outside the target.
-3. Dispatch a candidate and an independent researcher in parallel when agent
-   concurrency is available. Give both the same target commit and task. Do not
-   reveal one investigation to the other before their initial findings.
+3. Dispatch a candidate and an independent researcher in parallel using fresh,
+   non-resumed provider processes with assignment-only context. Never use
+   subagents forked from the controlling conversation as audited roles. Give
+   both the same target commit and task. Do not reveal one investigation to the
+   other before their initial findings.
 4. Append concise events for searches, files opened, dead ends, rules found,
    ownership/dependency answers, consumer discovery, verification workflows,
    interruptions, and failures. Record each actor's tokens separately with the
-   correct phase and `provider_reported` or `estimated` source.
+   correct phase and `provider_reported`, `measured`, or `estimated` source.
+   Prefer host-side telemetry such as Codex JSONL `turn.completed.usage` or
+   persisted rollout token counters over asking an agent to report its usage.
+   Emit progress events during investigation rather than buffering the trace
+   until an agent finishes. Count only the audited role process: development,
+   debugging, UI checks, and operator conversation never enter the run.
 5. Submit the candidate's material findings as claims with exact repository-relative
    citations, confidence, and criticality. The independent researcher challenges
    missing consumers, hidden dependencies, unsupported certainty, and conflicting
@@ -46,8 +54,10 @@ the default journal is not appropriate.
    emit the authoritative score. Read the stored report and summarize evidence,
    caps, confidence gap, and reliability.
 
-If orchestration cannot continue, append a failure event and finish the run as
-`failed` or `cancelled`; do not manufacture missing evidence.
+If a phase exceeds its declared hard token limit, append `budget.exceeded` with
+the measured breakdown and finish the run as failed or calibration-ineligible.
+If orchestration otherwise cannot continue, append a failure event and finish
+the run as `failed` or `cancelled`; do not manufacture missing evidence.
 
 ## Authority boundary
 

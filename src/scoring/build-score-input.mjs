@@ -12,7 +12,17 @@ const SUPPORTED_METHODS = new Set([
 ]);
 const VERDICTS = new Set(["verified", "contradicted", "unverified"]);
 const CRITICALITIES = new Set(["critical", "high", "medium", "low"]);
-const TOKEN_SOURCES = new Set(["provider_reported", "estimated"]);
+const CITATION_STATUSES = new Set(["valid", "invalid", "missing"]);
+const INDEPENDENT_ASSESSMENTS = new Set([
+  "agree",
+  "disagree",
+  "not_checked",
+]);
+const TOKEN_SOURCES = new Set([
+  "provider_reported",
+  "measured",
+  "estimated",
+]);
 
 function assertObject(value, path) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -63,11 +73,30 @@ function selectIndependentAssessment(verifications, selected) {
     .sort(compareRecords)
     .at(-1);
 
-  if (!independent || !selected) return "not_checked";
-  return independent.verdict === selected.verdict ? "agree" : "disagree";
+  if (independent && selected) {
+    return independent.verdict === selected.verdict ? "agree" : "disagree";
+  }
+
+  const assessment = selected?.evidence?.independentAssessment;
+  if (assessment === undefined) return "not_checked";
+  if (!INDEPENDENT_ASSESSMENTS.has(assessment)) {
+    throw new RangeError(
+      `verification evidence independentAssessment is not supported`,
+    );
+  }
+  return assessment;
 }
 
 function citationStatus(claim, selected) {
+  const annotatedStatus = selected?.evidence?.citationStatus;
+  if (annotatedStatus !== undefined) {
+    if (!CITATION_STATUSES.has(annotatedStatus)) {
+      throw new RangeError(
+        `verification evidence citationStatus is not supported`,
+      );
+    }
+    return annotatedStatus;
+  }
   if (claim.citations.length === 0) return "missing";
   if (!selected || selected.verdict === "unverified") return "missing";
   return selected.verdict === "verified" ? "valid" : "invalid";
@@ -168,15 +197,15 @@ function aggregateTokens(report, phases) {
     }
     return total + token.totalTokens;
   }, 0);
+  const sources = new Set(measurements.map((measurement) => measurement.source));
   return {
     count,
     source:
-      measurements.length > 0 &&
-      measurements.every(
-        (measurement) => measurement.source === "provider_reported",
-      )
-        ? "provider_reported"
-        : "estimated",
+      measurements.length === 0
+        ? "unavailable"
+        : sources.size === 1
+          ? measurements[0].source
+          : "mixed",
   };
 }
 
