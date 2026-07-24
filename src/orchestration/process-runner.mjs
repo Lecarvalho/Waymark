@@ -4,6 +4,7 @@ import process from "node:process";
 
 import {
   createInvestigationAssignments,
+  createOrchestratorAssignment,
   renderAssignmentPrompt,
 } from "./templates.mjs";
 
@@ -20,9 +21,13 @@ export class OrchestrationError extends Error {
 }
 
 function phaseForRole(role) {
-  return role === "candidate"
-    ? "candidate_navigation"
-    : "independent_validation";
+  if (role === "candidate") return "candidate_navigation";
+  if (role === "independent") return "independent_validation";
+  return "orchestration";
+}
+
+function lifecycleForRole(role) {
+  return role === "orchestrator" ? "orchestration" : "investigation";
 }
 
 function boundedResult(value) {
@@ -130,6 +135,53 @@ function findAdapter(adapters, participant) {
   return adapters.find((adapter) => adapter.supports(participant));
 }
 
+function stringList(value) {
+  return Array.isArray(value)
+    ? value.filter((item) => typeof item === "string" && item.trim() !== "")
+    : [];
+}
+
+function assignmentConstraints(run, role) {
+  const constraints = [
+    ...stringList(run.toolPolicy.allowed).map(
+      (item) => `Allowed tool action: ${item}`,
+    ),
+    ...stringList(run.toolPolicy.forbidden).map(
+      (item) => `Forbidden tool action: ${item}`,
+    ),
+  ];
+  const execution = run.runConditions.execution;
+  if (execution && typeof execution === "object" && !Array.isArray(execution)) {
+    const shellCommandBudget = execution.shellCommandBudget;
+    const roleBudget =
+      shellCommandBudget &&
+      typeof shellCommandBudget === "object" &&
+      !Array.isArray(shellCommandBudget)
+        ? shellCommandBudget[role]
+        : undefined;
+    if (Number.isSafeInteger(roleBudget) && roleBudget >= 0) {
+      constraints.push(`Use at most ${roleBudget} shell commands.`);
+    }
+    if (
+      Number.isSafeInteger(execution.searchResultLimit) &&
+      execution.searchResultLimit > 0
+    ) {
+      constraints.push(
+        `Limit each discovery search to ${execution.searchResultLimit} results.`,
+      );
+    }
+    if (
+      Number.isSafeInteger(execution.fileReadLineLimit) &&
+      execution.fileReadLineLimit > 0
+    ) {
+      constraints.push(
+        `Read at most ${execution.fileReadLineLimit} lines from a file at once.`,
+      );
+    }
+  }
+  return constraints;
+}
+
 async function executeAssignment({
   store,
   assignment,
@@ -139,15 +191,17 @@ async function executeAssignment({
 }) {
   const { role, participant, tokenBudget } = assignment;
   const phase = phaseForRole(role);
+  const lifecycle = lifecycleForRole(role);
   const adapter = findAdapter(adapters, participant);
   store.appendEvent({
     runId: assignment.runId,
     actor: role,
-    type: "investigation.started",
+    type: `${lifecycle}.started`,
     payload: {
       role,
       provider: participant.provider,
       model: participant.model,
+      reasoningEffort: assignment.reasoningEffort ?? null,
       executionPolicy: assignment.executionPolicy,
       tokenBudget,
     },
@@ -161,7 +215,7 @@ async function executeAssignment({
     store.appendEvent({
       runId: assignment.runId,
       actor: role,
-      type: "investigation.failed",
+      type: `${lifecycle}.failed`,
       payload: failure,
     });
     return { role, status: "failed", failure };
@@ -217,7 +271,7 @@ async function executeAssignment({
     store.appendEvent({
       runId: assignment.runId,
       actor: role,
-      type: "investigation.failed",
+      type: `${lifecycle}.failed`,
       payload: failure,
     });
     return { role, status: "failed", failure };
@@ -266,7 +320,7 @@ async function executeAssignment({
     store.appendEvent({
       runId: assignment.runId,
       actor: role,
-      type: "investigation.failed",
+      type: `${lifecycle}.failed`,
       payload: failure,
     });
     return { role, status: "budget_exceeded", failure };
@@ -277,7 +331,7 @@ async function executeAssignment({
     store.appendEvent({
       runId: assignment.runId,
       actor: role,
-      type: "investigation.failed",
+      type: `${lifecycle}.failed`,
       payload: failure,
     });
     return { role, status: "cancelled", failure };
@@ -293,7 +347,7 @@ async function executeAssignment({
     store.appendEvent({
       runId: assignment.runId,
       actor: role,
-      type: "investigation.failed",
+      type: `${lifecycle}.failed`,
       payload: failure,
     });
     return { role, status: "failed", failure };
@@ -304,7 +358,7 @@ async function executeAssignment({
     store.appendEvent({
       runId: assignment.runId,
       actor: role,
-      type: "investigation.failed",
+      type: `${lifecycle}.failed`,
       payload: failure,
     });
     return { role, status: "failed", failure };
@@ -321,10 +375,199 @@ async function executeAssignment({
   store.appendEvent({
     runId: assignment.runId,
     actor: role,
-    type: "investigation.completed",
+    type: `${lifecycle}.completed`,
     payload: completion,
   });
   return { role, status: "completed", completion };
+}
+
+function normalizeCitation(citation) {
+  return {
+    path: citation.path,
+    ...(Number.isSafeInteger(citation.startLine)
+      ? { startLine: citation.startLine }
+      : {}),
+    ...(Number.isSafeInteger(citation.endLine)
+      ? { endLine: citation.endLine }
+      : {}),
+    ...(typeof citation.symbol === "string" && citation.symbol.trim() !== ""
+      ? { symbol: citation.symbol }
+      : {}),
+  };
+}
+
+function importCandidateClaims(store, runId, candidateResult) {
+  const findings = candidateResult?.findings;
+  if (!Array.isArray(findings) || findings.length === 0) {
+    throw new OrchestrationError(
+      "CANDIDATE_FINDINGS_REQUIRED",
+      "The candidate process returned no findings to verify",
+    );
+  }
+  return findings.map((finding) =>
+    store.submitClaim({
+      runId,
+      subject: finding.subject,
+      assertion: finding.assertion,
+      claimant: "candidate",
+      citations: Array.isArray(finding.citations)
+        ? finding.citations.map(normalizeCitation)
+        : [],
+      confidence: finding.confidence,
+      criticality: finding.criticality,
+    }),
+  );
+}
+
+function assertKnownClaim(claimIds, claimId, path) {
+  if (!claimIds.has(claimId)) {
+    throw new OrchestrationError(
+      "ORCHESTRATOR_CLAIM_NOT_FOUND",
+      `${path} references unknown claim ${claimId}`,
+    );
+  }
+}
+
+function persistOrchestrationOutput(store, runId, output, claims) {
+  if (
+    output === null ||
+    typeof output !== "object" ||
+    Array.isArray(output)
+  ) {
+    throw new OrchestrationError(
+      "ORCHESTRATOR_RESULT_INVALID",
+      "The orchestrator result must be an object",
+    );
+  }
+  const claimIds = new Set(claims.map(({ id }) => id));
+  const challenges = Array.isArray(output.challenges) ? output.challenges : [];
+  const verificationRequests = Array.isArray(output.verificationRequests)
+    ? output.verificationRequests
+    : [];
+  const recommendations = Array.isArray(output.recommendations)
+    ? output.recommendations
+    : [];
+  if (recommendations.length === 0) {
+    throw new OrchestrationError(
+      "ORCHESTRATOR_RECOMMENDATIONS_REQUIRED",
+      "The orchestrator returned no evidence-linked recommendations",
+    );
+  }
+
+  for (const [index, challenge] of challenges.entries()) {
+    assertKnownClaim(
+      claimIds,
+      challenge.claimId,
+      `challenges[${index}].claimId`,
+    );
+    store.appendEvent({
+      runId,
+      actor: "orchestrator",
+      type: "challenge.raised",
+      payload: {
+        challengeId: challenge.challengeId,
+        claimId: challenge.claimId,
+        assessment: challenge.assessment,
+        issue: challenge.issue,
+      },
+    });
+    if (challenge.disposition !== "unresolved") {
+      store.appendEvent({
+        runId,
+        actor: "orchestrator",
+        type: "challenge.resolved",
+        payload: {
+          challengeId: challenge.challengeId,
+          claimId: challenge.claimId,
+          resolution: challenge.resolution,
+          disposition: challenge.disposition,
+        },
+      });
+    }
+  }
+
+  for (const [index, request] of verificationRequests.entries()) {
+    assertKnownClaim(
+      claimIds,
+      request.claimId,
+      `verificationRequests[${index}].claimId`,
+    );
+    store.appendEvent({
+      runId,
+      actor: "orchestrator",
+      type: "verification.requested",
+      payload: request,
+    });
+  }
+
+  for (const [index, recommendation] of recommendations.entries()) {
+    for (const claimId of recommendation.claimIds ?? []) {
+      assertKnownClaim(
+        claimIds,
+        claimId,
+        `recommendations[${index}].claimIds`,
+      );
+    }
+  }
+  const draft = store.appendEvent({
+    runId,
+    actor: "orchestrator",
+    type: "recommendations.drafted",
+    payload: {
+      scope: "repository_navigation",
+      method: "fresh_orchestrator_evidence_review",
+      recommendations,
+    },
+  });
+  return {
+    challengeCount: challenges.length,
+    verificationRequestCount: verificationRequests.length,
+    recommendationCount: recommendations.length,
+    draftEventId: draft.id,
+  };
+}
+
+export function finalizeDraftRecommendations({ store, runId }) {
+  const report = store.readReport(runId);
+  const draft = report.events
+    .filter(
+      (event) =>
+        event.actor === "orchestrator" &&
+        event.type === "recommendations.drafted" &&
+        event.payload?.scope === "repository_navigation" &&
+        Array.isArray(event.payload?.recommendations),
+    )
+    .at(-1);
+  if (!draft) {
+    throw new OrchestrationError(
+      "RECOMMENDATION_DRAFT_REQUIRED",
+      `Run ${runId} has no fresh-orchestrator recommendation draft`,
+    );
+  }
+  const existing = report.events.find(
+    (event) =>
+      event.sequence > draft.sequence &&
+      event.actor === "waymark:reporter" &&
+      event.type === "report.recommendations",
+  );
+  if (existing) return existing;
+  const recommendationEvent = store.appendReportRecommendations(runId, {
+    scope: "repository_navigation",
+    recommendations: draft.payload.recommendations,
+  });
+  if (report.run.status === "active") {
+    store.appendEvent({
+      runId,
+      actor: "workflow",
+      type: "phase.changed",
+      payload: {
+        phase: "report_generation",
+        progress: 90,
+        message: "Verified evidence-linked recommendations finalized",
+      },
+    });
+  }
+  return recommendationEvent;
 }
 
 export async function runInvestigationPhase({
@@ -347,6 +590,17 @@ export async function runInvestigationPhase({
       `Run ${runId} is ${run.status}; investigation requires an active run`,
     );
   }
+  const priorLaunch = store
+    .readEvents(runId, { limit: 10_000 })
+    .find(({ type }) =>
+      ["investigation.started", "orchestration.started"].includes(type),
+    );
+  if (priorLaunch) {
+    throw new OrchestrationError(
+      "ORCHESTRATION_ALREADY_STARTED",
+      `Run ${runId} already launched audited roles at event ${priorLaunch.sequence}`,
+    );
+  }
   const candidate = run.participants.find(({ role }) => role === "candidate");
   const independent =
     run.participants.find(({ role }) => role === "independent") ?? null;
@@ -356,15 +610,36 @@ export async function runInvestigationPhase({
       `Run ${runId} has no candidate participant`,
     );
   }
+  const orchestrator = run.participants.find(
+    ({ role }) => role === "orchestrator",
+  );
+  if (!orchestrator) {
+    throw new OrchestrationError(
+      "ORCHESTRATOR_REQUIRED",
+      `Run ${runId} has no orchestrator participant`,
+    );
+  }
+  const target = {
+    path: run.targetRepositoryPath,
+    identity: run.repositoryIdentity,
+    commitSha: run.commitSha,
+    readOnly: true,
+  };
+
+  store.appendEvent({
+    runId,
+    actor: "workflow",
+    type: "phase.changed",
+    payload: {
+      phase: "candidate_navigation",
+      progress: 5,
+      message: "Fresh candidate and independent investigations starting",
+    },
+  });
 
   const assignments = createInvestigationAssignments({
     runId,
-    target: {
-      path: run.targetRepositoryPath,
-      identity: run.repositoryIdentity,
-      commitSha: run.commitSha,
-      readOnly: true,
-    },
+    target,
     task: run.task,
     candidate,
     capabilities: {
@@ -372,6 +647,14 @@ export async function runInvestigationPhase({
       independentResearcher: independent,
     },
     tokenBudgets: run.runConditions.tokenBudgets,
+    reasoningEfforts: {
+      candidate: run.runConditions.candidateReasoningEffort,
+      independent: run.runConditions.independentReasoningEffort,
+    },
+    additionalConstraints: {
+      candidate: assignmentConstraints(run, "candidate"),
+      independent: assignmentConstraints(run, "independent"),
+    },
   });
 
   const results = await Promise.all(
@@ -406,12 +689,118 @@ export async function runInvestigationPhase({
 
   store.appendEvent({
     runId,
-    actor: "orchestrator",
+    actor: "workflow",
     type: "phase.changed",
     payload: {
-      phase: "cross_examination",
+      phase: "orchestration",
+      progress: 40,
       message: "Fresh candidate and independent investigations completed",
     },
   });
-  return { runId, status: "active", results };
+
+  let claims;
+  try {
+    const candidateResult = results.find(({ role }) => role === "candidate")
+      ?.completion?.result;
+    claims = importCandidateClaims(store, runId, candidateResult);
+  } catch (error) {
+    const failure = {
+      reason: "candidate_evidence_import_failed",
+      error: processFailure(error),
+      calibrationEligible: false,
+    };
+    store.appendEvent({
+      runId,
+      actor: "orchestrator",
+      type: "orchestration.failed",
+      payload: failure,
+    });
+    store.finishRun(runId, {
+      status: "failed",
+      summary: { stage: "candidate_evidence_import", ...failure },
+    });
+    return { runId, status: "failed", results, failure };
+  }
+
+  const investigationContext = Object.fromEntries(
+    results.map(({ role, completion }) => [role, completion?.result ?? null]),
+  );
+  const orchestratorAssignment = createOrchestratorAssignment({
+    runId,
+    target,
+    task: run.task,
+    orchestrator,
+    tokenBudgets: run.runConditions.tokenBudgets,
+    reasoningEffort: run.runConditions.orchestratorReasoningEffort,
+    additionalConstraints: assignmentConstraints(run, "orchestrator"),
+    context: {
+      claims,
+      investigations: investigationContext,
+    },
+  });
+  const orchestration = await executeAssignment({
+    store,
+    assignment: orchestratorAssignment,
+    adapters,
+    signal,
+    killGraceMs,
+  });
+  if (orchestration.status !== "completed") {
+    const status = orchestration.status === "cancelled" ? "cancelled" : "failed";
+    store.finishRun(runId, {
+      status,
+      summary: {
+        stage: "fresh_orchestration",
+        calibrationEligible: false,
+        roleStatus: orchestration.status,
+      },
+    });
+    return { runId, status, results, orchestration };
+  }
+
+  let orchestrationProjection;
+  try {
+    orchestrationProjection = persistOrchestrationOutput(
+      store,
+      runId,
+      orchestration.completion.result,
+      claims,
+    );
+  } catch (error) {
+    const failure = {
+      reason: "orchestration_output_import_failed",
+      error: processFailure(error),
+      calibrationEligible: false,
+    };
+    store.appendEvent({
+      runId,
+      actor: "orchestrator",
+      type: "orchestration.failed",
+      payload: failure,
+    });
+    store.finishRun(runId, {
+      status: "failed",
+      summary: { stage: "orchestration_output_import", ...failure },
+    });
+    return { runId, status: "failed", results, orchestration, failure };
+  }
+
+  store.appendEvent({
+    runId,
+    actor: "workflow",
+    type: "phase.changed",
+    payload: {
+      phase: "deterministic_verification",
+      progress: 65,
+      message: "Fresh orchestration completed; deterministic verification required",
+    },
+  });
+  return {
+    runId,
+    status: "active",
+    results,
+    claims,
+    orchestration,
+    orchestrationProjection,
+  };
 }

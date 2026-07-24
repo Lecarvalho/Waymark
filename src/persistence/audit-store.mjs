@@ -15,7 +15,7 @@ import {
   validateTokenMeasurement,
 } from "../protocol/validation.mjs";
 
-export const SCHEMA_VERSION = 4;
+export const SCHEMA_VERSION = 5;
 export const DEFAULT_DATABASE_PATH = ".waymark/waymark.sqlite";
 
 const RESERVED_ACTOR_PATTERN = /^waymark(?::|$)/;
@@ -65,6 +65,7 @@ function mapRun(row, participants) {
     targetRepositoryPath: row.target_repository_path,
     repositoryIdentity: row.repository_identity,
     commitSha: row.commit_sha,
+    name: row.name ?? null,
     task: row.task,
     toolPolicy: parseJson(row.tool_policy_json),
     runConditions: parseJson(row.run_conditions_json),
@@ -159,6 +160,7 @@ export function bootstrapDatabase(database) {
       target_repository_path TEXT NOT NULL,
       repository_identity TEXT NOT NULL,
       commit_sha TEXT NOT NULL,
+      name TEXT,
       task TEXT NOT NULL,
       tool_policy_json TEXT NOT NULL,
       run_conditions_json TEXT NOT NULL,
@@ -477,6 +479,10 @@ export function bootstrapDatabase(database) {
     }
   }
 
+  if (previousVersion > 0 && previousVersion < 5) {
+    database.exec("ALTER TABLE audit_runs ADD COLUMN name TEXT");
+  }
+
   database.exec(`
     CREATE INDEX IF NOT EXISTS token_measurements_run
       ON token_measurements (run_id, measured_at, id);
@@ -541,16 +547,17 @@ export class AuditStore {
       this.#database
         .prepare(`
           INSERT INTO audit_runs (
-            id, target_repository_path, repository_identity, commit_sha, task,
+            id, target_repository_path, repository_identity, commit_sha, name, task,
             tool_policy_json, run_conditions_json, protocol_version,
             rubric_version, status, created_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?)
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?)
         `)
         .run(
           run.id,
           run.targetRepositoryPath,
           run.repositoryIdentity,
           run.commitSha,
+          run.name,
           run.task,
           json(run.toolPolicy),
           json(run.runConditions),
@@ -670,10 +677,10 @@ export class AuditStore {
 
     return this.#transaction(() => {
       const run = this.readRun(normalizedRunId);
-      if (run.status !== "completed") {
+      if (!["active", "completed"].includes(run.status)) {
         throw new AuditStoreError(
-          "RUN_NOT_COMPLETED",
-          `Run ${normalizedRunId} is ${run.status}; report recommendations require a completed run`,
+          "RUN_NOT_REPORTABLE",
+          `Run ${normalizedRunId} is ${run.status}; report recommendations require an active or completed run`,
         );
       }
 

@@ -243,6 +243,20 @@ function formatTokenSource(
   return "Usage unavailable";
 }
 
+function displayRunName(name: string | undefined, task: string) {
+  if (name?.trim()) return name;
+
+  const normalized = task.replace(/\s+/g, " ").trim();
+  const sentenceEnd = normalized.search(/[.!?](?:\s|$)/);
+  const firstThought =
+    sentenceEnd >= 0 ? normalized.slice(0, sentenceEnd) : normalized;
+  if (firstThought.length <= 72) return firstThought;
+
+  const clipped = firstThought.slice(0, 73);
+  const lastSpace = clipped.lastIndexOf(" ");
+  return `${clipped.slice(0, lastSpace > 40 ? lastSpace : 69).trimEnd()}…`;
+}
+
 export default function Home() {
   const [view, setView] = useState<"live" | "history" | "guide">("live");
   const [selectedReportId, setSelectedReportId] = useState<string | null>(null);
@@ -1353,6 +1367,43 @@ export default function Home() {
                       </summary>
 
                       <div className="recommendation-detail-body">
+                        {item.evidence.length > 0 ? (
+                          <section className="recommendation-evidence">
+                            <h4>Verified repository evidence</h4>
+                            <div>
+                              {item.evidence.map((evidence) => (
+                                <article
+                                  key={`${evidence.claimId}-${evidence.path}-${evidence.startLine ?? "file"}`}
+                                >
+                                  <code>
+                                    {evidence.path}
+                                    {evidence.startLine
+                                      ? `:${evidence.startLine}${
+                                          evidence.endLine &&
+                                          evidence.endLine !==
+                                            evidence.startLine
+                                            ? `-${evidence.endLine}`
+                                            : ""
+                                        }`
+                                      : ""}
+                                  </code>
+                                  <p>{evidence.assertion}</p>
+                                  <span>
+                                    {evidence.verdict} · {evidence.method}
+                                  </span>
+                                </article>
+                              ))}
+                            </div>
+                          </section>
+                        ) : null}
+
+                        {item.tokenMechanism ? (
+                          <section className="recommendation-token-effect">
+                            <h4>Why this should reduce navigation tokens</h4>
+                            <p>{item.tokenMechanism}</p>
+                          </section>
+                        ) : null}
+
                         {item.repositoryChanges.length > 0 ? (
                           <section className="recommendation-steps">
                             <h4>What to change in the repository</h4>
@@ -1370,6 +1421,17 @@ export default function Home() {
                             <ul>
                               {item.validationChecks.map((check) => (
                                 <li key={check}>{check}</li>
+                              ))}
+                            </ul>
+                          </section>
+                        ) : null}
+
+                        {item.limitations.length > 0 ? (
+                          <section className="recommendation-limitations">
+                            <h4>Known limitations</h4>
+                            <ul>
+                              {item.limitations.map((limitation) => (
+                                <li key={limitation}>{limitation}</li>
                               ))}
                             </ul>
                           </section>
@@ -1486,7 +1548,7 @@ export default function Home() {
                         <div className="history-row history-head">
                           <span>Date</span>
                           <span>Commit</span>
-                          <span>Task</span>
+                          <span>Name</span>
                           <span>Candidate</span>
                           <span>Score</span>
                           <span>Reliability</span>
@@ -1494,13 +1556,14 @@ export default function Home() {
                         </div>
                         {project.runs.map((run) => {
                           const tokens = run.tokenUsage.overall.totalTokens;
+                          const runName = displayRunName(run.name, run.task);
                           return (
                             <button
                               className="history-row is-interactive"
                               key={run.id}
                               type="button"
                               onClick={() => showSavedReport(run.id)}
-                              aria-label={`Open ${project.name} report from ${new Date(
+                              aria-label={`Open ${runName} report for ${project.name} from ${new Date(
                                 run.startedAt,
                               ).toLocaleDateString()}`}
                             >
@@ -1511,7 +1574,7 @@ export default function Home() {
                                 )}
                               </span>
                               <code>{run.repository.commit}</code>
-                              <strong>{run.task}</strong>
+                              <strong>{runName}</strong>
                               <code>{run.models.candidate}</code>
                               <span className="history-score">
                                 {run.metrics.navigability ?? "—"}

@@ -46,14 +46,16 @@ export interface AuditTokenBudgets {
 
 export interface AuditAssignment {
   runId: string;
-  role: "candidate" | "independent";
+  role: "candidate" | "independent" | "orchestrator";
   participant: RunParticipantInput;
+  reasoningEffort?: "low" | "medium" | "high" | "xhigh" | "max" | "ultra";
   target: RepositoryTarget;
   task: string;
   executionPolicy: AuditExecutionPolicy;
   tokenBudget: TokenBudget;
   constraints: readonly string[];
   expectedEvidence: readonly string[];
+  context?: JsonObject;
 }
 
 export interface InvestigationFinding {

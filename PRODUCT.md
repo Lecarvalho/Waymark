@@ -15,8 +15,10 @@ more direct.
 ## Platform
 
 Waymark is a local-first web application paired with coding-agent tools such as
-Codex and Claude Code. The agent session receives the audit request. Waymark is
-the observer and durable report surface.
+Codex and Claude Code. A preparation-only modal can assemble a complete audit
+request for the user to copy into that paired agent session. The agent session
+receives and executes the request; Waymark remains the observer and durable
+report surface.
 
 ## Users
 
@@ -46,9 +48,19 @@ forensic, and operational. Dense information is acceptable when the hierarchy is
 clear and the text remains readable. Live state must be explicit without
 decorative urgency.
 
+The interface may prepare an audit request without starting one. The user
+selects the repository, audit mode, task, and available provider/model/reasoning
+combinations, then explicitly copies a self-contained prompt. Model and
+reasoning choices come from runtime adapter capabilities rather than a
+hardcoded catalog. Preparing or copying a request does not create a run, invoke
+a model, write to SQLite, or imply that an audit has started.
+
 ## Anti-goals
 
-- Starting or prompting audits from the dashboard
+- Starting an audit, invoking a model, or writing an audit record from the
+  request-preparation modal
+- Turning the preparation modal into a chat client
+- Hardcoding provider model or reasoning-effort catalogs in presentation code
 - Scoring security, accessibility, correctness, or maintainability
 - Treating model agreement as proof
 - Presenting mock data as a real measurement

@@ -46,21 +46,21 @@
             "items": {
               "type": "object",
               "additionalProperties": false,
-              "required": ["path"],
+              "required": ["path", "startLine", "endLine", "symbol"],
               "properties": {
                 "path": {
                   "type": "string"
                 },
                 "startLine": {
-                  "type": "integer",
+                  "type": ["integer", "null"],
                   "minimum": 1
                 },
                 "endLine": {
-                  "type": "integer",
+                  "type": ["integer", "null"],
                   "minimum": 1
                 },
                 "symbol": {
-                  "type": "string"
+                  "type": ["string", "null"]
                 }
               }
             }

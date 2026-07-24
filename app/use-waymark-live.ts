@@ -10,6 +10,7 @@ export type WaymarkRunSnapshot = {
     path: string;
     commit: string;
   };
+  name?: string;
   task: string;
   phase: string;
   progress: number;

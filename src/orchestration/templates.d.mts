@@ -5,7 +5,7 @@ import type {
   OrchestrationCapabilities,
   RepositoryTarget,
 } from "./types";
-import type { RunParticipantInput } from "../domain/audit";
+import type { JsonObject, RunParticipantInput } from "../domain/audit";
 
 export const READ_ONLY_CONSTRAINTS: readonly string[];
 export const FRESH_EXECUTION_POLICY: Readonly<AuditExecutionPolicy>;
@@ -18,6 +18,25 @@ export interface AssignmentTemplateInput {
   candidate: RunParticipantInput;
   capabilities: OrchestrationCapabilities;
   tokenBudgets?: AuditTokenBudgets;
+  reasoningEfforts?: {
+    candidate?: AuditAssignment["reasoningEffort"];
+    independent?: AuditAssignment["reasoningEffort"];
+  };
+  additionalConstraints?: {
+    candidate?: readonly string[];
+    independent?: readonly string[];
+  };
+}
+
+export interface OrchestratorAssignmentTemplateInput {
+  runId: string;
+  target: RepositoryTarget;
+  task: string;
+  orchestrator: RunParticipantInput;
+  tokenBudgets?: AuditTokenBudgets;
+  reasoningEffort?: AuditAssignment["reasoningEffort"];
+  additionalConstraints?: readonly string[];
+  context: JsonObject;
 }
 
 export function resolveAuditTokenBudgets(
@@ -27,5 +46,8 @@ export function resolveAuditTokenBudgets(
 export function createInvestigationAssignments(
   input: AssignmentTemplateInput,
 ): readonly AuditAssignment[];
+export function createOrchestratorAssignment(
+  input: OrchestratorAssignmentTemplateInput,
+): AuditAssignment;
 
 export function renderAssignmentPrompt(assignment: AuditAssignment): string;

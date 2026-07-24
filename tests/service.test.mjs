@@ -285,6 +285,7 @@ test("local service exposes a normalized latest-run snapshot", async (t) => {
     targetRepositoryPath: "C:/repos/example",
     repositoryIdentity: "example",
     commitSha: "1234567890abcdef",
+    name: "Partial refund change surface",
     task: "Add partial refunds",
     participants: [
       { role: "candidate", provider: "openai", model: "candidate-model" },
@@ -342,6 +343,7 @@ test("local service exposes a normalized latest-run snapshot", async (t) => {
   assert.equal(snapshot.id, run.id);
   assert.equal(snapshot.repository.name, "example");
   assert.equal(snapshot.repository.commit, "1234567890ab");
+  assert.equal(snapshot.name, "Partial refund change surface");
   assert.equal(snapshot.phase, "Cross-examination");
   assert.equal(snapshot.progress, 68);
   assert.equal(snapshot.latestEvent, "phase.changed");

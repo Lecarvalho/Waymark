@@ -19,5 +19,6 @@ export function normalizeCodexEvent(
 export function createCodexProcessAdapter(input?: {
   entryPath?: string;
   outputSchemaPath?: string;
+  orchestrationOutputSchemaPath?: string;
   environment?: NodeJS.ProcessEnv;
 }): ProcessProviderAdapter;

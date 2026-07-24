@@ -121,6 +121,10 @@ function stringArray(value, path, { minimum = 0, maximum = 20 } = {}) {
 
 export function validateCreateRun(value, { now, createId }) {
   const input = object(value, "input");
+  const name = optionalString(input.name, "name") ?? null;
+  if (name !== null && name.length > 72) {
+    fail("name", "must be 72 characters or fewer");
+  }
   if (!Array.isArray(input.participants) || input.participants.length === 0) {
     fail("participants", "must be a non-empty array");
   }
@@ -172,6 +176,7 @@ export function validateCreateRun(value, { now, createId }) {
       "repositoryIdentity",
     ),
     commitSha: string(input.commitSha, "commitSha"),
+    name,
     task: string(input.task, "task"),
     participants,
     toolPolicy: object(input.toolPolicy, "toolPolicy"),

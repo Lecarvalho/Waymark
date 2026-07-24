@@ -32,6 +32,7 @@ function createRun(store, overrides = {}) {
     targetRepositoryPath: "C:\\repos\\payments",
     repositoryIdentity: "git@example.test:team/payments.git",
     commitSha: "0123456789abcdef",
+    name: "Partial refund change surface",
     task: "Add partial refunds without changing authorization behavior.",
     participants: [
       {
@@ -69,6 +70,7 @@ test("audit journal, evidence, verdicts, and tokens survive reopen", () => {
   const run = createRun(store, { authoritativeScore: 99 });
   assert.equal(store.schemaVersion, SCHEMA_VERSION);
   assert.equal(run.status, "active");
+  assert.equal(run.name, "Partial refund change surface");
   assert.equal(run.participants.length, 3);
   assert.equal("authoritativeScore" in run, false);
 
@@ -499,7 +501,8 @@ test("schema v1 verification rows migrate to monotonic per-run sequence", () => 
   legacy.close();
 
   const store = new AuditStore({ databasePath });
-  assert.equal(store.schemaVersion, 4);
+  assert.equal(store.schemaVersion, SCHEMA_VERSION);
+  assert.equal(store.readRun("legacy-run").name, null);
   assert.deepEqual(
     store
       .readSnapshot("legacy-run")

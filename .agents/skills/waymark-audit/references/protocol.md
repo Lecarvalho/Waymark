@@ -17,6 +17,7 @@ node bin/waymark.mjs --db <journal> run create --input-file <run.json>
   "targetRepositoryPath": "C:/repos/example",
   "repositoryIdentity": "example",
   "commitSha": "immutable-sha",
+  "name": "Partial refund change surface",
   "task": "Trace the change surface for partial refunds",
   "participants": [
     {"role":"orchestrator","provider":"openai","model":"model-id"},
@@ -27,11 +28,19 @@ node bin/waymark.mjs --db <journal> run create --input-file <run.json>
   "toolPolicy": {"target":"read-only","network":"declared"},
   "runConditions": {
     "parallelResearch": true,
+    "candidateReasoningEffort": "low",
+    "independentReasoningEffort": "high",
+    "orchestratorReasoningEffort": "high",
     "execution": {
       "isolation": "fresh_process",
       "sessionPersistence": "ephemeral",
       "contextPolicy": "assignment_only",
-      "measurementScope": "role_process_only"
+      "measurementScope": "role_process_only",
+      "shellCommandBudget": {
+        "candidate": 6,
+        "independent": 8,
+        "orchestrator": 6
+      }
     },
     "tokenBudgets": {
       "candidate_navigation": {"targetTokens":12000,"hardLimitTokens":24000},
@@ -47,7 +56,9 @@ node bin/waymark.mjs --db <journal> run create --input-file <run.json>
 }
 ```
 
-Participant roles must be unique. Candidate and orchestrator are required.
+`name` is a concise audit-history label of at most 72 characters. Keep `task`
+verbatim as the reproducible navigation probe. Participant roles must be
+unique. Candidate and orchestrator are required.
 
 ## Isolated role execution
 
@@ -63,18 +74,21 @@ cached-input, and output tokens. Cached input is a subset of input, so processed
 tokens are `input + output`, not `input + cached input + output`. Persist live
 tool events during the turn and the final host-measured usage at completion.
 
-For the built-in Codex adapter, run the isolated candidate and independent
-processes for an existing active run with:
+For the built-in Codex adapter, run the isolated candidate, independent, and
+orchestrator processes for an existing active run with:
 
 ```powershell
 node bin/waymark.mjs --db <journal> investigation run --run <run-id>
 ```
 
 Use `--codex-entry <path-to-codex.js>` or `WAYMARK_CODEX_ENTRY` when automatic
-launcher discovery is unavailable. A successful investigation keeps the run
-active for cross-examination and deterministic verification. A provider
-failure, interruption, missing structured result, or hard-limit overrun
-finishes the run as failed or cancelled and calibration-ineligible.
+launcher discovery is unavailable. Candidate and independent research runs in
+parallel. The runner imports candidate findings, then launches the orchestrator
+with only the task, immutable target, run policy, cited claims, and bounded
+investigation results. A successful command keeps the run active for
+deterministic verification. A provider failure, interruption, missing
+structured result, or hard-limit overrun finishes the run as failed or
+cancelled and calibration-ineligible.
 
 Every run declares the budget object shown above. Interrupt providers that
 expose live cumulative usage when a hard limit is reached. Providers that only
@@ -108,6 +122,16 @@ Recommended event types are `investigation.started`, `search.performed`,
 `challenge.raised`, `challenge.resolved`, `probe.executed`,
 `investigation.completed`, and `investigation.failed`. Event actors and types
 beginning with `waymark`, plus `score.*` and `run.finished`, are reserved.
+
+After recording deterministic verdicts for every recommendation claim, finalize
+the fresh orchestrator draft:
+
+```powershell
+node bin/waymark.mjs --db <journal> report finalize --run <run-id>
+```
+
+Finalization emits the authoritative structured `report.recommendations` event
+and fails if any cited claim lacks a latest deterministic verified verdict.
 
 Claim criticalities are `critical`, `high`, `medium`, and `low`. Cite
 repository-relative paths and one-based line ranges. Keep assertions atomic.

@@ -54,6 +54,18 @@ function numberOrNull(value) {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
+function conciseTaskName(task) {
+  const normalized = task.replace(/\s+/g, " ").trim();
+  const sentenceEnd = normalized.search(/[.!?](?:\s|$)/);
+  const firstThought =
+    sentenceEnd >= 0 ? normalized.slice(0, sentenceEnd) : normalized;
+  if (firstThought.length <= 72) return firstThought;
+
+  const clipped = firstThought.slice(0, 73);
+  const lastSpace = clipped.lastIndexOf(" ");
+  return `${clipped.slice(0, lastSpace > 40 ? lastSpace : 69).trimEnd()}…`;
+}
+
 function tokenSource(measurements) {
   if (measurements.length === 0) return null;
   const sources = new Set(measurements.map((measurement) => measurement.source));
@@ -137,8 +149,10 @@ function verifyAuthoritativeScore(event) {
 
 const PHASE_LABELS = Object.freeze({
   candidate_navigation: "Candidate run",
+  parallel_investigation: "Candidate run",
   independent_validation: "Blind research",
   orchestration: "Cross-examination",
+  cross_examination: "Cross-examination",
   deterministic_verification: "Verification",
   report_generation: "Scoring",
 });
@@ -314,9 +328,17 @@ function participantStatus(role, events, runStatus) {
   const hasType = (...types) =>
     roleEvents.some((event) => types.includes(event.type));
 
-  if (hasType("budget.exceeded", "investigation.failed")) return "Failed";
-  if (hasType("investigation.interrupted")) return "Interrupted";
-  if (hasType("investigation.completed")) return "Complete";
+  if (
+    hasType("budget.exceeded", "investigation.failed", "orchestration.failed")
+  ) {
+    return "Failed";
+  }
+  if (hasType("investigation.interrupted", "orchestration.interrupted")) {
+    return "Interrupted";
+  }
+  if (hasType("investigation.completed", "orchestration.completed")) {
+    return "Complete";
+  }
   if (runStatus === "active") {
     return roleEvents.length > 0 ? "Active" : "Queued";
   }
@@ -345,8 +367,10 @@ export function toRunSnapshot(report, runCount) {
   const progressEvent = lastDefinedEvent(
     events,
     (event) =>
-      typeof event.payload?.progress === "number" ||
-      typeof event.payload?.phase === "string",
+      event.type === "phase.changed" &&
+      ["workflow", "orchestrator"].includes(event.actor) &&
+      (typeof event.payload?.progress === "number" ||
+        typeof event.payload?.phase === "string"),
   );
   const challengeEvents = events.filter(
     (event) => event.type === "challenge.raised",
@@ -447,10 +471,29 @@ export function toRunSnapshot(report, runCount) {
       : run.status === "completed"
         ? "completed"
         : "failed";
+  const recordedProgress = numberOrNull(progressEvent?.payload?.progress) ?? 0;
+  const verificationProgress =
+    report.claims.length === 0 || report.verifications.length === 0
+      ? 0
+      : 65 +
+        Math.round(
+          (Math.min(resolvedClaims, report.claims.length) /
+            report.claims.length) *
+            20,
+        );
+  const recommendationsFinalized = events.some(
+    (event) =>
+      event.actor === "waymark:reporter" &&
+      event.type === "report.recommendations",
+  );
   const progress =
     status === "completed"
       ? 100
-      : (numberOrNull(progressEvent?.payload?.progress) ?? 0);
+      : Math.max(
+          recordedProgress,
+          verificationProgress,
+          recommendationsFinalized ? 90 : 0,
+        );
   const phase =
     status === "completed"
       ? "Complete"
@@ -584,6 +627,7 @@ export function toRunSnapshot(report, runCount) {
       path: run.targetRepositoryPath,
       commit: run.commitSha.slice(0, 12),
     },
+    name: run.name ?? conciseTaskName(run.task),
     task: run.task,
     phase,
     progress: Math.max(0, Math.min(100, Math.round(progress))),

@@ -49,6 +49,30 @@ const INDEPENDENT_EVIDENCE = Object.freeze([
   "citation and instruction challenges",
   "safe deterministic verification candidates",
 ]);
+const ORCHESTRATOR_EVIDENCE = Object.freeze([
+  "cross-examination of every candidate claim that needs qualification",
+  "deterministic verification requests with concrete checks",
+  "evidence-linked repository-navigation recommendations",
+  "a named repository change and repeatable before/after check per recommendation",
+]);
+const REASONING_EFFORTS = new Set([
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+  "max",
+  "ultra",
+]);
+
+function resolveReasoningEffort(value, role) {
+  if (value === undefined || value === null) return undefined;
+  if (!REASONING_EFFORTS.has(value)) {
+    throw new TypeError(
+      `runConditions.${role}ReasoningEffort must be a supported reasoning effort`,
+    );
+  }
+  return value;
+}
 
 export function resolveAuditTokenBudgets(value) {
   if (value === undefined || value === null) {
@@ -87,6 +111,14 @@ export function resolveAuditTokenBudgets(value) {
 
 export function createInvestigationAssignments(input) {
   const tokenBudgets = resolveAuditTokenBudgets(input.tokenBudgets);
+  const candidateReasoningEffort = resolveReasoningEffort(
+    input.reasoningEfforts?.candidate,
+    "candidate",
+  );
+  const independentReasoningEffort = resolveReasoningEffort(
+    input.reasoningEfforts?.independent,
+    "independent",
+  );
   const candidate = {
     runId: input.runId,
     role: "candidate",
@@ -94,8 +126,14 @@ export function createInvestigationAssignments(input) {
     target: input.target,
     task: input.task,
     executionPolicy: FRESH_EXECUTION_POLICY,
+    ...(candidateReasoningEffort
+      ? { reasoningEffort: candidateReasoningEffort }
+      : {}),
     tokenBudget: tokenBudgets.candidate_navigation,
-    constraints: READ_ONLY_CONSTRAINTS,
+    constraints: Object.freeze([
+      ...READ_ONLY_CONSTRAINTS,
+      ...(input.additionalConstraints?.candidate ?? []),
+    ]),
     expectedEvidence: CANDIDATE_EVIDENCE,
   };
 
@@ -113,11 +151,44 @@ export function createInvestigationAssignments(input) {
       target: input.target,
       task: input.task,
       executionPolicy: FRESH_EXECUTION_POLICY,
+      ...(independentReasoningEffort
+        ? { reasoningEffort: independentReasoningEffort }
+        : {}),
       tokenBudget: tokenBudgets.independent_validation,
-      constraints: READ_ONLY_CONSTRAINTS,
+      constraints: Object.freeze([
+        ...READ_ONLY_CONSTRAINTS,
+        ...(input.additionalConstraints?.independent ?? []),
+      ]),
       expectedEvidence: INDEPENDENT_EVIDENCE,
     },
   ]);
+}
+
+export function createOrchestratorAssignment(input) {
+  const tokenBudgets = resolveAuditTokenBudgets(input.tokenBudgets);
+  const reasoningEffort = resolveReasoningEffort(
+    input.reasoningEffort,
+    "orchestrator",
+  );
+  return Object.freeze({
+    runId: input.runId,
+    role: "orchestrator",
+    participant: input.orchestrator,
+    target: input.target,
+    task: input.task,
+    executionPolicy: FRESH_EXECUTION_POLICY,
+    ...(reasoningEffort ? { reasoningEffort } : {}),
+    tokenBudget: tokenBudgets.orchestration,
+    constraints: Object.freeze([
+      ...READ_ONLY_CONSTRAINTS,
+      ...(input.additionalConstraints ?? []),
+      "Use only the supplied claim IDs in challenges, verification requests, and recommendations.",
+      "Recommend repository navigation improvements, never implementation of the probe feature.",
+      "Do not assign or predict a Waymark score.",
+    ]),
+    expectedEvidence: ORCHESTRATOR_EVIDENCE,
+    context: input.context,
+  });
 }
 
 export function renderAssignmentPrompt(assignment) {
@@ -128,7 +199,7 @@ export function renderAssignmentPrompt(assignment) {
     .map((item) => `- ${item}`)
     .join("\n");
 
-  return [
+  const prompt = [
     `Act as the Waymark ${assignment.role} for run ${assignment.runId}.`,
     `Inspect ${assignment.target.path} at commit ${assignment.target.commitSha}.`,
     `Task: ${assignment.task}`,
@@ -141,5 +212,12 @@ export function renderAssignmentPrompt(assignment) {
     "Return:",
     evidence,
     "Do not assign a Waymark score.",
-  ].join("\n");
+  ];
+  if (assignment.context) {
+    prompt.push(
+      "Assignment evidence (JSON):",
+      JSON.stringify(assignment.context),
+    );
+  }
+  return prompt.join("\n");
 }

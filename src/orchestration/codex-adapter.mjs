@@ -6,6 +6,9 @@ import process from "node:process";
 const DEFAULT_OUTPUT_SCHEMA = fileURLToPath(
   new URL("./investigation-output.schema.json", import.meta.url),
 );
+const DEFAULT_ORCHESTRATION_OUTPUT_SCHEMA = fileURLToPath(
+  new URL("./orchestration-output.schema.json", import.meta.url),
+);
 const SUPPORTED_PROVIDERS = new Set(["codex", "openai", "openai-codex"]);
 
 function nonNegativeInteger(value) {
@@ -33,6 +36,20 @@ function itemPayload(event) {
     return null;
   }
   return item;
+}
+
+function gitSafeDirectoryEnvironment(targetPath, environment) {
+  const inherited = { ...process.env, ...environment };
+  const parsedCount = Number.parseInt(inherited.GIT_CONFIG_COUNT ?? "0", 10);
+  const count = Number.isSafeInteger(parsedCount) && parsedCount >= 0
+    ? parsedCount
+    : 0;
+  return {
+    ...environment,
+    GIT_CONFIG_COUNT: String(count + 1),
+    [`GIT_CONFIG_KEY_${count}`]: "safe.directory",
+    [`GIT_CONFIG_VALUE_${count}`]: targetPath.replaceAll("\\", "/"),
+  };
 }
 
 export function resolveCodexLauncher({
@@ -185,6 +202,7 @@ export function normalizeCodexEvent(event) {
 export function createCodexProcessAdapter({
   entryPath,
   outputSchemaPath = DEFAULT_OUTPUT_SCHEMA,
+  orchestrationOutputSchemaPath = DEFAULT_ORCHESTRATION_OUTPUT_SCHEMA,
   environment,
 } = {}) {
   return {
@@ -201,6 +219,12 @@ export function createCodexProcessAdapter({
         arguments: [
           ...launcher.prefixArguments,
           "exec",
+          ...(assignment.reasoningEffort
+            ? [
+                "-c",
+                `model_reasoning_effort="${assignment.reasoningEffort}"`,
+              ]
+            : []),
           "--ephemeral",
           "--ignore-user-config",
           "--json",
@@ -213,12 +237,17 @@ export function createCodexProcessAdapter({
           "--model",
           assignment.participant.model,
           "--output-schema",
-          outputSchemaPath,
+          assignment.role === "orchestrator"
+            ? orchestrationOutputSchemaPath
+            : outputSchemaPath,
           "-",
         ],
         cwd: assignment.target.path,
         stdin: prompt,
-        environment,
+        environment: gitSafeDirectoryEnvironment(
+          assignment.target.path,
+          environment,
+        ),
       };
     },
     extractUsage: extractCodexUsage,

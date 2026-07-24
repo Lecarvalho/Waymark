@@ -13,8 +13,12 @@ import {
   extractCodexUsage,
   normalizeCodexEvent,
 } from "../src/orchestration/codex-adapter.mjs";
-import { runInvestigationPhase } from "../src/orchestration/process-runner.mjs";
+import {
+  finalizeDraftRecommendations,
+  runInvestigationPhase,
+} from "../src/orchestration/process-runner.mjs";
 import { AuditStore } from "../src/persistence/index.mjs";
+import { toRunSnapshot } from "../server/waymark-server.mjs";
 
 const repositoryRoot = dirname(fileURLToPath(new URL("../package.json", import.meta.url)));
 const fakeProviderPath = fileURLToPath(
@@ -34,13 +38,22 @@ function createRun(store, { independent = true, candidateHardLimit = 500 } = {})
         ? [{ role: "independent", provider: "fake", model: "independent" }]
         : []),
     ],
-    toolPolicy: { target: "read-only" },
+    toolPolicy: {
+      target: "read-only",
+      allowed: ["read files"],
+      forbidden: ["editing target files"],
+    },
     runConditions: {
+      candidateReasoningEffort: "low",
+      independentReasoningEffort: "high",
       execution: {
         isolation: "fresh_process",
         sessionPersistence: "ephemeral",
         contextPolicy: "assignment_only",
         measurementScope: "role_process_only",
+        shellCommandBudget: { candidate: 6, independent: 8 },
+        searchResultLimit: 40,
+        fileReadLineLimit: 100,
       },
       tokenBudgets: {
         candidate_navigation: {
@@ -69,6 +82,9 @@ function fakeAdapter(modeByRole = {}, usageEnforcement = "post_completion") {
           fakeProviderPath,
           modeByRole[assignment.role] ?? "success",
           assignment.role,
+          ...(assignment.context?.claims?.[0]?.id
+            ? [assignment.context.claims[0].id]
+            : []),
         ],
         cwd: assignment.target.path,
         stdin: prompt,
@@ -104,7 +120,9 @@ test("fresh candidate and independent processes stream evidence and keep a succe
   const report = store.readReport(run.id);
   assert.equal(report.run.status, "active");
   assert.deepEqual(
-    report.events.slice(0, 2).map(({ actor, type }) => ({ actor, type })),
+    report.events
+      .filter(({ type }) => type === "investigation.started")
+      .map(({ actor, type }) => ({ actor, type })),
     [
       { actor: "candidate", type: "investigation.started" },
       { actor: "independent", type: "investigation.started" },
@@ -112,17 +130,110 @@ test("fresh candidate and independent processes stream evidence and keep a succe
   );
   assert.equal(
     report.events.filter(({ type }) => type === "provider.tool.completed").length,
-    2,
+    3,
   );
   assert.equal(
     report.events.filter(({ type }) => type === "investigation.completed").length,
     2,
   );
+  const starts = report.events.filter(
+    ({ type }) => type === "investigation.started",
+  );
+  assert.deepEqual(
+    starts.map(({ payload }) => payload.reasoningEffort),
+    ["low", "high"],
+  );
+  const completions = report.events.filter(
+    ({ type }) => type === "investigation.completed",
+  );
+  assert.ok(
+    completions.every(({ payload }) => payload.result.hasCommandBudget === true),
+  );
+  assert.ok(
+    completions.every(
+      ({ payload }) => payload.result.hasForbiddenPolicy === true,
+    ),
+  );
   assert.equal(report.events.at(-1).type, "phase.changed");
-  assert.equal(report.tokens.length, 2);
+  assert.equal(report.events.at(-1).payload.progress, 65);
+  assert.equal(report.tokens.length, 3);
   assert.equal(report.aggregates.tokensByPhase.candidate_navigation, 80);
   assert.equal(report.aggregates.tokensByPhase.independent_validation, 100);
+  assert.equal(report.aggregates.tokensByPhase.orchestration, 120);
   assert.ok(report.tokens.every(({ source }) => source === "measured"));
+  assert.equal(report.claims.length, 1);
+  assert.equal(
+    report.events.some(({ type }) => type === "orchestration.completed"),
+    true,
+  );
+  assert.equal(
+    report.events.some(({ type }) => type === "recommendations.drafted"),
+    true,
+  );
+  assert.equal(toRunSnapshot(report, 1).progress, 65);
+  assert.throws(
+    () => finalizeDraftRecommendations({ store, runId: run.id }),
+    (error) => error.code === "RECOMMENDATION_CLAIM_NOT_VERIFIED",
+  );
+
+  store.recordVerification({
+    runId: run.id,
+    claimId: report.claims[0].id,
+    verifier: "orchestrator",
+    method: "static_inspection",
+    verdict: "verified",
+    evidence: {
+      citationStatus: "valid",
+      independentAssessment: "agree",
+    },
+  });
+  assert.equal(toRunSnapshot(store.readReport(run.id), 1).progress, 85);
+  const recommendationEvent = finalizeDraftRecommendations({
+    store,
+    runId: run.id,
+  });
+  assert.equal(recommendationEvent.type, "report.recommendations");
+  const finalized = store.readReport(run.id);
+  const finalizedSnapshot = toRunSnapshot(finalized, 1);
+  assert.equal(finalizedSnapshot.progress, 90);
+  assert.equal(finalizedSnapshot.recommendations.length, 1);
+  assert.equal(
+    finalizedSnapshot.recommendations[0].evidence[0].path,
+    "package.json",
+  );
+  assert.match(
+    finalizedSnapshot.recommendations[0].repositoryChanges[0],
+    /docs\/test-change-surface\.md/,
+  );
+  assert.equal(
+    finalizedSnapshot.recommendations[0].validationChecks.length,
+    1,
+  );
+  assert.equal(finalizedSnapshot.recommendations[0].limitations.length, 1);
+  assert.equal(
+    finalized.events.at(-2).type,
+    "report.recommendations",
+  );
+  const repeatedRecommendationEvent = finalizeDraftRecommendations({
+    store,
+    runId: run.id,
+  });
+  assert.equal(repeatedRecommendationEvent.id, recommendationEvent.id);
+  assert.equal(
+    store
+      .readReport(run.id)
+      .events.filter(({ type }) => type === "report.recommendations").length,
+    1,
+  );
+  await assert.rejects(
+    () =>
+      runInvestigationPhase({
+        store,
+        runId: run.id,
+        adapters: [fakeAdapter()],
+      }),
+    (error) => error.code === "ORCHESTRATION_ALREADY_STARTED",
+  );
 });
 
 test("a completion-only token overrun is persisted and disqualifies the run", async (t) => {
@@ -190,6 +301,7 @@ test("the Codex adapter uses the JavaScript entry point and isolated exec flags"
         provider: "openai",
         model: "gpt-test",
       },
+      reasoningEffort: "low",
       target: {
         path: repositoryRoot,
         identity: "waymark",
@@ -224,6 +336,22 @@ test("the Codex adapter uses the JavaScript entry point and isolated exec flags"
   );
   assert.equal(launch.arguments.at(-1), "-");
   assert.equal(launch.stdin, "assignment only");
+  assert.deepEqual(
+    launch.arguments.slice(
+      launch.arguments.indexOf("-c"),
+      launch.arguments.indexOf("-c") + 2,
+    ),
+    ["-c", 'model_reasoning_effort="low"'],
+  );
+  const safeDirectoryIndex = Number(launch.environment.GIT_CONFIG_COUNT) - 1;
+  assert.equal(
+    launch.environment[`GIT_CONFIG_KEY_${safeDirectoryIndex}`],
+    "safe.directory",
+  );
+  assert.equal(
+    launch.environment[`GIT_CONFIG_VALUE_${safeDirectoryIndex}`],
+    repositoryRoot.replaceAll("\\", "/"),
+  );
 
   const usage = extractCodexUsage({
     type: "turn.completed",
@@ -292,7 +420,41 @@ test("the CLI runs an investigation through the Codex adapter boundary", () => {
       report.events.some(({ type }) => type === "investigation.completed"),
       true,
     );
+    assert.equal(
+      report.events.some(({ type }) => type === "orchestration.completed"),
+      true,
+    );
+    reopened.recordVerification({
+      runId: run.id,
+      claimId: report.claims[0].id,
+      verifier: "orchestrator",
+      method: "static_inspection",
+      verdict: "verified",
+      evidence: {
+        citationStatus: "valid",
+        independentAssessment: "not_checked",
+      },
+    });
   } finally {
     reopened.close();
   }
+
+  const finalize = spawnSync(
+    process.execPath,
+    [
+      "bin/waymark.mjs",
+      "--db",
+      databasePath,
+      "report",
+      "finalize",
+      "--run",
+      run.id,
+    ],
+    { cwd: repositoryRoot, encoding: "utf8" },
+  );
+  assert.equal(finalize.status, 0, `${finalize.stderr}\n${finalize.stdout}`);
+  const finalizeOutput = JSON.parse(finalize.stdout);
+  assert.equal(finalizeOutput.ok, true);
+  assert.equal(finalizeOutput.command, "report finalize");
+  assert.equal(finalizeOutput.data.type, "report.recommendations");
 });

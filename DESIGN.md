@@ -61,6 +61,9 @@ borders, spacing, and type—not stacked shadows.
 - Buttons: visible hover and keyboard focus, restrained transitions
 - Report sections: tabs expose Progress, Evidence, and Recommendations one at a
   time
+- Audit request preparation: a focused modal with progressive disclosure,
+  dependent provider/model/reasoning selects, a read-only prompt preview, and
+  one explicit copy action
 - Practice comparisons: accordion rows expose one principle at a time
 - Large code comparisons: switch between alternatives instead of rendering both
   simultaneously
@@ -83,6 +86,12 @@ Do:
 - Prefer dividers and alignment over extra containers.
 - Make every state readable without depending on color alone.
 - Use progressive disclosure for secondary evidence and reference material.
+- Keep “Prepare audit request” visually secondary to the active audit. Opening
+  it must not obscure whether an existing run is active.
+- Use a keyboard-accessible modal with an explicit title, close action, initial
+  focus, validation messages, and focus restoration.
+- Label the final action “Copy audit request”; never imply that copying started
+  or created an audit.
 
 Don’t:
 
@@ -92,4 +101,8 @@ Don’t:
 - Repeat tiny uppercase section labels.
 - Use oversized full-sentence headlines inside operational views.
 - Show every report section or every guide example at the same time.
-- Add prompt inputs or a start-audit action to the observer interface.
+- Add chat controls, model invocation, or a start-audit action to the observer
+  interface.
+- Hardcode model names or reasoning efforts in the modal.
+- Put the full generated prompt into the history table or active-audit
+  hierarchy.

@@ -4,7 +4,10 @@ import { readFileSync } from "node:fs";
 import process from "node:process";
 
 import { createCodexProcessAdapter } from "../src/orchestration/codex-adapter.mjs";
-import { runInvestigationPhase } from "../src/orchestration/process-runner.mjs";
+import {
+  finalizeDraftRecommendations,
+  runInvestigationPhase,
+} from "../src/orchestration/process-runner.mjs";
 import { AuditStore } from "../src/persistence/index.mjs";
 import {
   buildScoreInput,
@@ -18,7 +21,7 @@ const COMMANDS = {
   "run read": "Read run metadata",
   "run finish": "Append a terminal event and finish a run",
   "investigation run":
-    "Run fresh candidate and independent provider processes",
+    "Run fresh candidate, independent, and orchestrator provider processes",
   "event append": "Append an ordered audit event",
   "event read": "Read ordered events",
   "claim submit": "Submit an evidence claim",
@@ -26,7 +29,9 @@ const COMMANDS = {
   "token record": "Append a token measurement",
   "score calculate": "Calculate and persist an authoritative score",
   "report recommend":
-    "Append evidence-linked recommendations to a completed report",
+    "Append supplied evidence-linked recommendations",
+  "report finalize":
+    "Finalize the fresh orchestrator recommendation draft after verification",
   "report read": "Read a complete stored report",
 };
 
@@ -114,6 +119,7 @@ function createRunInput(options) {
       targetRepositoryPath: required(options, "target-repository-path"),
       repositoryIdentity: required(options, "repository-identity"),
       commitSha: required(options, "commit-sha"),
+      ...(options.name ? { name: options.name } : {}),
       task: required(options, "task"),
       participants: parseJson(
         required(options, "participants-json"),
@@ -327,6 +333,13 @@ async function execute(store, positionals, options) {
               ...(options["output-schema"]
                 ? { outputSchemaPath: String(options["output-schema"]) }
                 : {}),
+              ...(options["orchestration-output-schema"]
+                ? {
+                    orchestrationOutputSchemaPath: String(
+                      options["orchestration-output-schema"],
+                    ),
+                  }
+                : {}),
             }),
           ],
         }),
@@ -368,6 +381,14 @@ async function execute(store, positionals, options) {
           required(options, "run"),
           reportRecommendationInput(options),
         ),
+      };
+    case "report finalize":
+      return {
+        command,
+        data: finalizeDraftRecommendations({
+          store,
+          runId: required(options, "run"),
+        }),
       };
     case "report read":
       return { command, data: store.readReport(required(options, "run")) };

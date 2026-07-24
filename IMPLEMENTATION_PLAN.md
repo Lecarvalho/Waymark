@@ -6,9 +6,10 @@ Build a local-first audit system that measures how efficiently and reliably a
 coding agent can navigate a target repository while attempting a realistic
 engineering task.
 
-The audit request originates in a paired coding-agent session such as Codex or
-Claude Code. Waymark is the observer, evidence ledger, deterministic verifier,
-scoring engine, and durable report surface.
+The audit request executes in a paired coding-agent session such as Codex or
+Claude Code. Waymark may prepare a self-contained request for the user to copy
+into that session; it remains the observer, evidence ledger, deterministic
+verifier, scoring engine, and durable report surface.
 
 ## Product Boundaries
 
@@ -20,7 +21,10 @@ scoring engine, and durable report surface.
 - Deterministic evidence outranks model agreement.
 - Mock, estimated, host-measured, provider-reported, unavailable, and verified
   values are labeled.
-- The web application does not contain a prompt box or start-audit action.
+- The web application may generate a copyable audit request but never starts an
+  audit, invokes a model, or writes a run from the preparation surface.
+- Provider, model, and reasoning-effort choices come from read-only adapter
+  capability declarations rather than hardcoded UI catalogs.
 - Runs and reports are stored locally in SQLite.
 
 ## System Shape
@@ -56,6 +60,7 @@ React observer interface
 
 ### Audit input
 
+- concise audit name
 - target repository path
 - immutable repository identity and commit
 - simulated engineering task
@@ -117,8 +122,72 @@ Scoring formulas and thresholds are versioned and independent from report prose.
 - [x] Automated end-to-end vertical-slice test
 - [x] Run and calibrate the first real repository audit from a paired agent
 - [ ] Replace inherited interactive subagents with fresh provider processes and
-  mechanically enforced execution budgets (implemented and locally validated;
-  real provider smoke test pending)
+  mechanically enforced execution budgets (candidate, independent, and
+  orchestrator roles are locally validated; repeat real-provider calibration
+  still required)
+
+### Milestone 1 completion-gate smoke-test evidence
+
+- Real smoke-test run:
+  `clapline-email-outbox-d692d68-20260724-01`
+- Target: Clapline commit `d692d68afa2680309e702b12752016b8d943a793`,
+  clean and read-only.
+- Candidate: `gpt-5.6-terra` at low reasoning, 12,000-token target,
+  180,000-token fixed hard ceiling; observed 160,438 host-measured tokens.
+- Independent: `gpt-5.6-sol` at high reasoning, 24,000-token target,
+  320,000-token fixed hard ceiling; observed 252,323 host-measured tokens.
+- Investigation result: both assignment-only provider processes ran in parallel, streamed
+  normalized events, returned schema-valid findings, stayed inside their
+  command envelopes and hard ceilings, and persisted optional token dimensions
+  without inventing unavailable cache-creation values.
+- The resulting task-specific navigability audit completed with deterministic
+  score 71.7 and reliability 65. These values measure repository navigation for
+  the probe, not feature quality. Reliability was capped because the read-only
+  run performed no executable probe; candidate token efficiency was ineligible
+  after the adequacy gate failed.
+- Known host limitation: Codex reports authoritative usage at turn completion,
+  so its hard ceiling is enforced by post-completion rejection rather than
+  preemptive interruption. The provider-neutral runner separately tests live
+  interruption for adapters that expose cumulative usage.
+- Calibration limitation: cross-examination, verification coordination, and
+  recommendation drafting still ran in the controlling conversation. No
+  orchestration token measurement was recorded. This smoke run validates the
+  candidate/independent investigation runner but is not a valid calibration
+  benchmark under the fresh-role invariant. Milestone 1 remains open until the
+  orchestrator runs in its own assignment-only provider process with a fixed
+  budget and the completion gate is repeated.
+- Recommendation presentation gap: the run stored three recommendation events
+  with observed navigation symptoms, token-efficiency mechanisms, verified
+  claim IDs, and exact citations. The legacy service projection discarded that
+  evidence, and the UI showed `Evidence pending` instead of a concrete
+  before/after task. Before the repeat run, the authoritative workflow must
+  persist structured `report.recommendations` records and the UI must render
+  each cited file and line, the observed problem, a named repository change,
+  its token-efficiency mechanism, limitations, and a repeatable validation
+  check.
+- Live-progress gap: fresh-process investigation events did not include trusted
+  stage progress, so the service projected `0%` until run completion. Before
+  the repeat run, progress must be deterministic, monotonic, derived from
+  authoritative orchestration stages, and integration-tested from
+  investigation start through terminal state.
+- The second calibration attempt must validate both gaps through the live
+  observer UI in addition to running the fresh, measured orchestrator. It must
+  retain the first run as a separate historical record.
+- Local remediation completed for the repeat attempt: the authoritative
+  launcher now runs candidate and independent research in parallel, imports
+  cited candidate findings, and launches a fresh assignment-only orchestrator
+  with its own declared budget and host-measured token phase. Fixed workflow
+  progress advances from investigation through verification and report
+  generation. Recommendation drafts must pass deterministic claim verification
+  before `report finalize` emits structured `report.recommendations`, and the UI
+  renders cited file/line evidence, token mechanisms, concrete repository
+  changes, validation checks, and limitations.
+- Deterministic coverage for that remediation passes with the fake provider,
+  including fresh-role isolation, all three token phases, hard-limit failure,
+  live interruption, duplicate-launch rejection, verification-gated
+  recommendation finalization, and progress projections at 65%, 85%, and 90%.
+  The implementation is ready for the second real-provider calibration but the
+  milestone remains open until that run passes the completion gate.
 
 ### Deliverables
 
@@ -138,9 +207,15 @@ Scoring formulas and thresholds are versioned and independent from report prose.
 
 - A run can be created from the terminal without opening the UI.
 - Events are durably ordered and survive process restart.
-- The UI receives live progress without polling.
+- The UI receives deterministic, monotonic live progress without polling and
+  does not remain at `0%` throughout an active run.
 - A completed report includes task, commit, models, tokens, claims, citations,
-  verification coverage, scores, reliability, and recommendations.
+  verification coverage, scores, reliability, and evidence-linked
+  recommendations.
+- Every recommendation identifies a verified repository-specific problem,
+  cites its real file or architectural evidence, proposes a named actionable
+  repository-navigation change, explains the token-efficiency mechanism, and
+  defines a repeatable before/after validation check.
 - A candidate cannot directly set any authoritative score.
 - Missing critical verification caps both the final score and reliability.
 - The hostile benchmark scores below the navigable benchmark.
@@ -150,6 +225,18 @@ Scoring formulas and thresholds are versioned and independent from report prose.
 
 ## Milestone 2 — Real Orchestration
 
+- Add a secondary “Prepare audit request” action that opens an accessible modal
+  without displacing the active-audit viewport.
+- Discover installed provider adapters and expose their available models and
+  model-specific reasoning efforts through a read-only capability contract.
+- Collect repository path, audit mode, concise name, task, participant
+  provider/model/reasoning selections, and advanced token budgets.
+- Generate a deterministic, self-contained prompt that tells the paired agent
+  to use the authoritative Waymark audit workflow. Copy it only after explicit
+  user action.
+- Keep preparation state outside the audit journal. Opening, editing, or
+  copying the request must not create a run, invoke a provider, or claim that an
+  audit started.
 - Run candidate and independent research in parallel.
 - Launch audited roles in fresh assignment-only sessions; never charge the
   controlling development conversation to the audit.
@@ -234,6 +321,10 @@ complete until every step passes:
 7. Record the validation result and any known limitation in this plan. Mark the
    milestone complete only after the real smoke test passes. Keep failed attempts
    as visible, separate records rather than rewriting or discarding them.
+8. Observe the real smoke test through the UI. Confirm that progress advances
+   monotonically before completion and that every recommendation renders its
+   verified evidence, concrete repository change, token-efficiency rationale,
+   limitations, and before/after validation check.
 
 ## Definition of Done for the First Build
 

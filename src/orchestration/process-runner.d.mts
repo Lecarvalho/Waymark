@@ -1,5 +1,6 @@
 import type { AuditStore } from "../persistence/index.mjs";
 import type {
+  AuditEvent,
   JsonObject,
   JsonValue,
   RunParticipantInput,
@@ -59,4 +60,13 @@ export function runInvestigationPhase(input: {
     role: "candidate" | "independent";
     status: string;
   }>;
+  orchestration?: {
+    role: "orchestrator";
+    status: string;
+  };
 }>;
+
+export function finalizeDraftRecommendations(input: {
+  store: AuditStore;
+  runId: string;
+}): AuditEvent;
