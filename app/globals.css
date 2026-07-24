@@ -2113,9 +2113,9 @@ code {
 
 .token-methodology {
   display: grid;
-  gap: 11px;
+  gap: 14px;
   margin-top: 12px;
-  padding: 13px;
+  padding: 16px;
   border: 1px solid rgba(116, 185, 255, 0.22);
   border-radius: 9px;
   background: rgba(116, 185, 255, 0.045);
@@ -2144,22 +2144,22 @@ code {
 }
 
 .methodology-state {
-  padding: 4px 7px;
+  padding: 5px 8px;
   border: 1px solid rgba(116, 185, 255, 0.25);
   border-radius: 999px;
   color: var(--blue);
   font-family: var(--font-geist-mono), monospace;
-  font-size: 7px;
+  font-size: 10px;
   white-space: nowrap;
 }
 
 .token-equation {
   overflow-x: auto;
-  padding: 8px 9px;
+  padding: 10px 11px;
   border-radius: 6px;
   background: rgba(0, 0, 0, 0.18);
   color: var(--text);
-  font-size: 8px;
+  font-size: 11px;
   line-height: 1.5;
   white-space: nowrap;
 }
@@ -2175,35 +2175,35 @@ code {
 }
 
 .candidate-token-grid > div {
-  gap: 4px;
-  padding: 8px;
+  gap: 5px;
+  padding: 10px;
   background: var(--panel);
 }
 
 .candidate-token-grid span,
 .token-methodology-notes dt {
   color: var(--muted);
-  font-size: 7px;
+  font-size: 10px;
 }
 
 .candidate-token-grid strong,
 .token-methodology-notes dd {
   color: var(--text);
   font-family: var(--font-geist-mono), monospace;
-  font-size: 8px;
+  font-size: 12px;
   font-weight: 520;
 }
 
 .token-methodology-notes {
   display: grid;
-  gap: 6px;
+  gap: 8px;
   margin: 0;
 }
 
 .token-methodology-notes > div {
   display: grid;
-  grid-template-columns: 78px minmax(0, 1fr);
-  gap: 8px;
+  grid-template-columns: 116px minmax(0, 1fr);
+  gap: 12px;
 }
 
 .token-methodology-notes dt,
@@ -2214,8 +2214,8 @@ code {
 .token-methodology > p {
   margin: 0;
   color: var(--muted-bright);
-  font-size: 8px;
-  line-height: 1.55;
+  font-size: 11px;
+  line-height: 1.65;
 }
 
 .muted-action {
