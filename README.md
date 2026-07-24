@@ -41,6 +41,17 @@ The default URLs are:
 The SQLite database defaults to `.waymark/waymark.sqlite`. Override it with
 `WAYMARK_DB_PATH`.
 
+## Prepare an audit request
+
+Use the secondary **Prepare audit request** action in the observer interface to
+assemble a self-contained prompt for the paired coding-agent session. Provider,
+model, and reasoning choices come from the read-only local adapter capability
+endpoint. The form can also declare phase token targets and hard limits.
+
+Opening, editing, or copying a prepared request does not create a run, invoke a
+model, or write to SQLite. Only the explicit **Copy audit request** action writes
+the generated text to the clipboard.
+
 ## Run an audit
 
 Invoke the repository-local skill from a compatible agent:

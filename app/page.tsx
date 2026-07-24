@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
+import { PrepareAuditDialog } from "./prepare-audit-dialog";
 import { useWaymarkLive } from "./use-waymark-live";
 
 type Phase = {
@@ -526,6 +527,7 @@ export default function Home() {
             <code>{repositoryCommit}</code>
           </div>
           <div className="topbar-actions">
+            <PrepareAuditDialog />
             <span className="local-pill">
               <i
                 className={connection === "live" ? "" : "is-offline"}

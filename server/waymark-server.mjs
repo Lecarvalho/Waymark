@@ -9,6 +9,7 @@ import {
   DEFAULT_DATABASE_PATH,
   resolveDatabasePath,
 } from "../src/persistence/index.mjs";
+import { discoverProviderCapabilities } from "../src/orchestration/provider-capabilities.mjs";
 import { hashScoreInput, scoreAudit } from "../src/scoring/index.mjs";
 
 const DEFAULT_HOST = "127.0.0.1";
@@ -1077,9 +1078,13 @@ export async function startWaymarkServer({
   databasePath = process.env.WAYMARK_DB_PATH ?? DEFAULT_DATABASE_PATH,
   host = process.env.WAYMARK_HOST ?? DEFAULT_HOST,
   port = Number(process.env.WAYMARK_PORT ?? DEFAULT_PORT),
+  providerCapabilityOptions,
 } = {}) {
   const resolvedDatabasePath = resolveDatabasePath(databasePath);
   const store = new AuditStore({ databasePath: resolvedDatabasePath });
+  const providerCapabilities = discoverProviderCapabilities(
+    providerCapabilityOptions,
+  );
   const clients = new Set();
 
   const broadcast = (event = "changed") => {
@@ -1114,6 +1119,11 @@ export async function startWaymarkServer({
           service: "waymark",
           databasePath: resolvedDatabasePath,
         });
+        return;
+      }
+
+      if (url.pathname === "/api/provider-capabilities") {
+        json(response, 200, providerCapabilities);
         return;
       }
 

@@ -490,6 +490,45 @@ Post-calibration report and protocol remediation:
 
 ## Milestone 2 — Real Orchestration
 
+### Current status
+
+Milestone 2 is in progress. The fresh-process orchestration path and the
+preparation-only request workflow are implemented:
+
+- `investigation run` launches candidate and independent research in parallel,
+  imports structured navigation evidence, then launches a fresh orchestrator
+  for cross-examination and deterministic-verification requests.
+- Role processes receive assignment-only context, a read-only target policy,
+  phase targets and hard limits, shell-command limits, and normalized tool and
+  token telemetry. Interruptions, failures, policy violations, and resource
+  overruns remain explicit journal evidence.
+- The read-only local service exposes installed provider-adapter capabilities,
+  model-specific reasoning efforts, supported audit modes, and default phase
+  budgets without adding a mutation route.
+- The observer interface provides a secondary, keyboard-accessible “Prepare
+  audit request” modal. Repository scope, audit mode, concise name, task,
+  participant selections, and advanced budgets remain in browser memory. The
+  deterministic prompt is copied only after the explicit “Copy audit request”
+  action and states that preparation did not create or start a run.
+- Provider/model/reasoning catalogs live in the adapter capability declaration,
+  not in the React presentation. `WAYMARK_CODEX_MODELS_JSON` can replace the
+  bundled Codex declaration without changing the interface.
+
+Automated validation on 2026-07-24 passed the production build, lint, and all 39
+tests. New contract coverage proves adapter discovery, model-specific reasoning,
+deterministic general and task-specific prompts, hard-limit rejection, the
+read-only capability endpoint, and the absence of an audit run after capability
+reads or rejected mutations.
+
+The milestone is not marked complete yet. Its completion-gate smoke test must
+still copy a prepared request through the real modal, execute that exact request
+through the authoritative audit skill with fixed immutable inputs and bounded
+role processes, and observe monotonic live progress plus evidence-linked
+recommendations in the UI. Disposable implementation-worktree automation also
+remains intentionally future-facing; discovery continues to enforce a
+read-only target and the generated request permits a disposable worktree only
+after separate authorization.
+
 - Add a secondary “Prepare audit request” action that opens an accessible modal
   without displacing the active-audit viewport.
 - Discover installed provider adapters and expose their available models and
