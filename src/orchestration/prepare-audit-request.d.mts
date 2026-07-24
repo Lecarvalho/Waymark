@@ -20,12 +20,6 @@ export interface PreparedAuditRequest {
   tokenBudgets: AuditTokenBudgets;
 }
 
-export const GENERAL_AUDIT_TASK_SUITE: {
-  readonly id: "waymark-general-navigation";
-  readonly version: "1.0.0";
-  readonly tasks: readonly string[];
-};
-
 export function validatePreparedAuditRequest(
   input: PreparedAuditRequest,
 ): PreparedAuditRequest & { name: string };

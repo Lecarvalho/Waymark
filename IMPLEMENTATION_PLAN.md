@@ -7,9 +7,10 @@ coding agent can navigate a target repository while following a general,
 task-specific, or system-explanation probe.
 
 The audit request executes in a paired coding-agent session such as Codex or
-Claude Code. Waymark may prepare a self-contained request for the user to copy
-into that session; it remains the observer, evidence ledger, deterministic
-verifier, scoring engine, and durable report surface.
+Claude Code. Waymark may prepare a compact runtime-input handoff for the user to
+copy into that session; the repository-local skill supplies fixed workflow and
+policy. Waymark remains the observer, evidence ledger, deterministic verifier,
+scoring engine, and durable report surface.
 
 ## Product Boundaries
 
@@ -581,9 +582,9 @@ after separate authorization.
   concise audit name deterministically from the probe and phase token targets
   from same-mode completed-run averages, with explicit defaults when matching
   history is absent.
-- Generate a deterministic, self-contained prompt that tells the paired agent
-  to use the authoritative Waymark audit workflow. Copy it only after explicit
-  user action.
+- Generate a deterministic, compact handoff containing only runtime inputs and
+  tell the paired agent to use the authoritative repository-local Waymark audit
+  workflow for fixed policy. Copy it only after explicit user action.
 - Keep preparation state outside the audit journal. Opening, editing, or
   copying the request must not create a run, invoke a provider, or claim that an
   audit started.

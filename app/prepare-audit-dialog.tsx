@@ -467,9 +467,8 @@ export function PrepareAuditDialog() {
                   </label>
                 ) : (
                   <p className="prepare-mode-note">
-                    The paired agent will use the self-contained
-                    waymark-general-navigation@1.0.0 task suite. No feature
-                    request will be invented.
+                    The repository-local audit skill resolves the versioned
+                    general-navigation suite. No feature request is needed.
                   </p>
                 )}
               </div>
@@ -658,8 +657,8 @@ export function PrepareAuditDialog() {
                 <div>
                   <h3 id="audit-request-preview">Prompt preview</h3>
                   <p>
-                    Deterministic and self-contained; copied only by the action
-                    below.
+                    Only selected runtime inputs; fixed policy comes from the
+                    repository-local skill.
                   </p>
                 </div>
               </div>

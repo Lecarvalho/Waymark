@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -210,46 +210,56 @@ test("prepared audit prompts are deterministic, concise, and preparation-only", 
   const second = buildPreparedAuditRequest(preparedInput());
 
   assert.equal(first, second);
-  assert.match(first, /Use \$waymark-audit/);
+  assert.match(first, /Run \$waymark-audit/);
   assert.match(first, /C:\\\\work\\\\target/);
-  assert.match(first, /Reuse the existing service/);
+  assert.match(first, /Expected journal:/);
   assert.match(
     first,
-    /Pass that path with --db to every CLI command/,
-  );
-  assert.match(first, /Do not start or restart services, switch ports, or create another database/);
-  assert.match(
-    first,
-    /Name: "Add partial refunds with manager approval and idempotency"/,
+    /Task: "Add partial refunds with manager approval and idempotency\."/,
   );
   assert.match(first, /candidate-model/);
   assert.match(first, /reasoning=xhigh/);
-  assert.match(first, /candidate_navigation: 12000\/24000/);
-  assert.match(first, /reserve the final 20% for reporting/i);
-  assert.match(first, /fresh-process launcher/);
-  assert.match(first, /Preparing or copying it did not create or start a run/);
-  assert.match(first, /immutable repository identity and commit/);
-  assert.match(first, /verificationPolicy="repository_appropriate"/);
-  assert.match(first, /Static inspection is sufficient for fully supported navigation-only claims/);
-  assert.match(first, /Do not automatically install dependencies, restore packages, start services, or enable network access/);
-  assert.match(first, /request narrow authorization and keep setup separate from later sandboxed\/offline execution/);
-  assert.match(first, /call the deterministic scorer even when an adequacy check fails/);
-  assert.doesNotMatch(first, /only if the evidence and calibration gates pass/);
-  assert.ok(first.length < 4_500, `prepared prompt is ${first.length} characters`);
+  assert.match(first, /candidate_navigation=12000\/24000/);
+  assert.match(first, /Create one new run/);
+  assert.match(first, /preparing it did not start a run/);
+  assert.doesNotMatch(first, /Name:/);
+  assert.doesNotMatch(first, /Required safeguards:/);
+  assert.doesNotMatch(first, /verificationPolicy/);
+  assert.doesNotMatch(first, /fresh-process launcher/);
+  assert.ok(first.length < 1_100, `prepared prompt is ${first.length} characters`);
 });
 
-test("prepared general audits require the versioned suite instead of a task", () => {
+test("prepared general audits delegate the versioned suite to the skill", () => {
   const input = preparedInput();
   input.auditMode = "general";
   input.task = "";
 
   const prompt = buildPreparedAuditRequest(input);
-  assert.match(prompt, /waymark-general-navigation@1\.0\.0/);
-  assert.match(prompt, /Name: "General repository navigation"/);
-  assert.match(prompt, /Orientation: locate the repository map/);
-  assert.match(prompt, /Verification discovery: locate the documented validation command/);
-  assert.match(prompt, /do not invent a feature request/);
-  assert.doesNotMatch(prompt, /Probe task:/);
+  assert.match(prompt, /Mode: general/);
+  assert.doesNotMatch(prompt, /waymark-general-navigation/);
+  assert.doesNotMatch(prompt, /Orientation: locate the repository map/);
+  assert.doesNotMatch(prompt, /Task:/);
+  assert.doesNotMatch(prompt, /Question:/);
+  assert.doesNotMatch(prompt, /Name:/);
+});
+
+test("the audit skill owns the versioned general navigation suite", () => {
+  const skill = readFileSync(
+    new URL("../.agents/skills/waymark-audit/SKILL.md", import.meta.url),
+    "utf8",
+  );
+  const suitePath =
+    "../.agents/skills/waymark-audit/references/general-navigation-suite-1.0.0.json";
+  const suite = JSON.parse(
+    readFileSync(new URL(suitePath, import.meta.url), "utf8"),
+  );
+
+  assert.match(skill, /references\/general-navigation-suite-1\.0\.0\.json/);
+  assert.equal(suite.id, "waymark-general-navigation");
+  assert.equal(suite.version, "1.0.0");
+  assert.equal(suite.name, "General repository navigation");
+  assert.equal(suite.tasks.length, 3);
+  assert.equal(suite.constraints.length, 3);
 });
 
 test("prepared system explanations measure finding cost instead of prose depth", () => {
@@ -259,14 +269,10 @@ test("prepared system explanations measure finding cost instead of prose depth",
 
   const prompt = buildPreparedAuditRequest(input);
   assert.match(prompt, /Mode: system_explanation/);
-  assert.match(
-    prompt,
-    /runConditions\.auditMode="system_explanation"/,
-  );
-  assert.match(prompt, /Probe question: "How are refunds approved\?"/);
-  assert.match(prompt, /Measure navigation cost, not prose depth/);
-  assert.match(prompt, /hypothetical change-surface recall/);
-  assert.doesNotMatch(prompt, /Probe task:/);
+  assert.match(prompt, /Question: "How are refunds approved\?"/);
+  assert.doesNotMatch(prompt, /runConditions/);
+  assert.doesNotMatch(prompt, /prose depth/);
+  assert.doesNotMatch(prompt, /Task:/);
 });
 
 test("system-explanation mode reaches fresh role assignments", () => {

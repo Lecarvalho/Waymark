@@ -54,8 +54,9 @@ decorative urgency.
 
 The interface may prepare an audit request without starting one. The user
 selects the repository, audit mode, task or explanation question, and available
-provider/model/reasoning combinations, then explicitly copies a self-contained
-prompt. Model and
+provider/model/reasoning combinations, then explicitly copies a compact handoff
+containing those runtime inputs. Fixed workflow, safety, and scoring
+policy come from the versioned repository-local audit skill. Model and
 reasoning choices come from runtime adapter capabilities rather than a
 hardcoded catalog. Preparing or copying a request does not create a run, invoke
 a model, write to SQLite, or imply that an audit has started.

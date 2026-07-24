@@ -9,6 +9,38 @@ Read [references/protocol.md](references/protocol.md) before starting. Run comma
 from the Waymark repository and use `node bin/waymark.mjs`; add `--db <path>` when
 the default journal is not appropriate.
 
+## Prepared request contract
+
+Requests copied from the Waymark observer intentionally contain only runtime
+inputs. Treat this skill and its protocol as authoritative for fixed workflow,
+safety, persistence, and scoring behavior; do not require the copied request to
+repeat those rules.
+
+Resolve omitted fixed metadata as follows:
+
+- `general` mode selects
+  [waymark-general-navigation@1.0.0](references/general-navigation-suite-1.0.0.json).
+  Read that suite, persist its ID and version in `runConditions.taskSuite`, and
+  use its ordered tasks as the verbatim run probe. Apply its constraints
+  without requiring the prepared request to repeat them.
+- `task_specific` mode uses the supplied task verbatim.
+- `system_explanation` mode uses the supplied question verbatim and applies the
+  explanation constraints below.
+- Infer the run name locally: use `General repository navigation` for general
+  mode; otherwise use the first sentence or thought, trimmed to at most 72
+  characters.
+- Always set `runConditions.auditMode` to the supplied mode and
+  `runConditions.verificationPolicy` to `repository_appropriate`. Resolve the
+  current protocol, rubric, tool policy, and execution policy from this checkout
+  rather than asking the prepared request to repeat them.
+- The supplied service URL and expected journal are a strict pair. Apply the
+  health check and mismatch behavior in Fresh-session preflight.
+- Participant identities, reasoning efforts, and phase token budgets are
+  explicit runtime inputs and must be copied into the run exactly.
+
+The sentence `Create one new run` in a prepared request authorizes that single
+audit. Preparing or copying the request did not create a run.
+
 ## Workflow
 
 1. Resolve the target's immutable repository identity and commit without changing

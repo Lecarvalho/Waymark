@@ -49,13 +49,20 @@ it never creates a replacement database silently.
 ## Prepare an audit request
 
 Use the secondary **Prepare audit request** action in the observer interface to
-assemble a self-contained prompt for the paired coding-agent session. Provider,
-model, and reasoning choices come from the read-only local adapter capability
-endpoint. The form can also declare phase token targets and hard limits.
+assemble a compact handoff for the paired coding-agent session. It contains only
+runtime inputs; the repository-local audit skill supplies the fixed workflow,
+safety, and scoring protocol. Provider, model, and reasoning choices come from
+the read-only local adapter capability endpoint. The form can also declare
+phase token targets and hard limits.
 
 The generated request records the running service URL and its exact SQLite path.
 The paired agent must append a new run to that journal and must not start a
 second service or create a database for the audit.
+
+General audits need only declare `Mode: general`. The skill resolves and
+persists the current versioned navigation suite. Audit names, run policies,
+protocol versions, and rubric versions are likewise resolved from the current
+Waymark checkout instead of being repeated in the prompt.
 
 Opening, editing, or copying a prepared request does not create a run, invoke a
 model, or write to SQLite. Only the explicit **Copy audit request** action writes

@@ -1,0 +1,15 @@
+{
+  "id": "waymark-general-navigation",
+  "version": "1.0.0",
+  "name": "General repository navigation",
+  "tasks": [
+    "Orientation: locate the repository map, scoped agent instructions, primary runtime entry points, and canonical setup workflow.",
+    "Ownership and dependencies: trace the owning module and visible dependency direction for one representative runtime path without proposing a feature change.",
+    "Verification discovery: locate the documented validation command and the nearest focused feedback loop for that representative path."
+  ],
+  "constraints": [
+    "Treat this suite only as a repository-navigation probe.",
+    "Do not invent a feature request.",
+    "Do not broaden the report into general code quality."
+  ]
+}

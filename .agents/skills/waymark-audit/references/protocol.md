@@ -63,6 +63,21 @@ verbatim as the reproducible navigation probe and record `auditMode` as
 `general`, `task_specific`, or `system_explanation`. Participant roles must be
 unique. Candidate and orchestrator are required.
 
+For `general` mode, resolve the versioned suite declared by the skill instead of
+requiring its ID and task list in the prepared request. Persist
+`runConditions.taskSuite` as:
+
+```json
+{"id":"waymark-general-navigation","version":"1.0.0"}
+```
+
+The run's `task` contains that suite's ordered tasks. For other modes, preserve
+the supplied task or question exactly. Prepared requests may omit names and
+fixed policy values that the skill defines; resolve them before constructing
+`run.json`. Never infer or replace explicit participant selections, reasoning
+efforts, token budgets, service URL, expected journal, mode, or non-general
+probe text.
+
 ## Isolated role execution
 
 Audited roles must not inherit the controlling conversation. For Codex, launch
