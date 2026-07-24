@@ -53,12 +53,14 @@ export interface AuditAssignment {
   task: string;
   executionPolicy: AuditExecutionPolicy;
   tokenBudget: TokenBudget;
+  shellCommandBudget?: number;
   constraints: readonly string[];
   expectedEvidence: readonly string[];
   context?: JsonObject;
 }
 
 export interface InvestigationFinding {
+  kind: "repository_fact";
   subject: string;
   assertion: string;
   confidence: number;

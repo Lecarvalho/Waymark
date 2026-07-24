@@ -18,16 +18,28 @@ function emit(value) {
 
 emit({ type: "thread.started", thread_id: `fresh-${role}` });
 emit({ type: "turn.started" });
-emit({
-  type: "item.completed",
-  item: {
-    id: `${role}-command`,
+const commandCount = mode === "command-over-budget" ? 7 : 1;
+for (let index = 1; index <= commandCount; index += 1) {
+  const item = {
+    id: `${role}-command-${index}`,
     type: "command_execution",
-    command: "rg --files",
-    status: "completed",
-    exit_code: 0
-  }
-});
+    command: index === commandCount ? "git status --short" : "rg --files",
+    status: "in_progress",
+  };
+  emit({ type: "item.started", item });
+  emit({
+    type: "item.completed",
+    item: {
+      ...item,
+      status:
+        mode === "command-over-budget" && index === commandCount
+          ? "declined"
+          : "completed",
+      exit_code:
+        mode === "command-over-budget" && index === commandCount ? -1 : 0,
+    },
+  });
+}
 
 if (mode === "failure") {
   process.stderr.write("simulated provider failure");
@@ -96,6 +108,10 @@ if (mode === "failure") {
           summary: `${role} inspected an assignment-only prompt`,
           findings: [
             {
+              kind:
+                mode === "invalid-finding-kind"
+                  ? "proposed_change"
+                  : "repository_fact",
               subject: "test change surface",
               assertion:
                 "package.json is the canonical entry point for repository scripts.",

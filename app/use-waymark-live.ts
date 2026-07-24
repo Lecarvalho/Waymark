@@ -147,6 +147,10 @@ export type WaymarkRunSnapshot = {
       | null;
     claimsChallenged: number;
     totalClaims: number;
+    verifiedClaims: number;
+    contradictedClaims: number;
+    unverifiedClaims: number;
+    adjudicatedClaims: number;
     openChallenges: number;
     candidateConfidence: number;
     verifiedAccuracy: number;

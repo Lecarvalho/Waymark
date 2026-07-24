@@ -298,6 +298,7 @@ export default function Home() {
   const candidateTokenSource =
     snapshot?.metrics.candidateTokenSource ?? null;
   const totalClaims = snapshot?.metrics.totalClaims ?? 0;
+  const adjudicatedClaims = snapshot?.metrics.adjudicatedClaims ?? 0;
   const openChallenges = snapshot?.metrics.openChallenges ?? 0;
   const displayedEvent = snapshot?.latestEvent ?? "";
   const phaseParticipantRoles = [
@@ -372,12 +373,12 @@ export default function Home() {
     : [];
   const displayedEvidence = snapshot?.evidence ?? [];
   const displayedRecommendations = snapshot?.recommendations ?? [];
-  const verifiedClaims = displayedEvidence.filter((row) =>
-    row.status.startsWith("Verified"),
-  ).length;
-  const contradictedClaims = displayedEvidence.filter(
-    (row) => row.status === "Contradicted",
-  ).length;
+  const verifiedClaims =
+    snapshot?.metrics.verifiedClaims ??
+    displayedEvidence.filter((row) => row.status.startsWith("Verified")).length;
+  const contradictedClaims =
+    snapshot?.metrics.contradictedClaims ??
+    displayedEvidence.filter((row) => row.status === "Contradicted").length;
   const tokenUsage = snapshot?.tokenUsage ?? null;
   const totalAuditTokens = tokenUsage?.overall.totalTokens ?? null;
   const candidateBudget = tokenUsage?.candidateBudget ?? null;
@@ -668,7 +669,9 @@ export default function Home() {
                 </div>
                 <div className="metric-foot">
                   {navigability === null
-                    ? "Authoritative score appears after verification"
+                    ? snapshot.status === "failed"
+                      ? "Unavailable — audit failed before scoring"
+                      : "Authoritative score appears after verification"
                     : "Authoritative deterministic score"}
                 </div>
               </article>
@@ -683,7 +686,9 @@ export default function Home() {
                 </div>
                 <div className="metric-foot">
                   {reliability === null
-                    ? "Pending deterministic verification"
+                    ? snapshot.status === "failed"
+                      ? "Unavailable — audit failed before scoring"
+                      : "Pending deterministic verification"
                     : reliability >= 80
                       ? "Strong evidence coverage"
                       : reliability >= 60
@@ -721,7 +726,7 @@ export default function Home() {
                 </div>
               </article>
               <article className="metric-card">
-                <div className="metric-label">Verification coverage</div>
+                <div className="metric-label">Verified claims</div>
                 <div className="metric-value">
                   {verifiedClaims}
                   <span>/{totalClaims}</span>
@@ -737,7 +742,7 @@ export default function Home() {
                       {contradictedClaims} contradicted
                     </span>
                   ) : (
-                    "Deterministic verdict coverage"
+                    `${adjudicatedClaims}/${totalClaims} claims adjudicated`
                   )}
                 </div>
               </article>

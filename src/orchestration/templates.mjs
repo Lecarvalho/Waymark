@@ -38,9 +38,9 @@ export const DEFAULT_AUDIT_TOKEN_BUDGETS = Object.freeze({
 const CANDIDATE_EVIDENCE = Object.freeze([
   "entry points and relevant locations opened",
   "ownership and dependency answers",
-  "required consumers and likely change surface",
+  "observed existing consumers and dependency edges",
   "applicable instructions and verification workflow",
-  "atomic claims with confidence and citations",
+  "atomic current-repository facts with confidence and citations that support the entire assertion",
 ]);
 
 const INDEPENDENT_EVIDENCE = Object.freeze([
@@ -52,7 +52,7 @@ const INDEPENDENT_EVIDENCE = Object.freeze([
 const ORCHESTRATOR_EVIDENCE = Object.freeze([
   "cross-examination of every candidate claim that needs qualification",
   "deterministic verification requests with concrete checks",
-  "evidence-linked repository-navigation recommendations",
+  "repository-navigation recommendations linked only to supplied current-repository fact claims",
   "a named repository change and repeatable before/after check per recommendation",
 ]);
 const REASONING_EFFORTS = new Set([
@@ -130,8 +130,14 @@ export function createInvestigationAssignments(input) {
       ? { reasoningEffort: candidateReasoningEffort }
       : {}),
     tokenBudget: tokenBudgets.candidate_navigation,
+    ...(Number.isSafeInteger(input.shellCommandBudgets?.candidate)
+      ? { shellCommandBudget: input.shellCommandBudgets.candidate }
+      : {}),
     constraints: Object.freeze([
       ...READ_ONLY_CONSTRAINTS,
+      "Each finding must have kind repository_fact and state one atomic fact about the repository as it exists at the target commit.",
+      "Do not put implementation advice, desired future architecture, or a proposed change surface in findings.",
+      "Every finding must include at least one line-range citation that supports the entire assertion.",
       ...(input.additionalConstraints?.candidate ?? []),
     ]),
     expectedEvidence: CANDIDATE_EVIDENCE,
@@ -155,6 +161,9 @@ export function createInvestigationAssignments(input) {
         ? { reasoningEffort: independentReasoningEffort }
         : {}),
       tokenBudget: tokenBudgets.independent_validation,
+      ...(Number.isSafeInteger(input.shellCommandBudgets?.independent)
+        ? { shellCommandBudget: input.shellCommandBudgets.independent }
+        : {}),
       constraints: Object.freeze([
         ...READ_ONLY_CONSTRAINTS,
         ...(input.additionalConstraints?.independent ?? []),
@@ -179,10 +188,15 @@ export function createOrchestratorAssignment(input) {
     executionPolicy: FRESH_EXECUTION_POLICY,
     ...(reasoningEffort ? { reasoningEffort } : {}),
     tokenBudget: tokenBudgets.orchestration,
+    ...(Number.isSafeInteger(input.shellCommandBudget)
+      ? { shellCommandBudget: input.shellCommandBudget }
+      : {}),
     constraints: Object.freeze([
       ...READ_ONLY_CONSTRAINTS,
       ...(input.additionalConstraints ?? []),
       "Use only the supplied claim IDs in challenges, verification requests, and recommendations.",
+      "Recommendation claim IDs must reference atomic current-repository facts, never implementation advice, desired architecture, or proposed change-surface assertions.",
+      "If a proposed recommendation lacks a supported factual claim, omit that recommendation rather than citing a speculative claim.",
       "Recommend repository navigation improvements, never implementation of the probe feature.",
       "Do not assign or predict a Waymark score.",
     ]),

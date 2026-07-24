@@ -95,6 +95,10 @@ expose live cumulative usage when a hard limit is reached. Providers that only
 report usage at turn completion must append `budget.exceeded` and disqualify
 the run when the final value crosses the limit. A single-turn reporting
 limitation must never be described as preemptive enforcement.
+Shell command budgets are enforced from live command-start events. Command N+1
+terminates the role, appends `policy.violation`, and disqualifies the run. A
+provider-declined command still counts because the attempted command has already
+consumed navigation budget.
 The target is the efficiency objective; the hard limit is a separately
 calibrated validity ceiling. Establish the ceiling before the run from a prior
 bounded measurement for the same host/model/task class. Do not raise it after
@@ -102,6 +106,10 @@ seeing the current result. Preserve any over-budget attempt as a distinct,
 failed, unscored run.
 
 Use a preflight to confirm the exact provider launcher and read-command policy.
+Start or reuse the observer at the web URL visible to the user, connect its
+service to the exact SQLite journal selected for the run, and confirm the
+intended run ID in the UI before launching paid roles. Do not silently use a
+second web or service port when the user's observer is already running.
 On Windows/Node 24, spawning a `.cmd` file directly can fail with `EINVAL`;
 launch the provider's JavaScript entry point with `process.execPath`, or use a
 known-compatible shell invocation. Narrow file-name discovery and selected-file

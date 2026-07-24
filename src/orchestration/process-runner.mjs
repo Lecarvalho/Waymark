@@ -141,6 +141,29 @@ function stringList(value) {
     : [];
 }
 
+function shellCommandBudgetForRole(run, role) {
+  const execution = run.runConditions.execution;
+  if (
+    execution === null ||
+    typeof execution !== "object" ||
+    Array.isArray(execution)
+  ) {
+    return undefined;
+  }
+  const shellCommandBudget = execution.shellCommandBudget;
+  if (
+    shellCommandBudget === null ||
+    typeof shellCommandBudget !== "object" ||
+    Array.isArray(shellCommandBudget)
+  ) {
+    return undefined;
+  }
+  const roleBudget = shellCommandBudget[role];
+  return Number.isSafeInteger(roleBudget) && roleBudget >= 0
+    ? roleBudget
+    : undefined;
+}
+
 function assignmentConstraints(run, role) {
   const constraints = [
     ...stringList(run.toolPolicy.allowed).map(
@@ -152,14 +175,8 @@ function assignmentConstraints(run, role) {
   ];
   const execution = run.runConditions.execution;
   if (execution && typeof execution === "object" && !Array.isArray(execution)) {
-    const shellCommandBudget = execution.shellCommandBudget;
-    const roleBudget =
-      shellCommandBudget &&
-      typeof shellCommandBudget === "object" &&
-      !Array.isArray(shellCommandBudget)
-        ? shellCommandBudget[role]
-        : undefined;
-    if (Number.isSafeInteger(roleBudget) && roleBudget >= 0) {
+    const roleBudget = shellCommandBudgetForRole(run, role);
+    if (roleBudget !== undefined) {
       constraints.push(`Use at most ${roleBudget} shell commands.`);
     }
     if (
@@ -189,7 +206,7 @@ async function executeAssignment({
   signal,
   killGraceMs,
 }) {
-  const { role, participant, tokenBudget } = assignment;
+  const { role, participant, tokenBudget, shellCommandBudget } = assignment;
   const phase = phaseForRole(role);
   const lifecycle = lifecycleForRole(role);
   const adapter = findAdapter(adapters, participant);
@@ -204,6 +221,7 @@ async function executeAssignment({
       reasoningEffort: assignment.reasoningEffort ?? null,
       executionPolicy: assignment.executionPolicy,
       tokenBudget,
+      shellCommandBudget: shellCommandBudget ?? null,
     },
   });
 
@@ -224,6 +242,8 @@ async function executeAssignment({
   let latestUsage = null;
   let finalOutput;
   let budgetExceeded = false;
+  let shellCommandCount = 0;
+  let shellCommandBudgetExceeded = false;
   let normalizedEventCount = 0;
   let processResult;
 
@@ -256,11 +276,27 @@ async function executeAssignment({
             type: normalized.type,
             payload: normalized.payload,
           });
+          if (
+            normalized.type === "provider.tool.started" &&
+            normalized.payload?.toolType === "command_execution"
+          ) {
+            shellCommandCount += 1;
+            if (
+              shellCommandBudget !== undefined &&
+              shellCommandCount > shellCommandBudget
+            ) {
+              shellCommandBudgetExceeded = true;
+            }
+          }
         }
 
-        return budgetExceeded && adapter.usageEnforcement === "live"
-          ? { terminate: true, reason: "hard_token_limit" }
-          : undefined;
+        if (shellCommandBudgetExceeded) {
+          return { terminate: true, reason: "shell_command_budget" };
+        }
+        if (budgetExceeded && adapter.usageEnforcement === "live") {
+          return { terminate: true, reason: "hard_token_limit" };
+        }
+        return undefined;
       },
     });
   } catch (error) {
@@ -295,6 +331,34 @@ async function executeAssignment({
       type: "provider.output.invalid",
       payload: { lineCount: processResult.invalidLineCount },
     });
+  }
+
+  if (shellCommandBudgetExceeded) {
+    const failure = {
+      reason: "shell_command_budget_exceeded",
+      phase,
+      declaredLimit: shellCommandBudget,
+      observedCommands: shellCommandCount,
+      blockedCommandsConsumeBudget: true,
+      enforcement:
+        processResult.terminationReason === "shell_command_budget"
+          ? "live_stream_interrupt"
+          : "post_completion_rejection",
+      calibrationEligible: false,
+    };
+    store.appendEvent({
+      runId: assignment.runId,
+      actor: role,
+      type: "policy.violation",
+      payload: failure,
+    });
+    store.appendEvent({
+      runId: assignment.runId,
+      actor: role,
+      type: `${lifecycle}.failed`,
+      payload: failure,
+    });
+    return { role, status: "policy_exceeded", failure };
   }
 
   if (budgetExceeded) {
@@ -404,19 +468,44 @@ function importCandidateClaims(store, runId, candidateResult) {
       "The candidate process returned no findings to verify",
     );
   }
-  return findings.map((finding) =>
-    store.submitClaim({
+  return findings.map((finding, index) => {
+    if (finding?.kind !== "repository_fact") {
+      throw new OrchestrationError(
+        "CANDIDATE_FINDING_KIND_REQUIRED",
+        `findings[${index}] must be an atomic repository_fact`,
+      );
+    }
+    if (!Array.isArray(finding.citations) || finding.citations.length === 0) {
+      throw new OrchestrationError(
+        "CANDIDATE_FINDING_CITATION_REQUIRED",
+        `findings[${index}] must include at least one line-range citation`,
+      );
+    }
+    for (const [citationIndex, citation] of finding.citations.entries()) {
+      if (
+        typeof citation?.path !== "string" ||
+        citation.path.trim() === "" ||
+        !Number.isSafeInteger(citation.startLine) ||
+        citation.startLine < 1 ||
+        !Number.isSafeInteger(citation.endLine) ||
+        citation.endLine < citation.startLine
+      ) {
+        throw new OrchestrationError(
+          "CANDIDATE_FINDING_CITATION_INVALID",
+          `findings[${index}].citations[${citationIndex}] must name a valid one-based line range`,
+        );
+      }
+    }
+    return store.submitClaim({
       runId,
       subject: finding.subject,
       assertion: finding.assertion,
       claimant: "candidate",
-      citations: Array.isArray(finding.citations)
-        ? finding.citations.map(normalizeCitation)
-        : [],
+      citations: finding.citations.map(normalizeCitation),
       confidence: finding.confidence,
       criticality: finding.criticality,
-    }),
-  );
+    });
+  });
 }
 
 function assertKnownClaim(claimIds, claimId, path) {
@@ -655,6 +744,10 @@ export async function runInvestigationPhase({
       candidate: assignmentConstraints(run, "candidate"),
       independent: assignmentConstraints(run, "independent"),
     },
+    shellCommandBudgets: {
+      candidate: shellCommandBudgetForRole(run, "candidate"),
+      independent: shellCommandBudgetForRole(run, "independent"),
+    },
   });
 
   const results = await Promise.all(
@@ -732,6 +825,7 @@ export async function runInvestigationPhase({
     orchestrator,
     tokenBudgets: run.runConditions.tokenBudgets,
     reasoningEffort: run.runConditions.orchestratorReasoningEffort,
+    shellCommandBudget: shellCommandBudgetForRole(run, "orchestrator"),
     additionalConstraints: assignmentConstraints(run, "orchestrator"),
     context: {
       claims,

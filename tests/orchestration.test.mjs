@@ -25,7 +25,14 @@ const fakeProviderPath = fileURLToPath(
   new URL("../fixtures/providers/fake-jsonl-provider.mjs", import.meta.url),
 );
 
-function createRun(store, { independent = true, candidateHardLimit = 500 } = {}) {
+function createRun(
+  store,
+  {
+    independent = true,
+    candidateHardLimit = 500,
+    candidateCommandBudget = 6,
+  } = {},
+) {
   return store.createRun({
     targetRepositoryPath: repositoryRoot,
     repositoryIdentity: "waymark-test",
@@ -51,7 +58,11 @@ function createRun(store, { independent = true, candidateHardLimit = 500 } = {})
         sessionPersistence: "ephemeral",
         contextPolicy: "assignment_only",
         measurementScope: "role_process_only",
-        shellCommandBudget: { candidate: 6, independent: 8 },
+        shellCommandBudget: {
+          candidate: candidateCommandBudget,
+          independent: 8,
+          orchestrator: 6,
+        },
         searchResultLimit: 40,
         fileReadLineLimit: 100,
       },
@@ -130,6 +141,10 @@ test("fresh candidate and independent processes stream evidence and keep a succe
   );
   assert.equal(
     report.events.filter(({ type }) => type === "provider.tool.completed").length,
+    3,
+  );
+  assert.equal(
+    report.events.filter(({ type }) => type === "provider.tool.started").length,
     3,
   );
   assert.equal(
@@ -233,6 +248,85 @@ test("fresh candidate and independent processes stream evidence and keep a succe
         adapters: [fakeAdapter()],
       }),
     (error) => error.code === "ORCHESTRATION_ALREADY_STARTED",
+  );
+});
+
+test("the runner rejects a role on shell command N+1 and counts declined commands", async (t) => {
+  const directory = mkdtempSync(join(tmpdir(), "waymark-command-budget-"));
+  const store = new AuditStore({ databasePath: join(directory, "audit.sqlite") });
+  t.after(() => store.close());
+  const run = createRun(store, {
+    independent: false,
+    candidateCommandBudget: 6,
+  });
+
+  const result = await runInvestigationPhase({
+    store,
+    runId: run.id,
+    adapters: [fakeAdapter({ candidate: "command-over-budget" })],
+    killGraceMs: 100,
+  });
+
+  assert.equal(result.status, "failed");
+  assert.equal(result.results[0].status, "policy_exceeded");
+  const report = store.readReport(run.id);
+  assert.equal(report.run.status, "failed");
+  assert.equal(
+    report.events.filter(
+      ({ actor, type, payload }) =>
+        actor === "candidate" &&
+        type === "provider.tool.started" &&
+        payload.toolType === "command_execution",
+    ).length,
+    7,
+  );
+  const violation = report.events.find(
+    ({ actor, type }) =>
+      actor === "candidate" && type === "policy.violation",
+  );
+  assert.equal(violation.payload.reason, "shell_command_budget_exceeded");
+  assert.equal(violation.payload.declaredLimit, 6);
+  assert.equal(violation.payload.observedCommands, 7);
+  assert.equal(violation.payload.blockedCommandsConsumeBudget, true);
+  assert.equal(violation.payload.calibrationEligible, false);
+  assert.equal(
+    report.events.some(
+      ({ actor, type, payload }) =>
+        actor === "candidate" &&
+        type === "investigation.failed" &&
+        payload.reason === "shell_command_budget_exceeded",
+    ),
+    true,
+  );
+  assert.equal(report.events.at(-1).type, "run.finished");
+  assert.equal(report.events.at(-1).payload.summary.calibrationEligible, false);
+});
+
+test("candidate evidence import rejects findings that are not repository facts", async (t) => {
+  const directory = mkdtempSync(join(tmpdir(), "waymark-finding-kind-"));
+  const store = new AuditStore({ databasePath: join(directory, "audit.sqlite") });
+  t.after(() => store.close());
+  const run = createRun(store, { independent: false });
+
+  const result = await runInvestigationPhase({
+    store,
+    runId: run.id,
+    adapters: [fakeAdapter({ candidate: "invalid-finding-kind" })],
+  });
+
+  assert.equal(result.status, "failed");
+  assert.equal(result.failure.reason, "candidate_evidence_import_failed");
+  assert.equal(result.failure.error.code, "CANDIDATE_FINDING_KIND_REQUIRED");
+  const report = store.readReport(run.id);
+  assert.equal(report.run.status, "failed");
+  assert.equal(report.claims.length, 0);
+  assert.equal(
+    report.events.some(
+      ({ type, payload }) =>
+        type === "orchestration.failed" &&
+        payload.error?.code === "CANDIDATE_FINDING_KIND_REQUIRED",
+    ),
+    true,
   );
 });
 

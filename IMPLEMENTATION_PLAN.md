@@ -247,6 +247,38 @@ Scoring formulas and thresholds are versioned and independent from report prose.
   atomic, deterministically verifiable repository facts. Preserve this failed
   run as a separate historical record.
 
+Remediation completed after the second attempt:
+
+- The authoritative runner now counts live `command_execution` starts and
+  interrupts on shell command N+1. It persists `policy.violation`, counts a
+  provider-declined command, rejects any post-completion overrun, and marks the
+  run calibration-ineligible.
+- Candidate output now requires `kind: "repository_fact"`, one atomic
+  current-repository assertion, and at least one valid line-range citation.
+  Assignment constraints prohibit implementation advice, desired future
+  architecture, and proposed change-surface assertions; the output schema and
+  runtime importer reject the wrong finding kind or invalid citations.
+- Orchestrator assignments may cite only supplied factual claims in
+  recommendations and must omit a recommendation when no supported fact exists.
+  This keeps navigation recommendations separate from the probe feature's
+  implementation.
+- The observer now separates verified claims from adjudicated claims, counts
+  terminal `unverified` verdicts in progress, reports a completed verifier when
+  every claim has a verdict, and labels missing score/reliability values as
+  unavailable after failure.
+- Audit preflight now requires the user-visible web URL and its service to read
+  the exact selected journal. An existing observer must be reused or restarted;
+  a second silent web/service port is not acceptable. The repaired read model
+  was checked at `http://localhost:3000` against service port 4318 and the
+  preserved failed journal: it showed 85% terminal progress, 5/7 verified,
+  7/7 adjudicated, unavailable score/reliability, a completed verifier, and no
+  browser console errors.
+- Deterministic regression coverage includes command N+1 with a declined
+  seventh command, invalid non-factual candidate output, and terminal
+  unverified adjudication. `npm run lint`, `npm run build`, and all 31 tests
+  pass. Milestone 1 remains open until a new real calibration passes with the
+  already declared token ceilings unchanged.
+
 ### Deliverables
 
 1. Domain types for runs, events, claims, verification, token measurements, and

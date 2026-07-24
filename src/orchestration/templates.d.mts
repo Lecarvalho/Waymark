@@ -22,6 +22,10 @@ export interface AssignmentTemplateInput {
     candidate?: AuditAssignment["reasoningEffort"];
     independent?: AuditAssignment["reasoningEffort"];
   };
+  shellCommandBudgets?: {
+    candidate?: number;
+    independent?: number;
+  };
   additionalConstraints?: {
     candidate?: readonly string[];
     independent?: readonly string[];
@@ -35,6 +39,7 @@ export interface OrchestratorAssignmentTemplateInput {
   orchestrator: RunParticipantInput;
   tokenBudgets?: AuditTokenBudgets;
   reasoningEffort?: AuditAssignment["reasoningEffort"];
+  shellCommandBudget?: number;
   additionalConstraints?: readonly string[];
   context: JsonObject;
 }

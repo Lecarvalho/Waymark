@@ -19,6 +19,7 @@
         "type": "object",
         "additionalProperties": false,
         "required": [
+          "kind",
           "subject",
           "assertion",
           "confidence",
@@ -26,11 +27,17 @@
           "citations"
         ],
         "properties": {
+          "kind": {
+            "type": "string",
+            "enum": ["repository_fact"],
+            "description": "An atomic assertion about repository state at the target commit, never implementation advice or desired future architecture."
+          },
           "subject": {
             "type": "string"
           },
           "assertion": {
-            "type": "string"
+            "type": "string",
+            "description": "One atomic current-repository fact fully supported by every necessary citation."
           },
           "confidence": {
             "type": "number",
@@ -43,6 +50,7 @@
           },
           "citations": {
             "type": "array",
+            "minItems": 1,
             "items": {
               "type": "object",
               "additionalProperties": false,
@@ -52,11 +60,11 @@
                   "type": "string"
                 },
                 "startLine": {
-                  "type": ["integer", "null"],
+                  "type": "integer",
                   "minimum": 1
                 },
                 "endLine": {
-                  "type": ["integer", "null"],
+                  "type": "integer",
                   "minimum": 1
                 },
                 "symbol": {

@@ -450,8 +450,12 @@ export function toRunSnapshot(report, runCount) {
   const candidateNavigationUsage = summarizeTokens(
     candidateNavigationMeasurements,
   );
-  const resolvedClaims =
-    aggregates.verifiedClaimCount + aggregates.contradictedClaimCount;
+  const verifiedClaims = aggregates.verifiedClaimCount ?? 0;
+  const contradictedClaims = aggregates.contradictedClaimCount ?? 0;
+  const unverifiedClaims = aggregates.unverifiedClaimCount ?? 0;
+  const resolvedClaims = verifiedClaims + contradictedClaims;
+  const adjudicatedClaims =
+    verifiedClaims + contradictedClaims + unverifiedClaims;
   const candidateConfidence =
     report.claims.length === 0
       ? 0
@@ -477,7 +481,7 @@ export function toRunSnapshot(report, runCount) {
       ? 0
       : 65 +
         Math.round(
-          (Math.min(resolvedClaims, report.claims.length) /
+          (Math.min(adjudicatedClaims, report.claims.length) /
             report.claims.length) *
             20,
         );
@@ -557,18 +561,27 @@ export function toRunSnapshot(report, runCount) {
                 latestEvent.payload?.summary?.reason,
               )}.`
           : latestEvent?.type ?? "Run created";
-  const participantSnapshots = run.participants.map((participant) => ({
-    role: participant.role,
-    provider: participant.provider,
-    model: participant.model,
-    status: participantStatus(participant.role, events, run.status),
-    tokens: tokensByActor.has(participant.role)
-      ? tokensByActor.get(participant.role)
-      : null,
-    tokenSource: tokenSource(
-      tokenMeasurementsByActor.get(participant.role) ?? [],
-    ),
-  }));
+  const participantSnapshots = run.participants.map((participant) => {
+    const verifierCompleted =
+      participant.role === "verifier" &&
+      report.verifications.length > 0 &&
+      adjudicatedClaims === report.claims.length;
+
+    return {
+      role: participant.role,
+      provider: participant.provider,
+      model: participant.model,
+      status: verifierCompleted
+        ? "Complete"
+        : participantStatus(participant.role, events, run.status),
+      tokens: tokensByActor.has(participant.role)
+        ? tokensByActor.get(participant.role)
+        : null,
+      tokenSource: tokenSource(
+        tokenMeasurementsByActor.get(participant.role) ?? [],
+      ),
+    };
+  });
   const structuredRecommendationEvent = lastDefinedEvent(
     events,
     (event) =>
@@ -823,6 +836,10 @@ export function toRunSnapshot(report, runCount) {
       candidateTokenSource: tokenSource(candidateNavigationMeasurements),
       claimsChallenged: challengedClaimIds.size,
       totalClaims: aggregates.claimCount,
+      verifiedClaims,
+      contradictedClaims,
+      unverifiedClaims,
+      adjudicatedClaims,
       openChallenges: Math.max(
         0,
         challengeEvents.length - resolvedChallengeIds.size,
@@ -831,9 +848,7 @@ export function toRunSnapshot(report, runCount) {
       verifiedAccuracy:
         resolvedClaims === 0
           ? 0
-          : Math.round(
-              (aggregates.verifiedClaimCount / resolvedClaims) * 100,
-            ),
+          : Math.round((verifiedClaims / resolvedClaims) * 100),
     },
     runCount,
   };

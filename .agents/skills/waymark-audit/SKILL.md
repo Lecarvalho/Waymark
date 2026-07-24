@@ -35,7 +35,9 @@ the default journal is not appropriate.
 4. Confirm that the runner persisted monotonic stage progress, live tool events,
    completion or failure events, and each role's host-measured tokens in the
    correct phase. Missing telemetry remains unavailable. A blocked command still
-   consumes navigation budget. Count only the audited role processes:
+   consumes navigation budget. The runner counts command starts, interrupts on
+   shell command N+1, records a policy violation, and makes the run
+   calibration-ineligible. Count only the audited role processes:
    development, debugging, UI checks, and operator conversation never enter the
    run.
 5. Review the imported candidate claims and the orchestrator's challenges and
@@ -85,8 +87,11 @@ Before the next audit:
 
 1. Confirm the target path, mode (`general` or `feature`), immutable commit, and
    clean read-only status.
-2. Start the local observer and verify its SQLite and SSE endpoints before
-   launching roles.
+2. Start the local observer on the user-visible web URL and verify that its
+   service reads the exact SQLite journal selected for the run. If an observer
+   is already running, use its configured service port or restart it; do not
+   silently open a second web/service port. Confirm that the UI shows the
+   intended run ID before launching roles, then verify its SSE endpoint.
 3. Confirm the provider launcher, JSONL usage event, output schema, read-only
    sandbox, and allowed read-command shapes with a cheap preflight.
 4. Declare efficiency targets separately from calibrated validity ceilings.

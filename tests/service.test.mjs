@@ -247,6 +247,20 @@ test("snapshot explains authoritative dimensions and qualified claims", () => {
     /versioned deterministic impact model/,
   );
   assert.equal(snapshot.recommendations[0].effort, null);
+  assert.deepEqual(
+    {
+      verifiedClaims: snapshot.metrics.verifiedClaims,
+      contradictedClaims: snapshot.metrics.contradictedClaims,
+      unverifiedClaims: snapshot.metrics.unverifiedClaims,
+      adjudicatedClaims: snapshot.metrics.adjudicatedClaims,
+    },
+    {
+      verifiedClaims: 1,
+      contradictedClaims: 0,
+      unverifiedClaims: 0,
+      adjudicatedClaims: 1,
+    },
+  );
   assert.equal(snapshot.practiceFindings.length, 6);
   assert.ok(
     snapshot.practiceFindings.some(
@@ -479,6 +493,82 @@ test("local service projects failed and interrupted participant states", async (
   assert.equal(
     snapshot.participants.find(({ role }) => role === "orchestrator").status,
     "Not run",
+  );
+});
+
+test("terminal unverified verdicts count as adjudicated and complete verifier work", () => {
+  const directory = mkdtempSync(join(tmpdir(), "waymark-adjudicated-"));
+  const databasePath = join(directory, "waymark.sqlite");
+  const store = new AuditStore({ databasePath });
+  const run = store.createRun({
+    targetRepositoryPath: "C:/repos/example",
+    repositoryIdentity: "example",
+    commitSha: "1234567890abcdef",
+    task: "Trace a bounded upload",
+    participants: [
+      { role: "candidate", provider: "openai", model: "candidate-model" },
+      { role: "verifier", provider: "openai", model: "verifier-model" },
+      { role: "orchestrator", provider: "openai", model: "orchestrator-model" },
+    ],
+    toolPolicy: { target: "read-only" },
+    runConditions: { agentHost: "Codex" },
+    protocolVersion: "1.0.0",
+    rubricVersion: "waymark-navigability/1.0.0",
+  });
+  for (const [index, assertion] of [
+    "The upload command is owned by src/upload.ts.",
+    "The retry limit is configured in src/config.ts.",
+  ].entries()) {
+    const claim = store.submitClaim({
+      id: `claim-${index + 1}`,
+      runId: run.id,
+      subject: `fact ${index + 1}`,
+      assertion,
+      claimant: "candidate",
+      citations: [
+        {
+          path: index === 0 ? "src/upload.ts" : "src/config.ts",
+          startLine: 1,
+          endLine: 2,
+        },
+      ],
+      confidence: 0.8,
+      criticality: "high",
+    });
+    store.recordVerification({
+      id: `verification-${index + 1}`,
+      runId: run.id,
+      claimId: claim.id,
+      verifier: "verifier",
+      method: index === 0 ? "static_inspection" : "none",
+      verdict: index === 0 ? "verified" : "unverified",
+      evidence: {
+        citationStatus: "valid",
+        independentAssessment: "not_checked",
+      },
+    });
+  }
+  store.appendEvent({
+    runId: run.id,
+    actor: "verifier",
+    type: "policy.violation",
+    payload: { reason: "later_report_failure" },
+  });
+  store.finishRun(run.id, {
+    status: "failed",
+    summary: { reason: "report_finalization_failed" },
+  });
+
+  const snapshot = toRunSnapshot(store.readReport(run.id), 1);
+  store.close();
+
+  assert.equal(snapshot.progress, 85);
+  assert.equal(snapshot.metrics.verifiedClaims, 1);
+  assert.equal(snapshot.metrics.unverifiedClaims, 1);
+  assert.equal(snapshot.metrics.adjudicatedClaims, 2);
+  assert.equal(
+    snapshot.participants.find(({ role }) => role === "verifier").status,
+    "Complete",
   );
 });
 
