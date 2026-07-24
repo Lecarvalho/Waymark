@@ -1,14 +1,20 @@
 import { spawn } from "node:child_process";
 
 const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
+const npmExecPath = process.env.npm_execpath;
 
 const service = spawn(process.execPath, ["server/waymark-server.mjs"], {
   stdio: "inherit",
 });
 
-const web = spawn(npmCommand, ["run", "dev:web"], {
-  stdio: "inherit",
-});
+const web = npmExecPath
+  ? spawn(process.execPath, [npmExecPath, "run", "dev:web"], {
+      stdio: "inherit",
+    })
+  : spawn(npmCommand, ["run", "dev:web"], {
+      stdio: "inherit",
+      shell: process.platform === "win32",
+    });
 
 let stopping = false;
 

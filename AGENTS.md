@@ -11,6 +11,13 @@ coding agents navigate a target repository.
 
 - Audit requests originate in a paired coding-agent session such as Codex or
   Claude Code.
+- Waymark supports two explicit audit modes:
+  - A general repository audit uses a versioned, standardized navigation task
+    suite and does not require a user-supplied feature request.
+  - A task-specific audit uses a realistic engineering feature request supplied
+    for that repository.
+- A general repository audit aggregates navigability evidence from its task
+  suite; it is not a general code-quality assessment.
 - Waymark observes progress, presents evidence, and preserves reports.
 - Do not add prompt inputs, chat controls, or a "start audit" action to the UI.
 - Waymark measures AI coding navigability only. It does not score security,
@@ -29,8 +36,8 @@ service. Never present fallback values as live measurements.
 4. Two agents agreeing is supporting evidence, not proof.
 5. Unverifiable claims remain explicitly `unverified`.
 6. Token efficiency is meaningful only after an adequacy or correctness gate.
-7. Record the repository commit, task, model identity, tool policy, rubric
-   version, and run conditions with every audit.
+7. Record the repository commit, task or versioned task suite, audit mode, model
+   identity, tool policy, rubric version, and run conditions with every audit.
 8. Separate candidate navigation tokens from validation and report-generation
    tokens.
 9. Provider-reported and estimated token values must be labeled distinctly.

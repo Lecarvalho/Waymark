@@ -22,18 +22,19 @@ async function render() {
   );
 }
 
-test("server-renders the Waymark audit dashboard", async () => {
+test("server-renders an honest empty state without mock audit data", async () => {
   const response = await render();
   assert.equal(response.status, 200);
   assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
 
   const html = await response.text();
   assert.match(html, /<title>Waymark · AI Navigability Auditor<\/title>/i);
-  assert.match(html, /How hard is this change to understand\?/);
-  assert.match(html, /Projected navigability/);
-  assert.match(html, /Audit reliability/);
-  assert.match(html, /Audit report sections/);
-  assert.match(html, /Example audit data/);
+  assert.match(html, /No audit data yet/);
+  assert.match(html, /SQLite archive is empty/);
+  assert.match(html, /Connecting to SQLite/);
+  assert.doesNotMatch(html, /meridian-commerce/);
+  assert.doesNotMatch(html, /Example audit data/);
+  assert.doesNotMatch(html, /Demo fallback/);
   assert.doesNotMatch(html, /codex-preview/);
   assert.doesNotMatch(html, /react-loading-skeleton/);
 });

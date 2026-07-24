@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useState } from "react";
 import { useWaymarkLive } from "./use-waymark-live";
 
 type Phase = {
@@ -12,146 +12,28 @@ type Phase = {
 const phases: Phase[] = [
   {
     label: "Candidate run",
-    detail: "Implementation map submitted",
+    detail: "The candidate maps the requested change",
     status: "complete",
   },
   {
     label: "Blind research",
-    detail: "Two independent maps completed",
+    detail: "Independent agents trace the same task",
     status: "complete",
   },
   {
     label: "Cross-examination",
-    detail: "Resolving 4 disputed claims",
+    detail: "Claims and assumptions are challenged",
     status: "active",
   },
   {
     label: "Verification",
-    detail: "Deterministic checks queued",
+    detail: "Evidence is checked against the repository",
     status: "queued",
   },
   {
     label: "Scoring",
-    detail: "Waiting for evidence lock",
+    detail: "The locked evidence produces the final score",
     status: "queued",
-  },
-];
-
-const agents = [
-  {
-    role: "Candidate",
-    model: "gpt-5.6-terra",
-    status: "Complete",
-    accent: "blue",
-    tokens: "48.2k",
-    note: "Submitted 17 claims · 82% confidence",
-  },
-  {
-    role: "Orchestrator",
-    model: "gpt-5.6-sol",
-    status: "Questioning",
-    accent: "lime",
-    tokens: "36.8k",
-    note: "Tracing dynamic refund registration",
-  },
-  {
-    role: "Independent researcher",
-    model: "gpt-5.6-sol",
-    status: "Responding",
-    accent: "amber",
-    tokens: "31.4k",
-    note: "Cited 3 consumers missed by candidate",
-  },
-];
-
-const evidenceRows = [
-  {
-    claim: "RefundService owns the write path",
-    source: "RefundService.java:140",
-    status: "Verified",
-    tone: "good",
-  },
-  {
-    claim: "Order history updates synchronously",
-    source: "OrderEventsListener.java:88",
-    status: "Contradicted",
-    tone: "bad",
-  },
-  {
-    claim: "Admin API is the only consumer",
-    source: "3 additional call sites",
-    status: "Disputed",
-    tone: "warn",
-  },
-  {
-    claim: "Refund tests run with verify:payments",
-    source: "package.json:31",
-    status: "Verified",
-    tone: "good",
-  },
-];
-
-const recommendations = [
-  {
-    priority: "P0",
-    title: "Create a canonical refund entry point",
-    description:
-      "Four competing service entry points made ownership ambiguous across all three agents.",
-    gain: "+8.4",
-    cost: "Medium migration",
-  },
-  {
-    priority: "P1",
-    title: "Split payment orchestration from order mutation",
-    description:
-      "The current 3,842-line service requires roughly 24.6k context tokens before a safe change map emerges.",
-    gain: "+5.7",
-    cost: "126 consumers",
-  },
-  {
-    priority: "P1",
-    title: "Add a billing-local agent guide",
-    description:
-      "Idempotency, event timing, and verification rules are discoverable only through implementation archaeology.",
-    gain: "+3.1",
-    cost: "Low effort",
-  },
-];
-
-const events = [
-  "Orchestrator challenged the claimed transaction boundary",
-  "Independent researcher cited PaymentEventsConsumer.java:204",
-  "Verifier confirmed 9 of 11 static dependency edges",
-  "Candidate confidence recalibrated from 82% to 61%",
-];
-
-const history = [
-  {
-    date: "Jul 23",
-    commit: "a8c41ef",
-    model: "gpt-5.6-terra",
-    task: "Partial refunds",
-    score: 42,
-    reliability: 87,
-    tokens: "48.2k",
-  },
-  {
-    date: "Jul 10",
-    commit: "7b923d1",
-    model: "gpt-5.6-terra",
-    task: "Invoice adjustments",
-    score: 37,
-    reliability: 84,
-    tokens: "62.9k",
-  },
-  {
-    date: "Jun 28",
-    commit: "f130a4c",
-    model: "gpt-5.6-sol",
-    task: "Payment retry policy",
-    score: 61,
-    reliability: 92,
-    tokens: "55.6k",
   },
 ];
 
@@ -292,8 +174,6 @@ const hostileTree = `project/
 └── README.md          # stale`;
 
 export default function Home() {
-  const [streaming, setStreaming] = useState(true);
-  const [eventIndex, setEventIndex] = useState(0);
   const [view, setView] = useState<"live" | "history" | "guide">("live");
   const [reportSection, setReportSection] = useState<
     "progress" | "evidence" | "recommendations"
@@ -302,33 +182,20 @@ export default function Home() {
   const [structureView, setStructureView] = useState<
     "recommended" | "hostile"
   >("recommended");
-  const { snapshot, connection, isLiveData } = useWaymarkLive();
+  const { snapshot, history, connection } = useWaymarkLive();
 
-  useEffect(() => {
-    if (!streaming) return;
-
-    const timer = window.setInterval(() => {
-      setEventIndex((current) => (current + 1) % events.length);
-    }, 3200);
-
-    return () => window.clearInterval(timer);
-  }, [streaming]);
-
-  const currentEvent = useMemo(() => events[eventIndex], [eventIndex]);
-  const repositoryName = snapshot?.repository.name ?? "meridian-commerce";
-  const repositoryCommit = snapshot?.repository.commit ?? "a8c41ef";
-  const auditTask =
-    snapshot?.task ??
-    "Add partial refunds requiring manager approval, idempotency, and order-history visibility.";
-  const auditPhase = snapshot?.phase ?? "Cross-examination";
-  const auditProgress = snapshot?.progress ?? 68;
-  const navigability = snapshot ? snapshot.metrics.navigability : 42;
-  const reliability = snapshot ? snapshot.metrics.reliability : 87;
-  const candidateTokens = snapshot?.metrics.candidateTokens ?? 48200;
-  const totalClaims = snapshot?.metrics.totalClaims ?? 17;
-  const claimsChallenged = snapshot?.metrics.claimsChallenged ?? 7;
-  const openChallenges = snapshot?.metrics.openChallenges ?? 4;
-  const displayedEvent = snapshot?.latestEvent ?? currentEvent;
+  const repositoryName = snapshot?.repository.name ?? "No audit selected";
+  const repositoryCommit = snapshot?.repository.commit ?? "—";
+  const auditTask = snapshot?.task ?? "";
+  const auditPhase = snapshot?.phase ?? "";
+  const auditProgress = snapshot?.progress ?? 0;
+  const navigability = snapshot?.metrics.navigability ?? null;
+  const reliability = snapshot?.metrics.reliability ?? null;
+  const candidateTokens = snapshot?.metrics.candidateTokens ?? 0;
+  const totalClaims = snapshot?.metrics.totalClaims ?? 0;
+  const claimsChallenged = snapshot?.metrics.claimsChallenged ?? 0;
+  const openChallenges = snapshot?.metrics.openChallenges ?? 0;
+  const displayedEvent = snapshot?.latestEvent ?? "";
   const activePhaseIndex = snapshot
     ? Math.max(
         0,
@@ -337,7 +204,7 @@ export default function Home() {
             phase.label.toLowerCase() === snapshot.phase.toLowerCase(),
         ),
       )
-    : 2;
+    : 0;
   const displayedAgents = snapshot
     ? snapshot.participants
         .filter((participant) =>
@@ -356,21 +223,43 @@ export default function Home() {
           tokens: `${(participant.tokens / 1000).toFixed(1)}k`,
           note: `${participant.provider} · ${snapshot.phase}`,
         }))
-    : agents;
-  const displayedEvidence = snapshot ? snapshot.evidence : evidenceRows;
-  const displayedRecommendations = snapshot
-    ? snapshot.recommendations
-    : recommendations;
+    : [];
+  const displayedEvidence = snapshot?.evidence ?? [];
+  const displayedRecommendations = snapshot?.recommendations ?? [];
   const totalAuditTokens = snapshot
     ? snapshot.participants.reduce(
         (total, participant) => total + participant.tokens,
         0,
       )
-    : 123600;
-  const candidateConfidence =
-    snapshot?.metrics.candidateConfidence ?? 82;
-  const verifiedAccuracy = snapshot?.metrics.verifiedAccuracy ?? 53;
+    : 0;
+  const candidateConfidence = snapshot?.metrics.candidateConfidence ?? 0;
+  const verifiedAccuracy = snapshot?.metrics.verifiedAccuracy ?? 0;
   const confidenceGap = candidateConfidence - verifiedAccuracy;
+  const hasResolvedEvidence = displayedEvidence.some(
+    (row) => row.status === "Verified" || row.status === "Contradicted",
+  );
+  const scoredHistory = history.filter(
+    (run) => run.metrics.navigability !== null,
+  );
+  const historyChange =
+    scoredHistory.length > 1
+      ? (scoredHistory[0].metrics.navigability ?? 0) -
+        (scoredHistory.at(-1)?.metrics.navigability ?? 0)
+      : null;
+  const modelScores = Array.from(
+    scoredHistory.reduce((models, run) => {
+      const model = run.models.candidate;
+      const scores = models.get(model) ?? [];
+      scores.push(run.metrics.navigability ?? 0);
+      models.set(model, scores);
+      return models;
+    }, new Map<string, number[]>()),
+  ).map(([model, scores]) => ({
+    model,
+    score: Math.round(
+      scores.reduce((total, score) => total + score, 0) / scores.length,
+    ),
+  }));
 
   return (
     <main className="app-shell">
@@ -419,12 +308,18 @@ export default function Home() {
             <span className="database-icon" aria-hidden="true" />
             <div>
               <strong>Local archive</strong>
-              <span>{snapshot?.runCount ?? 12} reports in SQLite</span>
+              <span>{history.length} reports in SQLite</span>
             </div>
           </div>
           <div className="prototype-note">
-            <span>{isLiveData ? "Local service" : "Demo mode"}</span>
-            {isLiveData ? "Live SQLite data" : "Example audit data"}
+            <span>
+              {connection === "live" ? "Local service" : "Service status"}
+            </span>
+            {connection === "live"
+              ? "Showing SQLite data only"
+              : connection === "connecting"
+                ? "Connecting to SQLite"
+                : "Local service offline"}
           </div>
         </div>
       </aside>
@@ -442,7 +337,11 @@ export default function Home() {
                 className={connection === "live" ? "" : "is-offline"}
                 aria-hidden="true"
               />
-              {connection === "live" ? "Local service" : "Demo fallback"}
+              {connection === "live"
+                ? "Local service"
+                : connection === "connecting"
+                  ? "Connecting"
+                  : "Service offline"}
             </span>
             <div
               className="pairing-status"
@@ -452,15 +351,19 @@ export default function Home() {
                 CX
               </span>
               <span className="pairing-agent">
-                <small>Paired session</small>
-                <strong>Codex</strong>
+                <small>{snapshot ? "Paired session" : "Coding agent"}</small>
+                <strong>{snapshot?.agentHost ?? "Awaiting audit"}</strong>
               </span>
-              <i className="pairing-state" aria-label="Connected" />
+              <i
+                className={`pairing-state ${snapshot ? "" : "is-idle"}`}
+                aria-label={snapshot ? "Audit connected" : "No active audit"}
+              />
             </div>
           </div>
         </header>
 
         {view === "live" ? (
+          snapshot ? (
           <div className="page-content">
             <section className="audit-hero">
               <div className="hero-copy">
@@ -474,9 +377,11 @@ export default function Home() {
                   Simulating: “{auditTask}”
                 </p>
                 <div className="hero-meta">
-                  <span>Started 14m ago</span>
+                  <span>
+                    Started {new Date(snapshot.startedAt).toLocaleString()}
+                  </span>
                   <span>Read-only target</span>
-                  <span>{snapshot?.activeAgentCount ?? 3} active agents</span>
+                  <span>{snapshot.activeAgentCount} active agents</span>
                 </div>
                 <div className="agent-source-note">
                   <span aria-hidden="true">↳</span>
@@ -498,26 +403,25 @@ export default function Home() {
                 <div className="completion-track" aria-hidden="true">
                   <span style={{ width: `${auditProgress}%` }} />
                 </div>
-                <small>{auditPhase} in progress</small>
+                <small>
+                  {snapshot.status === "completed"
+                    ? "Audit complete"
+                    : `${auditPhase} in progress`}
+                </small>
               </div>
             </section>
 
             <section className="metric-grid" aria-label="Audit metrics">
               <article className="metric-card score-card">
-                <div className="metric-label">Projected navigability</div>
+                <div className="metric-label">Navigability</div>
                 <div className="metric-value">
                   {navigability ?? "—"}
                   <span>/100</span>
                 </div>
                 <div className="metric-foot">
-                  {snapshot ? (
-                    "Authoritative score appears after verification"
-                  ) : (
-                    <>
-                      <span className="trend down">↓ 19</span>
-                      Candidate estimate was 61
-                    </>
-                  )}
+                  {navigability === null
+                    ? "Authoritative score appears after verification"
+                    : "Authoritative deterministic score"}
                 </div>
               </article>
               <article className="metric-card">
@@ -532,7 +436,11 @@ export default function Home() {
                 <div className="metric-foot">
                   {reliability === null
                     ? "Pending deterministic verification"
-                    : "Strong evidence coverage"}
+                    : reliability >= 80
+                      ? "Strong evidence coverage"
+                      : reliability >= 60
+                        ? "Moderate evidence coverage"
+                        : "Limited evidence coverage"}
                 </div>
               </article>
               <article className="metric-card">
@@ -542,7 +450,7 @@ export default function Home() {
                   <span>k</span>
                 </div>
                 <div className="metric-foot">
-                  5.3k per verified obligation
+                  Provider-reported when available
                 </div>
               </article>
               <article className="metric-card">
@@ -565,7 +473,7 @@ export default function Home() {
                 type="button"
               >
                 Progress
-                <span>{snapshot?.activeAgentCount ?? 3} active</span>
+                <span>{snapshot.activeAgentCount} active</span>
               </button>
               <button
                 className={reportSection === "evidence" ? "active" : ""}
@@ -581,7 +489,7 @@ export default function Home() {
                 type="button"
               >
                 Recommendations
-                <span>3 early signals</span>
+                <span>{displayedRecommendations.length} findings</span>
               </button>
             </nav>
 
@@ -593,24 +501,21 @@ export default function Home() {
                     <span className="section-kicker">Pipeline</span>
                     <h2>Audit progress</h2>
                   </div>
-                  <button
-                    className="ghost-button"
-                    type="button"
-                    onClick={() => setStreaming((value) => !value)}
-                  >
-                    {streaming ? "Ⅱ Pause stream" : "▶ Resume stream"}
-                  </button>
+                  <span className="running-badge">
+                    {snapshot.status === "running" ? "Live updates" : "Saved"}
+                  </span>
                 </div>
 
                 <ol className="phase-list">
                   {phases.map((phase, index) => {
-                    const phaseStatus = snapshot
-                      ? index < activePhaseIndex
+                    const phaseStatus =
+                      index < activePhaseIndex
                         ? "complete"
                         : index === activePhaseIndex
-                          ? "active"
-                          : "queued"
-                      : phase.status;
+                          ? snapshot.status === "completed"
+                            ? "complete"
+                            : "active"
+                          : "queued";
 
                     return (
                     <li className={`phase ${phaseStatus}`} key={phase.label}>
@@ -627,7 +532,11 @@ export default function Home() {
                   })}
                 </ol>
 
-                <div className={`live-event ${streaming ? "is-live" : ""}`}>
+                <div
+                  className={`live-event ${
+                    snapshot.status === "running" ? "is-live" : ""
+                  }`}
+                >
                   <span className="event-pulse" aria-hidden="true" />
                   <div>
                     <small>Latest observable event</small>
@@ -643,7 +552,9 @@ export default function Home() {
                     <span className="section-kicker">Research team</span>
                     <h2>Agent activity</h2>
                   </div>
-                  <span className="running-badge">2 working</span>
+                  <span className="running-badge">
+                    {snapshot.activeAgentCount} active
+                  </span>
                 </div>
 
                 <div className="agent-list">
@@ -680,37 +591,10 @@ export default function Home() {
                       {(totalAuditTokens / 1000).toFixed(1)}k tokens
                     </strong>
                   </div>
-                  {snapshot ? (
-                    <p className="live-token-note">
-                      Provider-reported and estimated measurements remain
-                      separate in the stored report.
-                    </p>
-                  ) : (
-                    <>
-                      <div
-                        className="stacked-bar"
-                        aria-label="Token usage by agent"
-                      >
-                        <span className="candidate" style={{ width: "39%" }} />
-                        <span
-                          className="orchestrator"
-                          style={{ width: "35%" }}
-                        />
-                        <span className="researcher" style={{ width: "26%" }} />
-                      </div>
-                      <div className="token-legend">
-                        <span>
-                          <i className="candidate" /> Candidate 39%
-                        </span>
-                        <span>
-                          <i className="orchestrator" /> Validation 35%
-                        </span>
-                        <span>
-                          <i className="researcher" /> Research 26%
-                        </span>
-                      </div>
-                    </>
-                  )}
+                  <p className="live-token-note">
+                    Provider-reported and estimated measurements remain
+                    separate in the stored report.
+                  </p>
                 </div>
               </article>
               </section>
@@ -735,15 +619,24 @@ export default function Home() {
                     <span role="columnheader">Strongest evidence</span>
                     <span role="columnheader">Status</span>
                   </div>
-                  {displayedEvidence.map((row) => (
-                    <div className="evidence-row" role="row" key={row.claim}>
-                      <strong role="cell">{row.claim}</strong>
-                      <code role="cell">{row.source}</code>
-                      <span className={`evidence-status ${row.tone}`} role="cell">
-                        {row.status}
-                      </span>
+                  {displayedEvidence.length === 0 ? (
+                    <div className="empty-table-state">
+                      No claims have been recorded for this audit.
                     </div>
-                  ))}
+                  ) : (
+                    displayedEvidence.map((row) => (
+                      <div className="evidence-row" role="row" key={row.claim}>
+                        <strong role="cell">{row.claim}</strong>
+                        <code role="cell">{row.source}</code>
+                        <span
+                          className={`evidence-status ${row.tone}`}
+                          role="cell"
+                        >
+                          {row.status}
+                        </span>
+                      </div>
+                    ))
+                  )}
                 </div>
               </article>
 
@@ -777,28 +670,14 @@ export default function Home() {
                   </div>
                 </div>
                 <div className="calibration-callout">
-                  <span>
-                    {confidenceGap > 0 ? "−" : "+"}
-                    {Math.abs(confidenceGap)} pts
-                  </span>
+                  <span>{hasResolvedEvidence ? `${confidenceGap > 0 ? "−" : "+"}${Math.abs(confidenceGap)} pts` : "Pending"}</span>
                   <p>
-                    Candidate confidence is materially ahead of the evidence.
-                    Final score is capped until critical consumers are resolved.
+                    {hasResolvedEvidence
+                      ? confidenceGap > 0
+                        ? "Candidate confidence is ahead of verified accuracy."
+                        : "Verified accuracy meets or exceeds candidate confidence."
+                      : "No claim has a deterministic verdict yet, so calibration cannot be measured."}
                   </p>
-                </div>
-                <div className="gate-list">
-                  <div>
-                    <span className="gate-mark pass">✓</span>
-                    Primary implementation found
-                  </div>
-                  <div>
-                    <span className="gate-mark review">!</span>
-                    Consumer recall below threshold
-                  </div>
-                  <div>
-                    <span className="gate-mark pending">·</span>
-                    Executable probe pending
-                  </div>
                 </div>
               </article>
               </section>
@@ -839,6 +718,32 @@ export default function Home() {
               </section>
             )}
           </div>
+          ) : (
+            <div className="page-content empty-audit-view">
+              <section className="panel empty-audit-state">
+                <span className="empty-state-mark" aria-hidden="true">
+                  ◎
+                </span>
+                <span className="section-kicker">
+                  {connection === "offline"
+                    ? "Local service unavailable"
+                    : "SQLite archive is empty"}
+                </span>
+                <h1>No audit data yet</h1>
+                <p>
+                  {connection === "offline"
+                    ? "Start the Waymark development service to read the local audit archive."
+                    : "Waymark does not invent report content. Start an audit from your paired coding agent and its real evidence, scores, and token usage will appear here."}
+                </p>
+                <div className="empty-state-rule">
+                  <strong>Source of truth</strong>
+                  <span>
+                    Paired agent → audit protocol → SQLite → this dashboard
+                  </span>
+                </div>
+              </section>
+            </div>
+          )
         ) : view === "history" ? (
           <div className="page-content history-view">
             <section className="history-hero">
@@ -851,9 +756,17 @@ export default function Home() {
                 </p>
               </div>
               <div className="improvement-stat">
-                <span>90-day change</span>
-                <strong>+11.4</strong>
-                <small>navigability points</small>
+                <span>Archive change</span>
+                <strong>
+                  {historyChange === null
+                    ? "—"
+                    : `${historyChange >= 0 ? "+" : ""}${historyChange}`}
+                </strong>
+                <small>
+                  {historyChange === null
+                    ? "Needs two scored runs"
+                    : "newest versus oldest"}
+                </small>
               </div>
             </section>
 
@@ -863,65 +776,78 @@ export default function Home() {
                   <span className="section-kicker">Saved reports</span>
                   <h2>Recent audit runs</h2>
                 </div>
-                <span className="muted-action">12 local records</span>
+                <span className="muted-action">
+                  {history.length} local records
+                </span>
               </div>
-              <div className="history-table" role="table">
-                <div className="history-row history-head" role="row">
-                  <span>Date</span>
-                  <span>Commit</span>
-                  <span>Task</span>
-                  <span>Candidate</span>
-                  <span>Score</span>
-                  <span>Reliability</span>
-                  <span>Tokens</span>
+              {history.length === 0 ? (
+                <div className="empty-table-state">
+                  No audit runs are stored in SQLite yet.
                 </div>
-                {history.map((run) => (
-                  <div className="history-row" role="row" key={run.commit}>
-                    <span>{run.date}</span>
-                    <code>{run.commit}</code>
-                    <strong>{run.task}</strong>
-                    <code>{run.model}</code>
-                    <span className="history-score">{run.score}</span>
-                    <span>{run.reliability}%</span>
-                    <span>{run.tokens}</span>
+              ) : (
+                <div className="history-table" role="table">
+                  <div className="history-row history-head" role="row">
+                    <span>Date</span>
+                    <span>Commit</span>
+                    <span>Task</span>
+                    <span>Candidate</span>
+                    <span>Score</span>
+                    <span>Reliability</span>
+                    <span>Tokens</span>
                   </div>
-                ))}
-              </div>
+                  {history.map((run) => {
+                    const tokens = run.participants.reduce(
+                      (total, participant) => total + participant.tokens,
+                      0,
+                    );
+                    return (
+                      <div className="history-row" role="row" key={run.id}>
+                        <span>
+                          {new Date(run.startedAt).toLocaleDateString(
+                            undefined,
+                            { month: "short", day: "numeric" },
+                          )}
+                        </span>
+                        <code>{run.repository.commit}</code>
+                        <strong>{run.task}</strong>
+                        <code>{run.models.candidate}</code>
+                        <span className="history-score">
+                          {run.metrics.navigability ?? "—"}
+                        </span>
+                        <span>
+                          {run.metrics.reliability === null
+                            ? "—"
+                            : `${run.metrics.reliability}%`}
+                        </span>
+                        <span>{(tokens / 1000).toFixed(1)}k</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </section>
 
-            <section className="history-summary-grid">
+            {modelScores.length > 0 && (
+            <section className="history-summary-grid single-summary">
               <article className="panel model-compare">
                 <span className="section-kicker">Model frontier</span>
-                <h2>Capability gap</h2>
-                <div className="model-bar-row">
-                  <code>gpt-5.6-sol</code>
-                  <div>
-                    <i style={{ width: "74%" }} />
+                <h2>Average navigability by candidate model</h2>
+                {modelScores.map((model) => (
+                  <div className="model-bar-row" key={model.model}>
+                    <code>{model.model}</code>
+                    <div>
+                      <i style={{ width: `${model.score}%` }} />
+                    </div>
+                    <strong>{model.score}</strong>
                   </div>
-                  <strong>74</strong>
-                </div>
-                <div className="model-bar-row">
-                  <code>gpt-5.6-terra</code>
-                  <div>
-                    <i style={{ width: "53%" }} />
-                  </div>
-                  <strong>53</strong>
-                </div>
+                ))}
                 <p>
-                  Goal: narrow the model gap until the standard model performs
-                  within 10 points of the frontier model.
-                </p>
-              </article>
-              <article className="panel savings-card">
-                <span className="section-kicker">Potential</span>
-                <h2>Cheaper models are becoming viable</h2>
-                <strong>31%</strong>
-                <p>
-                  estimated inference-cost reduction if the current top three
-                  navigability recommendations are completed.
+                  Computed only from authoritative scores stored in the local
+                  archive.
                 </p>
               </article>
             </section>
+            )}
           </div>
         ) : (
           <div className="page-content guide-view">

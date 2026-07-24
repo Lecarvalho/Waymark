@@ -73,8 +73,22 @@ async function readLatestRun(signal?: AbortSignal) {
   return (await response.json()) as WaymarkRunSnapshot;
 }
 
+async function readRunHistory(signal?: AbortSignal) {
+  const response = await fetch(`${serviceUrl}/api/runs/summaries`, {
+    cache: "no-store",
+    signal,
+  });
+
+  if (!response.ok) {
+    throw new Error(`Waymark service returned ${response.status}.`);
+  }
+
+  return (await response.json()) as WaymarkRunSnapshot[];
+}
+
 export function useWaymarkLive() {
   const [snapshot, setSnapshot] = useState<WaymarkRunSnapshot | null>(null);
+  const [history, setHistory] = useState<WaymarkRunSnapshot[]>([]);
   const [connection, setConnection] =
     useState<ConnectionState>("connecting");
 
@@ -86,9 +100,13 @@ export function useWaymarkLive() {
     const refresh = async () => {
       const sequence = ++refreshSequence;
       try {
-        const next = await readLatestRun(controller.signal);
+        const [next, runs] = await Promise.all([
+          readLatestRun(controller.signal),
+          readRunHistory(controller.signal),
+        ]);
         if (sequence === refreshSequence) {
           setSnapshot(next);
+          setHistory(runs);
           setConnection("live");
         }
       } catch {
@@ -115,7 +133,7 @@ export function useWaymarkLive() {
 
   return {
     snapshot,
+    history,
     connection,
-    isLiveData: snapshot !== null,
   };
 }

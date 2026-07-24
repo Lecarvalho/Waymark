@@ -65,6 +65,13 @@ test("local service exposes a normalized latest-run snapshot", async (t) => {
   assert.equal(snapshot.latestEvent, "phase.changed");
   assert.equal(snapshot.metrics.candidateTokens, 48200);
   assert.equal(snapshot.models.candidate, "candidate-model");
+
+  const summariesResponse = await fetch(`${service.url}/api/runs/summaries`);
+  assert.equal(summariesResponse.status, 200);
+  const summaries = await summariesResponse.json();
+  assert.equal(summaries.length, 1);
+  assert.equal(summaries[0].id, run.id);
+  assert.equal(summaries[0].repository.name, "example");
 });
 
 test("local service remains read-only", async (t) => {

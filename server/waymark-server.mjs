@@ -318,6 +318,18 @@ export async function startWaymarkServer({
         return;
       }
 
+      if (url.pathname === "/api/runs/summaries") {
+        const runs = store.listRuns({ limit: 100 });
+        json(
+          response,
+          200,
+          runs.map((run) =>
+            toRunSnapshot(store.readReport(run.id), runs.length),
+          ),
+        );
+        return;
+      }
+
       if (url.pathname === "/api/runs/latest") {
         const runs = store.listRuns({ limit: 500 });
         if (runs.length === 0) {
