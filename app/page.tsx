@@ -383,11 +383,41 @@ export default function Home() {
   const scoredHistory = history.filter(
     (run) => run.metrics.navigability !== null,
   );
-  const historyChange =
-    scoredHistory.length > 1
-      ? (scoredHistory[0].metrics.navigability ?? 0) -
-        (scoredHistory.at(-1)?.metrics.navigability ?? 0)
-      : null;
+  const projectHistory = Array.from(
+    history.reduce((projects, run) => {
+      const projectKey = run.repository.path || run.repository.name;
+      const project = projects.get(projectKey) ?? {
+        key: projectKey,
+        name: run.repository.name,
+        path: run.repository.path,
+        runs: [],
+      };
+      project.runs.push(run);
+      projects.set(projectKey, project);
+      return projects;
+    }, new Map<string, {
+      key: string;
+      name: string;
+      path: string;
+      runs: typeof history;
+    }>()),
+  ).map(([, project]) => {
+    const runs = [...project.runs].sort(
+      (left, right) =>
+        new Date(right.startedAt).getTime() -
+        new Date(left.startedAt).getTime(),
+    );
+    const scoredRuns = runs.filter(
+      (run) => run.metrics.navigability !== null,
+    );
+    const scoreChange =
+      scoredRuns.length > 1
+        ? (scoredRuns[0].metrics.navigability ?? 0) -
+          (scoredRuns.at(-1)?.metrics.navigability ?? 0)
+        : null;
+
+    return { ...project, runs, scoreChange };
+  });
   const modelScores = Array.from(
     scoredHistory.reduce((models, run) => {
       const model = run.models.candidate;
@@ -1330,16 +1360,10 @@ export default function Home() {
                 </p>
               </div>
               <div className="improvement-stat">
-                <span>Archive change</span>
-                <strong>
-                  {historyChange === null
-                    ? "—"
-                    : `${historyChange >= 0 ? "+" : ""}${historyChange}`}
-                </strong>
+                <span>Codebases</span>
+                <strong>{projectHistory.length}</strong>
                 <small>
-                  {historyChange === null
-                    ? "Needs two scored runs"
-                    : "newest versus oldest"}
+                  {history.length} {history.length === 1 ? "report" : "reports"}
                 </small>
               </div>
             </section>
@@ -1348,10 +1372,11 @@ export default function Home() {
               <div className="panel-heading">
                 <div>
                   <span className="section-kicker">Saved reports</span>
-                  <h2>Recent audit runs</h2>
+                  <h2>Reports by codebase</h2>
                 </div>
                 <span className="muted-action">
-                  {history.length} local records
+                  {projectHistory.length}{" "}
+                  {projectHistory.length === 1 ? "project" : "projects"}
                 </span>
               </div>
               {history.length === 0 ? (
@@ -1359,65 +1384,111 @@ export default function Home() {
                   No audit runs are stored in SQLite yet.
                 </div>
               ) : (
-                <div className="history-table" role="table">
-                  <div className="history-row history-head" role="row">
-                    <span>Date</span>
-                    <span>Commit</span>
-                    <span>Task</span>
-                    <span>Candidate</span>
-                    <span>Score</span>
-                    <span>Reliability</span>
-                    <span>Tokens</span>
-                  </div>
-                  {history.map((run) => {
-                    const tokens = run.tokenUsage.overall.totalTokens;
-                    return (
-                      <div className="history-row" role="row" key={run.id}>
-                        <span>
-                          {new Date(run.startedAt).toLocaleDateString(
-                            undefined,
-                            { month: "short", day: "numeric" },
-                          )}
-                        </span>
-                        <code>{run.repository.commit}</code>
-                        <strong>{run.task}</strong>
-                        <code>{run.models.candidate}</code>
-                        <span className="history-score">
-                          {run.metrics.navigability ?? "—"}
-                        </span>
-                        <span>
-                          {run.metrics.reliability === null
-                            ? "—"
-                            : `${run.metrics.reliability}%`}
-                        </span>
-                        <span>{formatTokenCount(tokens)}</span>
+                <div className="project-history-list">
+                  {projectHistory.map((project) => (
+                    <section
+                      className="project-history-group"
+                      key={project.key}
+                      aria-labelledby={`project-${project.runs[0].id}`}
+                    >
+                      <header className="project-history-heading">
+                        <div>
+                          <h3 id={`project-${project.runs[0].id}`}>
+                            {project.name}
+                          </h3>
+                          <code>{project.path}</code>
+                        </div>
+                        <div className="project-history-meta">
+                          <span>
+                            {project.runs.length}{" "}
+                            {project.runs.length === 1 ? "report" : "reports"}
+                          </span>
+                          <strong
+                            className={
+                              project.scoreChange !== null &&
+                              project.scoreChange < 0
+                                ? "is-negative"
+                                : ""
+                            }
+                          >
+                            {project.scoreChange === null
+                              ? "Change —"
+                              : `Change ${
+                                  project.scoreChange >= 0 ? "+" : ""
+                                }${project.scoreChange}`}
+                          </strong>
+                        </div>
+                      </header>
+                      <div
+                        className="history-table"
+                        role="table"
+                        aria-label={`${project.name} audit reports`}
+                      >
+                        <div className="history-row history-head" role="row">
+                          <span>Date</span>
+                          <span>Commit</span>
+                          <span>Task</span>
+                          <span>Candidate</span>
+                          <span>Score</span>
+                          <span>Reliability</span>
+                          <span>Tokens</span>
+                        </div>
+                        {project.runs.map((run) => {
+                          const tokens = run.tokenUsage.overall.totalTokens;
+                          return (
+                            <div
+                              className="history-row"
+                              role="row"
+                              key={run.id}
+                            >
+                              <span>
+                                {new Date(run.startedAt).toLocaleDateString(
+                                  undefined,
+                                  { month: "short", day: "numeric" },
+                                )}
+                              </span>
+                              <code>{run.repository.commit}</code>
+                              <strong>{run.task}</strong>
+                              <code>{run.models.candidate}</code>
+                              <span className="history-score">
+                                {run.metrics.navigability ?? "—"}
+                              </span>
+                              <span>
+                                {run.metrics.reliability === null
+                                  ? "—"
+                                  : `${run.metrics.reliability}%`}
+                              </span>
+                              <span>{formatTokenCount(tokens)}</span>
+                            </div>
+                          );
+                        })}
                       </div>
-                    );
-                  })}
+                    </section>
+                  ))}
                 </div>
               )}
             </section>
 
             {modelScores.length > 0 && (
-            <section className="history-summary-grid single-summary">
-              <article className="panel model-compare">
-                <span className="section-kicker">Model frontier</span>
-                <h2>Average navigability by candidate model</h2>
-                {modelScores.map((model) => (
-                  <div className="model-bar-row" key={model.model}>
-                    <code>{model.model}</code>
-                    <div>
-                      <i style={{ width: `${model.score}%` }} />
+              <section className="history-summary-grid single-summary">
+                <article className="panel model-compare">
+                  <span className="section-kicker">Model frontier</span>
+                  <h2>Average navigability by candidate model</h2>
+                  {modelScores.map((model) => (
+                    <div className="model-bar-row" key={model.model}>
+                      <code>{model.model}</code>
+                      <div>
+                        <i style={{ width: `${model.score}%` }} />
+                      </div>
+                      <strong>{model.score}</strong>
                     </div>
-                    <strong>{model.score}</strong>
-                  </div>
-                ))}
-                <p>
-                  Computed only from authoritative scores stored in the local
-                  archive.
-                </p>
-              </article>
-            </section>
+                  ))}
+                  <p>
+                    Computed only from authoritative scores stored across the
+                    local archive.
+                  </p>
+                </article>
+              </section>
             )}
           </div>
         ) : (

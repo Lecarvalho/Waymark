@@ -3258,10 +3258,61 @@ code {
   margin-bottom: 10px;
 }
 
-.history-table {
-  overflow-x: auto;
+.project-history-list {
   border: 1px solid var(--line);
   border-radius: 9px;
+}
+
+.project-history-group + .project-history-group {
+  border-top: 1px solid var(--line-strong);
+}
+
+.project-history-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 16px;
+  background: rgba(255, 255, 255, 0.018);
+}
+
+.project-history-heading h3 {
+  margin: 0;
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 580;
+}
+
+.project-history-heading code {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.project-history-meta {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  color: var(--muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.project-history-meta strong {
+  color: var(--lime);
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 11px;
+  font-weight: 550;
+}
+
+.project-history-meta strong.is-negative {
+  color: var(--red);
+}
+
+.history-table {
+  overflow-x: auto;
+  border-top: 1px solid var(--line);
 }
 
 .history-row {
@@ -3291,7 +3342,7 @@ code {
 .history-row.history-head {
   min-height: 34px;
   border-top: 0;
-  background: rgba(255, 255, 255, 0.025);
+  background: rgba(255, 255, 255, 0.012);
   color: var(--muted);
   font-family: var(--font-geist-mono), monospace;
   font-size: 7px;
@@ -4013,6 +4064,20 @@ code {
 
   .improvement-stat {
     margin-top: 22px;
+  }
+
+  .project-history-heading {
+    display: grid;
+    gap: 12px;
+  }
+
+  .project-history-heading code {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .project-history-meta {
+    justify-content: space-between;
   }
 
   .guide-view {
