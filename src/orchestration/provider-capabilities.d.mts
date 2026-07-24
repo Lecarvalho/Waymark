@@ -25,17 +25,32 @@ export interface ProviderCapability {
 }
 
 export interface ProviderCapabilities {
-  schemaVersion: "1.0.0";
+  schemaVersion: "1.2.0";
   auditModes: readonly {
-    id: "general" | "task_specific";
+    id: "general" | "task_specific" | "system_explanation";
     label: string;
     taskRequired: boolean;
+    description: string;
+    probeLabel: string | null;
+    probePlaceholder: string | null;
   }[];
   providers: readonly ProviderCapability[];
   tokenBudgetDefaults: AuditTokenBudgets;
+  tokenBudgetBasis: {
+    readonly [Phase in keyof AuditTokenBudgets]: {
+      readonly source: "historical_average" | "rubric_default";
+      readonly sampleSize: number;
+    };
+  };
 }
 
 export function discoverProviderCapabilities(input?: {
   environment?: NodeJS.ProcessEnv;
   codexEntryPath?: string;
+  historicalTokenAverages?: Partial<
+    Record<
+      keyof AuditTokenBudgets,
+      { averageTokens: number | null; sampleSize: number }
+    >
+  >;
 }): ProviderCapabilities;

@@ -194,6 +194,31 @@ test("audit journal, evidence, verdicts, and tokens survive reopen", () => {
   store = new AuditStore({ databasePath });
   const report = store.readReport(run.id);
   assert.equal(report.run.status, "completed");
+  assert.deepEqual(store.readCompletedTokenAverages(), {
+    candidate_navigation: { averageTokens: 150, sampleSize: 1 },
+    independent_validation: { averageTokens: 90, sampleSize: 1 },
+    orchestration: { averageTokens: 40, sampleSize: 1 },
+    deterministic_verification: { averageTokens: null, sampleSize: 0 },
+    report_generation: { averageTokens: null, sampleSize: 0 },
+  });
+  assert.deepEqual(store.readCompletedTokenAverages({
+    auditMode: "task_specific",
+  }), {
+    candidate_navigation: { averageTokens: 150, sampleSize: 1 },
+    independent_validation: { averageTokens: 90, sampleSize: 1 },
+    orchestration: { averageTokens: 40, sampleSize: 1 },
+    deterministic_verification: { averageTokens: null, sampleSize: 0 },
+    report_generation: { averageTokens: null, sampleSize: 0 },
+  });
+  assert.deepEqual(store.readCompletedTokenAverages({
+    auditMode: "system_explanation",
+  }), {
+    candidate_navigation: { averageTokens: null, sampleSize: 0 },
+    independent_validation: { averageTokens: null, sampleSize: 0 },
+    orchestration: { averageTokens: null, sampleSize: 0 },
+    deterministic_verification: { averageTokens: null, sampleSize: 0 },
+    report_generation: { averageTokens: null, sampleSize: 0 },
+  });
   assert.deepEqual(
     report.events.map(({ sequence }) => sequence),
     [1, 2, 3, 4],

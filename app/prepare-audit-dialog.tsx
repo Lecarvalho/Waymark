@@ -25,7 +25,7 @@ type ParticipantSelection = {
   reasoningEffort: ReasoningEffort | "";
 };
 type ParticipantSelections = Record<Role, ParticipantSelection>;
-type AuditMode = "general" | "task_specific";
+type AuditMode = "general" | "task_specific" | "system_explanation";
 
 const roles: Role[] = ["candidate", "independent", "orchestrator"];
 const roleLabels: Record<Role, string> = {
@@ -110,7 +110,6 @@ function cloneBudgets(value: AuditTokenBudgets): AuditTokenBudgets {
 function validateForm(input: {
   targetRepositoryPath: string;
   auditMode: AuditMode;
-  name: string;
   task: string;
   participants: ParticipantSelections;
   tokenBudgets: AuditTokenBudgets | null;
@@ -119,13 +118,12 @@ function validateForm(input: {
   if (input.targetRepositoryPath.trim() === "") {
     errors.push("Enter the target repository path.");
   }
-  if (input.name.trim() === "") {
-    errors.push("Enter a concise audit name.");
-  } else if (input.name.trim().length > 72) {
-    errors.push("Keep the audit name to 72 characters or fewer.");
-  }
-  if (input.auditMode === "task_specific" && input.task.trim() === "") {
-    errors.push("Enter the engineering task used as the navigation probe.");
+  if (input.auditMode !== "general" && input.task.trim() === "") {
+    errors.push(
+      input.auditMode === "system_explanation"
+        ? "Enter the system behavior the agent should explain."
+        : "Enter the engineering task used as the navigation probe.",
+    );
   }
   for (const role of roles) {
     const selection = input.participants[role];
@@ -166,10 +164,10 @@ export function PrepareAuditDialog() {
   const dialog = useRef<HTMLDialogElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
   const repositoryInput = useRef<HTMLInputElement>(null);
-  const { capabilities, state: capabilityState } = useProviderCapabilities();
   const [targetRepositoryPath, setTargetRepositoryPath] = useState("");
   const [auditMode, setAuditMode] = useState<AuditMode>("task_specific");
-  const [name, setName] = useState("");
+  const { capabilities, state: capabilityState } =
+    useProviderCapabilities(auditMode);
   const [task, setTask] = useState("");
   const [participants, setParticipants] =
     useState<ParticipantSelections>(emptyParticipants);
@@ -178,6 +176,8 @@ export function PrepareAuditDialog() {
   const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">(
     "idle",
   );
+  const selectedAuditMode =
+    capabilities?.auditModes.find((mode) => mode.id === auditMode) ?? null;
 
   const resolvedParticipants = useMemo(() => {
     if (participants.candidate.provider !== "" || !capabilities) {
@@ -207,7 +207,6 @@ export function PrepareAuditDialog() {
       validateForm({
         targetRepositoryPath,
         auditMode,
-        name,
         task,
         participants: resolvedParticipants,
         tokenBudgets: resolvedTokenBudgets,
@@ -215,7 +214,6 @@ export function PrepareAuditDialog() {
     [
       targetRepositoryPath,
       auditMode,
-      name,
       task,
       resolvedParticipants,
       resolvedTokenBudgets,
@@ -227,7 +225,6 @@ export function PrepareAuditDialog() {
     return buildPreparedAuditRequest({
       targetRepositoryPath,
       auditMode,
-      name,
       task,
       participants: resolvedParticipants as Record<
         Role,
@@ -239,7 +236,6 @@ export function PrepareAuditDialog() {
     errors.length,
     targetRepositoryPath,
     auditMode,
-    name,
     task,
     resolvedParticipants,
     resolvedTokenBudgets,
@@ -296,7 +292,6 @@ export function PrepareAuditDialog() {
 
   const updateBudget = (
     phase: keyof AuditTokenBudgets,
-    field: keyof TokenBudget,
     event: ChangeEvent<HTMLInputElement>,
   ) => {
     const value = Number(event.target.value);
@@ -307,7 +302,7 @@ export function PrepareAuditDialog() {
         ? null
         : {
             ...base,
-            [phase]: { ...base[phase], [field]: value },
+            [phase]: { ...base[phase], hardLimitTokens: value },
           };
     });
   };
@@ -385,11 +380,12 @@ export function PrepareAuditDialog() {
                     value={targetRepositoryPath}
                   />
                 </label>
-                <label className="prepare-field">
+                <label className="prepare-field is-wide">
                   <span>Audit mode</span>
                   <select
                     onChange={(event) => {
                       setCopyState("idle");
+                      setTokenBudgets(null);
                       setAuditMode(event.target.value as AuditMode);
                     }}
                     value={auditMode}
@@ -406,34 +402,54 @@ export function PrepareAuditDialog() {
                         <option value="general">
                           General repository audit
                         </option>
+                        <option value="system_explanation">
+                          System explanation
+                        </option>
                       </>
                     )}
                   </select>
                 </label>
-                <label className="prepare-field">
-                  <span>Concise audit name</span>
-                  <input
-                    maxLength={72}
-                    onChange={(event) => {
-                      setCopyState("idle");
-                      setName(event.target.value);
-                    }}
-                    placeholder="Refund approval navigation"
-                    value={name}
-                  />
-                </label>
-                {auditMode === "task_specific" ? (
+                {auditMode !== "general" ? (
                   <label className="prepare-field is-wide">
-                    <span>Engineering task used as the probe</span>
-                    <textarea
-                      onChange={(event) => {
-                        setCopyState("idle");
-                        setTask(event.target.value);
-                      }}
-                      placeholder="Add partial refunds with manager approval and idempotency."
-                      rows={3}
-                      value={task}
-                    />
+                    <span>
+                      {selectedAuditMode?.probeLabel ??
+                        (auditMode === "system_explanation"
+                          ? "What should the agent find?"
+                          : "Engineering task used as the probe")}
+                    </span>
+                    {auditMode === "system_explanation" ? (
+                      <input
+                        autoComplete="off"
+                        onChange={(event) => {
+                          setCopyState("idle");
+                          setTask(event.target.value);
+                        }}
+                        placeholder={
+                          selectedAuditMode?.probePlaceholder ??
+                          "How are refunds approved?"
+                        }
+                        value={task}
+                      />
+                    ) : (
+                      <textarea
+                        onChange={(event) => {
+                          setCopyState("idle");
+                          setTask(event.target.value);
+                        }}
+                        placeholder={
+                          selectedAuditMode?.probePlaceholder ??
+                          "Add partial refunds with manager approval and idempotency."
+                        }
+                        rows={3}
+                        value={task}
+                      />
+                    )}
+                    <small>
+                      {selectedAuditMode?.description ??
+                        (auditMode === "system_explanation"
+                          ? "Measures the navigation cost of finding a supported answer about existing behavior."
+                          : "Measures navigation for a realistic engineering change without implementing it.")}
+                    </small>
                   </label>
                 ) : (
                   <p className="prepare-mode-note">
@@ -564,51 +580,56 @@ export function PrepareAuditDialog() {
               <details className="prepare-advanced">
                 <summary id="audit-request-budget">
                   Advanced token budgets
-                  <span>Phase targets and hard limits</span>
+                  <span>Automatic targets · editable hard limits</span>
                 </summary>
                 {resolvedTokenBudgets && (
-                  <div className="budget-config-list">
-                    {(
-                      Object.entries(resolvedTokenBudgets) as Array<
-                        [keyof AuditTokenBudgets, TokenBudget]
-                      >
-                    ).map(([phase, budget]) => (
-                      <div className="budget-config-row" key={phase}>
-                        <strong>{phaseLabels[phase]}</strong>
-                        <label className="prepare-field">
-                          <span>Target</span>
-                          <input
-                            min={1}
-                            onChange={(event) =>
-                              updateBudget(
-                                phase,
-                                "targetTokens",
-                                event,
-                              )
-                            }
-                            step={1000}
-                            type="number"
-                            value={budget.targetTokens}
-                          />
-                        </label>
-                        <label className="prepare-field">
-                          <span>Hard limit</span>
-                          <input
-                            min={1}
-                            onChange={(event) =>
-                              updateBudget(
-                                phase,
-                                "hardLimitTokens",
-                                event,
-                              )
-                            }
-                            step={1000}
-                            type="number"
-                            value={budget.hardLimitTokens}
-                          />
-                        </label>
-                      </div>
-                    ))}
+                  <div>
+                    <p className="budget-config-note">
+                      Targets use the average tokens consumed by completed
+                      audits of this probe type. Defaults are used until
+                      matching history is available. The final 20% of each hard
+                      limit is reserved for a partial report if exploration
+                      runs long.
+                    </p>
+                    <div className="budget-config-list">
+                      {(
+                        Object.entries(resolvedTokenBudgets) as Array<
+                          [keyof AuditTokenBudgets, TokenBudget]
+                        >
+                      ).map(([phase, budget]) => {
+                        const basis = capabilities?.tokenBudgetBasis[phase];
+                        return (
+                          <div className="budget-config-row" key={phase}>
+                            <strong>{phaseLabels[phase]}</strong>
+                            <div className="budget-target-baseline">
+                              <span>Automatic target</span>
+                              <strong>
+                                {budget.targetTokens.toLocaleString()}
+                              </strong>
+                              <small>
+                                {basis?.source === "historical_average"
+                                  ? `Average of ${basis.sampleSize} completed ${
+                                      basis.sampleSize === 1 ? "run" : "runs"
+                                    }`
+                                  : "Default until a completed run is available"}
+                              </small>
+                            </div>
+                            <label className="prepare-field">
+                              <span>Hard limit · includes report reserve</span>
+                              <input
+                                min={budget.targetTokens}
+                                onChange={(event) =>
+                                  updateBudget(phase, event)
+                                }
+                                step={1000}
+                                type="number"
+                                value={budget.hardLimitTokens}
+                              />
+                            </label>
+                          </div>
+                        );
+                      })}
+                    </div>
                   </div>
                 )}
               </details>

@@ -36,6 +36,10 @@ test("server-renders an honest empty state without mock audit data", async () =>
   assert.match(html, /Preparation only/);
   assert.match(html, /Nothing here creates a run, invokes a model, or writes to the audit journal/);
   assert.match(html, /Copy audit request/);
+  assert.doesNotMatch(html, /Concise audit name/);
+  assert.match(html, /Automatic targets/);
+  assert.match(html, /editable hard limits/);
+  assert.doesNotMatch(html, /<span>Target<\/span>/);
   assert.doesNotMatch(html, /Start audit/);
   assert.doesNotMatch(html, /meridian-commerce/);
   assert.doesNotMatch(html, /Example audit data/);

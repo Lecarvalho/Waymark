@@ -35,7 +35,92 @@ const DEFAULT_CODEX_MODELS = Object.freeze([
       "ultra",
     ]),
   }),
+  Object.freeze({
+    id: "gpt-5.6-luna",
+    label: "GPT-5.6 Luna",
+    reasoningEfforts: Object.freeze([
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max",
+    ]),
+  }),
+  Object.freeze({
+    id: "gpt-5.5",
+    label: "GPT-5.5",
+    reasoningEfforts: Object.freeze([
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+    ]),
+  }),
+  Object.freeze({
+    id: "gpt-5.4",
+    label: "GPT-5.4",
+    reasoningEfforts: Object.freeze([
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+    ]),
+  }),
+  Object.freeze({
+    id: "gpt-5.4-mini",
+    label: "GPT-5.4 Mini",
+    reasoningEfforts: Object.freeze([
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+    ]),
+  }),
+  Object.freeze({
+    id: "gpt-5.3-codex-spark",
+    label: "GPT-5.3 Codex Spark",
+    reasoningEfforts: Object.freeze([
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+    ]),
+  }),
 ]);
+
+const TOKEN_PHASES = Object.freeze(Object.keys(DEFAULT_AUDIT_TOKEN_BUDGETS));
+
+function resolveTokenBudgets(historicalTokenAverages = {}) {
+  const tokenBudgetDefaults = {};
+  const tokenBudgetBasis = {};
+
+  for (const phase of TOKEN_PHASES) {
+    const fallback = DEFAULT_AUDIT_TOKEN_BUDGETS[phase];
+    const history = historicalTokenAverages[phase];
+    const hasHistory =
+      Number.isSafeInteger(history?.averageTokens) &&
+      history.averageTokens > 0 &&
+      Number.isSafeInteger(history?.sampleSize) &&
+      history.sampleSize > 0;
+    const targetTokens = hasHistory
+      ? history.averageTokens
+      : fallback.targetTokens;
+
+    tokenBudgetDefaults[phase] = Object.freeze({
+      targetTokens,
+      hardLimitTokens: targetTokens * 2,
+    });
+    tokenBudgetBasis[phase] = Object.freeze({
+      source: hasHistory ? "historical_average" : "rubric_default",
+      sampleSize: hasHistory ? history.sampleSize : 0,
+    });
+  }
+
+  return {
+    tokenBudgetDefaults: Object.freeze(tokenBudgetDefaults),
+    tokenBudgetBasis: Object.freeze(tokenBudgetBasis),
+  };
+}
 
 function parseModelDeclarations(value) {
   if (value === undefined || value === null || value === "") {
@@ -111,6 +196,7 @@ function codexAvailability({ entryPath, environment }) {
 export function discoverProviderCapabilities({
   environment = process.env,
   codexEntryPath,
+  historicalTokenAverages,
 } = {}) {
   const availability = codexAvailability({
     entryPath: codexEntryPath,
@@ -127,18 +213,39 @@ export function discoverProviderCapabilities({
 
   const available =
     availability.available && declarationError === null && models.length > 0;
+  const { tokenBudgetDefaults, tokenBudgetBasis } = resolveTokenBudgets(
+    historicalTokenAverages,
+  );
   return Object.freeze({
-    schemaVersion: "1.0.0",
+    schemaVersion: "1.2.0",
     auditModes: Object.freeze([
       Object.freeze({
         id: "general",
         label: "General repository audit",
         taskRequired: false,
+        description:
+          "Measures broad repository navigation with a versioned standard task suite.",
+        probeLabel: null,
+        probePlaceholder: null,
       }),
       Object.freeze({
         id: "task_specific",
         label: "Task-specific audit",
         taskRequired: true,
+        description:
+          "Measures navigation for a realistic engineering change without implementing it.",
+        probeLabel: "Engineering task used as the probe",
+        probePlaceholder:
+          "Add partial refunds with manager approval and idempotency.",
+      }),
+      Object.freeze({
+        id: "system_explanation",
+        label: "System explanation",
+        taskRequired: true,
+        description:
+          "Measures the navigation cost of finding a supported answer about existing behavior.",
+        probeLabel: "What should the agent find?",
+        probePlaceholder: "How are refunds approved?",
       }),
     ]),
     providers: Object.freeze([
@@ -152,6 +259,7 @@ export function discoverProviderCapabilities({
         models: available ? models : Object.freeze([]),
       }),
     ]),
-    tokenBudgetDefaults: DEFAULT_AUDIT_TOKEN_BUDGETS,
+    tokenBudgetDefaults,
+    tokenBudgetBasis,
   });
 }

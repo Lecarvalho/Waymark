@@ -37,6 +37,11 @@ export interface ProcessProviderAdapter {
     assignment: AuditAssignment,
     prompt: string,
   ): ProcessLaunchSpec;
+  createResumeLaunchSpec?(
+    assignment: AuditAssignment,
+    prompt: string,
+    providerSessionId: string,
+  ): ProcessLaunchSpec;
   extractUsage(event: unknown): ProviderUsage | null | undefined;
   extractFinalOutput(event: unknown): JsonValue | undefined;
   normalizeEvent(event: unknown): NormalizedProviderEvent | null | undefined;

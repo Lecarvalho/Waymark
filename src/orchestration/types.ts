@@ -44,12 +44,18 @@ export interface AuditTokenBudgets {
   report_generation: TokenBudget;
 }
 
+export type AuditMode =
+  | "general"
+  | "task_specific"
+  | "system_explanation";
+
 export interface AuditAssignment {
   runId: string;
   role: "candidate" | "independent" | "orchestrator";
   participant: RunParticipantInput;
   reasoningEffort?: "low" | "medium" | "high" | "xhigh" | "max" | "ultra";
   target: RepositoryTarget;
+  auditMode: AuditMode;
   task: string;
   executionPolicy: AuditExecutionPolicy;
   tokenBudget: TokenBudget;

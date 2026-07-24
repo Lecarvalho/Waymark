@@ -1,6 +1,6 @@
 ---
 name: waymark-audit
-description: Run an evidence-backed Waymark audit of a local repository for a realistic engineering task. Use when Codex or another coding agent must measure repository navigability, record candidate and independent investigation through the Waymark CLI, verify claims, account for tokens, and persist a deterministic scored report.
+description: Run an evidence-backed Waymark audit of a local repository using a general, task-specific, or system-explanation navigation probe. Use when Codex or another coding agent must measure repository navigability, record candidate and independent investigation through the Waymark CLI, verify claims, account for tokens, and persist a deterministic scored report.
 ---
 
 # Waymark audit
@@ -12,11 +12,12 @@ the default journal is not appropriate.
 ## Workflow
 
 1. Resolve the target's immutable repository identity and commit without changing
-   it. Create a run with a concise, human-readable name, the verbatim task,
+   it. Create a run with a concise, human-readable name, the verbatim probe,
    candidate and orchestrator identities, declared tool policy, fresh-process
    execution policy, phase token budgets, run conditions, and protocol/rubric
-   versions. The name states the probe's intention in at most 72 characters; it
-   does not copy the full task.
+   versions. Record `auditMode` in `runConditions` as `general`,
+   `task_specific`, or `system_explanation`. The name states the probe's
+   intention in at most 72 characters; it does not copy the full prompt.
 2. Treat the target repository as read-only. Do not edit, install dependencies,
    format files, generate artifacts, or run commands that write into it. Use only
    safe read-only probes. A future implementation probe requires an explicitly
@@ -45,9 +46,12 @@ the default journal is not appropriate.
    run.
 5. Review the imported navigation claims and the orchestrator's challenges and
    verification requests. Separately use each validator-only probe result to
-   judge whether the agent found and understood enough of the requested feature
-   surface for the navigation evidence to be adequate. Feature mechanics are
-   validation evidence, not report content. The independent researcher and
+   judge whether the agent found and understood enough of the requested probe
+   surface for the navigation evidence to be adequate. In
+   `system_explanation` mode, use the concise supported answer only as the
+   adequacy gate; measure the tokens and navigation work required to find it.
+   Do not reward prose depth or require hypothetical change-surface recall.
+   Behavior mechanics are validation evidence, not report content. The independent researcher and
    orchestrator may expose missing consumers, hidden dependencies, unsupported
    certainty, and conflicting instructions, but agreement is not proof.
 6. Verify every critical claim deterministically where possible. Prefer static
@@ -60,8 +64,9 @@ the default journal is not appropriate.
    contradicted, or non-deterministically verified claims. A finalized
    recommendation must show the observed problem, exact evidence, a named
    repository-navigation change, its token mechanism, limitations, and a
-   repeatable before/after validation check. The feature request remains only a
-   probe; never convert the recommendation into feature implementation advice.
+   repeatable before/after validation check. The selected question or task
+   remains only a probe; never convert the recommendation into feature
+   implementation advice.
 8. Create the observation-count JSON from the stored trace and verified answer
    key. Read the stored report, then optionally run
    `node .agents/skills/waymark-audit/scripts/build-score-input.mjs` to assemble
@@ -95,8 +100,8 @@ hard limit after observing the result.
 
 Before the next audit:
 
-1. Confirm the target path, mode (`general` or `feature`), immutable commit, and
-   clean read-only status.
+1. Confirm the target path, mode (`general`, `task_specific`, or
+   `system_explanation`), immutable commit, and clean read-only status.
 2. Start the local observer on the user-visible web URL and verify that its
    service reads the exact SQLite journal selected for the run. If an observer
    is already running, use its configured service port or restart it; do not

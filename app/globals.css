@@ -3899,9 +3899,12 @@ code {
 }
 
 .prepare-audit-dialog {
+  position: fixed;
+  inset: 0;
   width: min(920px, calc(100vw - 32px));
   max-width: none;
   max-height: calc(100vh - 32px);
+  margin: auto;
   padding: 0;
   overflow: hidden;
   border: 1px solid var(--line-strong);
@@ -4147,9 +4150,17 @@ code {
   border-top: 1px solid var(--line);
 }
 
+.budget-config-note {
+  margin: 0;
+  padding: 10px 12px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
 .budget-config-row {
   display: grid;
-  grid-template-columns: minmax(180px, 1fr) 150px 150px;
+  grid-template-columns: minmax(180px, 1fr) 180px 150px;
   align-items: end;
   gap: 12px;
   padding: 10px 12px;
@@ -4164,6 +4175,25 @@ code {
   align-self: center;
   color: var(--muted-bright);
   font-size: 11px;
+  font-weight: 600;
+}
+
+.budget-target-baseline {
+  display: grid;
+  gap: 3px;
+  align-self: center;
+}
+
+.budget-target-baseline > span,
+.budget-target-baseline > small {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.budget-target-baseline > strong {
+  color: var(--text);
+  font-family: var(--font-geist-mono);
+  font-size: 12px;
   font-weight: 600;
 }
 

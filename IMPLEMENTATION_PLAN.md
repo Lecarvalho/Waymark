@@ -3,8 +3,8 @@
 ## Objective
 
 Build a local-first audit system that measures how efficiently and reliably a
-coding agent can navigate a target repository while attempting a realistic
-engineering task.
+coding agent can navigate a target repository while following a general,
+task-specific, or system-explanation probe.
 
 The audit request executes in a paired coding-agent session such as Codex or
 Claude Code. Waymark may prepare a self-contained request for the user to copy
@@ -25,6 +25,9 @@ verifier, scoring engine, and durable report surface.
   audit, invokes a model, or writes a run from the preparation surface.
 - Provider, model, and reasoning-effort choices come from read-only adapter
   capability declarations rather than hardcoded UI catalogs.
+- System-explanation probes use a short question and primarily measure the
+  tokens and navigation work needed for an adequate supported answer. Prose
+  depth and hypothetical change-surface recall are not objectives.
 - Runs and reports are stored locally in SQLite.
 
 ## System Shape
@@ -502,21 +505,32 @@ preparation-only request workflow are implemented:
   phase targets and hard limits, shell-command limits, and normalized tool and
   token telemetry. Interruptions, failures, policy violations, and resource
   overruns remain explicit journal evidence.
+- Resumable providers reserve the final 20% of each hard token limit for
+  reporting. At the wrap-up threshold, Waymark stops exploration and resumes
+  the same provider session with a no-tools partial-report directive. Cited
+  findings, dead ends, unresolved traceability, and budget exhaustion remain
+  usable evidence; the final ceiling still terminates uncontrolled work.
 - The read-only local service exposes installed provider-adapter capabilities,
-  model-specific reasoning efforts, supported audit modes, and default phase
-  budgets without adding a mutation route.
+  model-specific reasoning efforts, supported audit modes, and automatic phase
+  targets without adding a mutation route. Each target uses the average
+  observed tokens from completed runs for that phase and audit mode, and falls
+  back to the rubric default until matching history exists.
 - The observer interface provides a secondary, keyboard-accessible “Prepare
-  audit request” modal. Repository scope, audit mode, concise name, task,
-  participant selections, and advanced budgets remain in browser memory. The
-  deterministic prompt is copied only after the explicit “Copy audit request”
-  action and states that preparation did not create or start a run.
+  audit request” modal. Repository scope, audit mode, task, participant
+  selections, and editable hard limits remain in browser memory. Target-token
+  fields are not user inputs; their historical-average basis is shown
+  read-only. A concise name is inferred deterministically from the task. The
+  prompt is copied only after the explicit “Copy audit request” action and
+  states that preparation did not create or start a run.
 - Provider/model/reasoning catalogs live in the adapter capability declaration,
   not in the React presentation. `WAYMARK_CODEX_MODELS_JSON` can replace the
   bundled Codex declaration without changing the interface.
 
-Automated validation on 2026-07-24 passed the production build, lint, and all 39
+Automated validation on 2026-07-24 passed the production build, lint, and all 45
 tests. New contract coverage proves adapter discovery, model-specific reasoning,
-deterministic general and task-specific prompts, hard-limit rejection, the
+historical token-target derivation, resumable budget wrap-up, retained partial
+evidence, deterministic general, task-specific, and system-explanation prompts,
+mode-specific role assignments and historical averages, hard-limit safety, the
 read-only capability endpoint, and the absence of an audit run after capability
 reads or rejected mutations.
 
@@ -533,8 +547,11 @@ after separate authorization.
   without displacing the active-audit viewport.
 - Discover installed provider adapters and expose their available models and
   model-specific reasoning efforts through a read-only capability contract.
-- Collect repository path, audit mode, concise name, task, participant
-  provider/model/reasoning selections, and advanced token budgets.
+- Collect repository path, audit mode, task or short system question, participant
+  provider/model/reasoning selections, and advanced hard limits. Infer the
+  concise audit name deterministically from the probe and phase token targets
+  from same-mode completed-run averages, with explicit defaults when matching
+  history is absent.
 - Generate a deterministic, self-contained prompt that tells the paired agent
   to use the authoritative Waymark audit workflow. Copy it only after explicit
   user action.
@@ -544,8 +561,11 @@ after separate authorization.
 - Run candidate and independent research in parallel.
 - Launch audited roles in fresh assignment-only sessions; never charge the
   controlling development conversation to the audit.
-- Declare phase token targets and hard limits, persist overruns, and reject
-  over-budget runs as successful calibration benchmarks.
+- Declare phase token targets and hard limits, persist overruns, and stop
+  uncontrolled work at the final ceiling without discarding a structured
+  result that completed before interruption.
+- Reserve reporting capacity inside each hard limit and retain structured,
+  clearly partial evidence when exploration reaches the wrap-up threshold.
 - Capture tool traces and token measurements where the provider exposes them.
 - Cross-examine disagreements and unsupported high-confidence claims.
 - Execute safe deterministic probes in the read-only target.

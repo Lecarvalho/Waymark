@@ -131,9 +131,13 @@ if (mode === "failure") {
             },
           ],
           probeResult: {
-            status: "adequate",
+            status: prompt.includes("Budget wrap-up directive")
+              ? "partial"
+              : "adequate",
             summary:
-              "Located the requested test change surface well enough for validator review.",
+              prompt.includes("Budget wrap-up directive")
+                ? "Budget reserve triggered; reporting only the evidence already gathered."
+                : "Located the requested test change surface well enough for validator review.",
             citations: [
               {
                 path: "package.json",
@@ -143,7 +147,9 @@ if (mode === "failure") {
               },
             ],
           },
-          deadEnds: [],
+          deadEnds: prompt.includes("Budget wrap-up directive")
+            ? ["The investigation stopped at the reserved reporting threshold."]
+            : [],
           instructions: [],
           verificationWorkflows: [],
           assignmentOnly:

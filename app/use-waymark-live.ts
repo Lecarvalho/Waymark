@@ -17,6 +17,7 @@ export type WaymarkRunSnapshot = {
     status:
       | "eligible"
       | "eligible_with_resource_overrun"
+      | "eligible_with_partial_budget_report"
       | "diagnostic_only";
     issues: Array<{
       type: "policy_violation";
@@ -29,7 +30,7 @@ export type WaymarkRunSnapshot = {
       declaredLimit: number | null;
     }>;
     resourceSignals: Array<{
-      type: "hard_token_limit_exceeded";
+      type: "hard_token_limit_exceeded" | "partial_budget_report";
       actor: string | null;
       reason: string;
       phase: string | null;

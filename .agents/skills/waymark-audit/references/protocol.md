@@ -27,6 +27,7 @@ node bin/waymark.mjs --db <journal> run create --input-file <run.json>
   ],
   "toolPolicy": {"target":"read-only","network":"declared"},
   "runConditions": {
+    "auditMode": "task_specific",
     "parallelResearch": true,
     "candidateReasoningEffort": "low",
     "independentReasoningEffort": "high",
@@ -57,7 +58,8 @@ node bin/waymark.mjs --db <journal> run create --input-file <run.json>
 ```
 
 `name` is a concise audit-history label of at most 72 characters. Keep `task`
-verbatim as the reproducible navigation probe. Participant roles must be
+verbatim as the reproducible navigation probe and record `auditMode` as
+`general`, `task_specific`, or `system_explanation`. Participant roles must be
 unique. Candidate and orchestrator are required.
 
 ## Isolated role execution
@@ -141,10 +143,15 @@ beginning with `waymark`, plus `score.*` and `run.finished`, are reserved.
 
 Candidate claims are cited facts about repository navigability only. Each must
 name one scored Waymark dimension and the concrete navigation friction it
-caused. The feature request is a probe used to test whether the agent found and
-understood the relevant surface. Persist that understanding as a
+caused. The selected task or explanation question is a probe used to test
+whether the agent found and understood the relevant surface. Persist that
+understanding as a
 validator-only `probe.result`; never link it to recommendations or present
-feature mechanics as the report's primary evidence.
+system mechanics as the report's primary evidence. For a
+`system_explanation` run, record that mode in `runConditions`, use a concise
+supported answer as the adequacy gate, and primarily measure the tokens and
+navigation work required to find it. Do not reward prose depth or require
+hypothetical change-surface recall.
 
 After recording deterministic verdicts for every recommendation claim, finalize
 the fresh orchestrator draft:

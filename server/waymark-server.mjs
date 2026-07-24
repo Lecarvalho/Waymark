@@ -14,6 +14,11 @@ import { hashScoreInput, scoreAudit } from "../src/scoring/index.mjs";
 
 const DEFAULT_HOST = "127.0.0.1";
 const DEFAULT_PORT = 4318;
+const AUDIT_MODES = new Set([
+  "general",
+  "task_specific",
+  "system_explanation",
+]);
 const TOKEN_PHASES = [
   "candidate_navigation",
   "independent_validation",
@@ -635,9 +640,14 @@ export function toRunSnapshot(report, runCount) {
   const candidatePeakContextTokens =
     peakContextByActor.get("candidate") ?? null;
   const resourceSignals = events
-    .filter((event) => event.type === "budget.exceeded")
+    .filter((event) =>
+      ["budget.exceeded", "budget.wrap_up_requested"].includes(event.type),
+    )
     .map((event) => ({
-      type: "hard_token_limit_exceeded",
+      type:
+        event.type === "budget.wrap_up_requested"
+          ? "partial_budget_report"
+          : "hard_token_limit_exceeded",
       actor: event.actor,
       reason:
         typeof event.payload?.reason === "string"
@@ -655,7 +665,9 @@ export function toRunSnapshot(report, runCount) {
       declaredLimit: numberOrNull(event.payload?.declaredLimit),
     }));
   const overrunPhases = new Set(
-    resourceSignals.map((issue) => issue.phase),
+    resourceSignals
+      .filter((issue) => issue.type === "hard_token_limit_exceeded")
+      .map((issue) => issue.phase),
   );
   for (const phaseUsage of tokenUsageByPhase) {
     const phaseBudget = run.runConditions?.tokenBudgets?.[phaseUsage.phase];
@@ -703,9 +715,15 @@ export function toRunSnapshot(report, runCount) {
     status:
       calibrationIssues.length > 0
         ? "diagnostic_only"
-        : resourceSignals.length > 0
+        : resourceSignals.some(
+              (signal) => signal.type === "hard_token_limit_exceeded",
+            )
           ? "eligible_with_resource_overrun"
-          : "eligible",
+          : resourceSignals.some(
+                (signal) => signal.type === "partial_budget_report",
+              )
+            ? "eligible_with_partial_budget_report"
+            : "eligible",
     issues: calibrationIssues,
     resourceSignals,
   };
@@ -746,6 +764,8 @@ export function toRunSnapshot(report, runCount) {
           ? run.status === "completed"
             ? calibration.status === "eligible_with_resource_overrun"
               ? "Audit completed and saved with a resource overrun."
+              : calibration.status === "eligible_with_partial_budget_report"
+                ? "Audit completed and saved with a partial budget report."
               : calibration.eligible
                 ? "Audit completed and saved."
                 : "Audit completed and saved as diagnostic-only."
@@ -832,6 +852,22 @@ export function toRunSnapshot(report, runCount) {
         source: "evidence_linked_addendum",
       }),
     ) ?? null;
+  const partialBudgetEvidence = events
+    .filter(
+      (event) =>
+        event.type === "budget.wrap_up_completed" &&
+        typeof event.payload?.summary === "string",
+    )
+    .map((event) => ({
+      claim: [
+        event.payload.summary,
+        ...userFacingList(event.payload.deadEnds),
+      ].join(" "),
+      source: `${event.actor} partial report`,
+      status: "Partial - budget reserve",
+      challenge: null,
+      tone: "warn",
+    }));
 
   return {
     id: run.id,
@@ -863,7 +899,7 @@ export function toRunSnapshot(report, runCount) {
       orchestrator: orchestrator?.model ?? "unknown",
     },
     participants: participantSnapshots,
-    evidence: report.claims.map((claim) => {
+    evidence: [...partialBudgetEvidence, ...report.claims.map((claim) => {
       const verification = latestVerificationByClaim.get(claim.id);
       const challenge = challengeByClaim.get(claim.id) ?? null;
       const qualified =
@@ -895,7 +931,7 @@ export function toRunSnapshot(report, runCount) {
               ? "bad"
               : "warn",
       };
-    }),
+    })],
     practiceFindings: buildPracticeFindings(
       score,
       authoritativeScore.input,
@@ -1082,9 +1118,6 @@ export async function startWaymarkServer({
 } = {}) {
   const resolvedDatabasePath = resolveDatabasePath(databasePath);
   const store = new AuditStore({ databasePath: resolvedDatabasePath });
-  const providerCapabilities = discoverProviderCapabilities(
-    providerCapabilityOptions,
-  );
   const clients = new Set();
 
   const broadcast = (event = "changed") => {
@@ -1123,7 +1156,22 @@ export async function startWaymarkServer({
       }
 
       if (url.pathname === "/api/provider-capabilities") {
-        json(response, 200, providerCapabilities);
+        const auditMode =
+          url.searchParams.get("auditMode") ?? "task_specific";
+        if (!AUDIT_MODES.has(auditMode)) {
+          json(response, 400, { error: "invalid_audit_mode" });
+          return;
+        }
+        json(
+          response,
+          200,
+          discoverProviderCapabilities({
+            ...providerCapabilityOptions,
+            historicalTokenAverages: store.readCompletedTokenAverages({
+              auditMode,
+            }),
+          }),
+        );
         return;
       }
 

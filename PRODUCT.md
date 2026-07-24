@@ -3,14 +3,18 @@
 ## Purpose
 
 Waymark measures how efficiently and reliably coding agents can navigate a
-repository while attempting a realistic engineering task. It makes the
+repository while following a reproducible navigation probe. It makes the
 investigation observable, challenges model claims, preserves the evidence, and
 tracks navigability over time.
 
-The engineering task is a benchmark probe, not a request for implementation
-advice. Waymark reports how hard it was to find the information needed for that
-task and what repository-level changes would make the next agent's navigation
-more direct.
+The probe can be a versioned general suite, a realistic engineering task, or a
+question asking how existing system behavior works. It is not a request for
+implementation advice. Waymark reports how hard it was to find the information
+needed for that probe and what repository-level changes would make the next
+agent's navigation more direct. System-explanation probes use a short question
+and primarily measure the tokens and navigation work needed to reach an
+adequate supported answer; prose depth and hypothetical change-surface recall
+are not objectives.
 
 ## Platform
 
@@ -49,8 +53,9 @@ clear and the text remains readable. Live state must be explicit without
 decorative urgency.
 
 The interface may prepare an audit request without starting one. The user
-selects the repository, audit mode, task, and available provider/model/reasoning
-combinations, then explicitly copies a self-contained prompt. Model and
+selects the repository, audit mode, task or explanation question, and available
+provider/model/reasoning combinations, then explicitly copies a self-contained
+prompt. Model and
 reasoning choices come from runtime adapter capabilities rather than a
 hardcoded catalog. Preparing or copying a request does not create a run, invoke
 a model, write to SQLite, or imply that an audit has started.

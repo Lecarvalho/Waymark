@@ -1,6 +1,7 @@
 import type {
   AuditAssignment,
   AuditExecutionPolicy,
+  AuditMode,
   AuditTokenBudgets,
   OrchestrationCapabilities,
   RepositoryTarget,
@@ -14,6 +15,7 @@ export const DEFAULT_AUDIT_TOKEN_BUDGETS: Readonly<AuditTokenBudgets>;
 export interface AssignmentTemplateInput {
   runId: string;
   target: RepositoryTarget;
+  auditMode?: AuditMode;
   task: string;
   candidate: RunParticipantInput;
   capabilities: OrchestrationCapabilities;
@@ -35,6 +37,7 @@ export interface AssignmentTemplateInput {
 export interface OrchestratorAssignmentTemplateInput {
   runId: string;
   target: RepositoryTarget;
+  auditMode?: AuditMode;
   task: string;
   orchestrator: RunParticipantInput;
   tokenBudgets?: AuditTokenBudgets;

@@ -8,15 +8,17 @@ const serviceUrl =
 
 export type CapabilityState = "loading" | "ready" | "unavailable";
 
-export function useProviderCapabilities() {
+export function useProviderCapabilities(auditMode: string) {
   const [capabilities, setCapabilities] =
     useState<ProviderCapabilities | null>(null);
   const [state, setState] = useState<CapabilityState>("loading");
+  const [loadedAuditMode, setLoadedAuditMode] = useState<string | null>(null);
 
   useEffect(() => {
     const controller = new AbortController();
 
-    fetch(`${serviceUrl}/api/provider-capabilities`, {
+    const query = new URLSearchParams({ auditMode });
+    fetch(`${serviceUrl}/api/provider-capabilities?${query}`, {
       cache: "no-store",
       signal: controller.signal,
     })
@@ -29,6 +31,7 @@ export function useProviderCapabilities() {
       .then((value) => {
         setCapabilities(value);
         setState("ready");
+        setLoadedAuditMode(auditMode);
       })
       .catch((error) => {
         if (error instanceof DOMException && error.name === "AbortError") {
@@ -36,10 +39,15 @@ export function useProviderCapabilities() {
         }
         setCapabilities(null);
         setState("unavailable");
+        setLoadedAuditMode(auditMode);
       });
 
     return () => controller.abort();
-  }, []);
+  }, [auditMode]);
 
-  return { capabilities, state };
+  const loaded = loadedAuditMode === auditMode;
+  return {
+    capabilities: loaded ? capabilities : null,
+    state: loaded ? state : "loading",
+  };
 }

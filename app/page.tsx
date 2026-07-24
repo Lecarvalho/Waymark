@@ -643,6 +643,9 @@ export default function Home() {
                     {snapshot.calibration.status ===
                     "eligible_with_resource_overrun"
                       ? "Benchmark valid · resource reference exceeded"
+                      : snapshot.calibration.status ===
+                          "eligible_with_partial_budget_report"
+                        ? "Benchmark valid · partial budget report"
                       : snapshot.calibration.eligible
                         ? "Calibration eligible"
                         : "Diagnostic only · protocol issue"}

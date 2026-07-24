@@ -355,6 +355,10 @@ export function createCodexProcessAdapter({
     },
     createLaunchSpec(assignment, prompt) {
       const launcher = resolveCodexLauncher({ entryPath, environment });
+      const outputSchema =
+        assignment.role === "orchestrator"
+          ? orchestrationOutputSchemaPath
+          : outputSchemaPath;
       return {
         command: launcher.command,
         arguments: [
@@ -380,9 +384,47 @@ export function createCodexProcessAdapter({
           "--model",
           assignment.participant.model,
           "--output-schema",
-          assignment.role === "orchestrator"
-            ? orchestrationOutputSchemaPath
-            : outputSchemaPath,
+          outputSchema,
+          "-",
+        ],
+        cwd: assignment.target.path,
+        stdin: prompt,
+        environment: gitSafeDirectoryEnvironment(
+          assignment.target.path,
+          environment,
+        ),
+      };
+    },
+    createResumeLaunchSpec(assignment, prompt, providerSessionId) {
+      const launcher = resolveCodexLauncher({ entryPath, environment });
+      const outputSchema =
+        assignment.role === "orchestrator"
+          ? orchestrationOutputSchemaPath
+          : outputSchemaPath;
+      return {
+        command: launcher.command,
+        arguments: [
+          ...launcher.prefixArguments,
+          "exec",
+          "resume",
+          ...(assignment.reasoningEffort
+            ? [
+                "-c",
+                `model_reasoning_effort="${assignment.reasoningEffort}"`,
+              ]
+            : []),
+          "-c",
+          'approval_policy="never"',
+          "-c",
+          'sandbox_mode="read-only"',
+          "--ignore-user-config",
+          "--ignore-rules",
+          "--json",
+          "--model",
+          assignment.participant.model,
+          "--output-schema",
+          outputSchema,
+          providerSessionId,
           "-",
         ],
         cwd: assignment.target.path,

@@ -10,6 +10,7 @@ import {
 
 const MAX_STDERR_CHARACTERS = 8_000;
 const MAX_RESULT_CHARACTERS = 64_000;
+const BUDGET_WRAP_UP_RESERVE_RATIO = 0.2;
 
 export class OrchestrationError extends Error {
   constructor(code, message, details = undefined) {
@@ -31,7 +32,33 @@ function lifecycleForRole(role) {
 }
 
 function roleCompleted(status) {
-  return status === "completed" || status === "completed_over_budget";
+  return (
+    status === "completed" ||
+    status === "completed_over_budget" ||
+    status === "completed_partial_budget"
+  );
+}
+
+function wrapUpTriggerTokens(tokenBudget) {
+  return Math.max(
+    1,
+    Math.floor(
+      tokenBudget.hardLimitTokens * (1 - BUDGET_WRAP_UP_RESERVE_RATIO),
+    ),
+  );
+}
+
+function renderBudgetWrapUpPrompt(assignment) {
+  return [
+    "Budget wrap-up directive.",
+    "Stop investigating immediately. Do not call tools, run commands, or read more files.",
+    "Return the required structured result now using only evidence already gathered in this session.",
+    "Treat the result as partial: state what was found, every unresolved question, and the concrete searches, file hops, ambiguity, or traceability barriers that prevented completion.",
+    "Keep repository claims tied to citations already observed. Do not invent citations or attribute budget exhaustion solely to the repository.",
+    assignment.role === "orchestrator"
+      ? "Preserve only evidence-linked challenges, verification requests, and recommendations that the gathered claims support."
+      : "Set probeResult.status to partial unless the evidence already gathered genuinely supports adequate.",
+  ].join("\n");
 }
 
 function boundedResult(value) {
@@ -52,7 +79,10 @@ function processFailure(error) {
   };
 }
 
-function runJsonlProcess(launch, { onEvent, signal, killGraceMs = 1_000 }) {
+function runJsonlProcess(
+  launch,
+  { onEvent, onControlReady, signal, killGraceMs = 1_000 },
+) {
   return new Promise((resolve, reject) => {
     let settled = false;
     let invalidLineCount = 0;
@@ -79,6 +109,7 @@ function runJsonlProcess(launch, { onEvent, signal, killGraceMs = 1_000 }) {
       }, killGraceMs);
       forcedKillTimer.unref?.();
     };
+    onControlReady?.({ terminate });
 
     const abort = () => terminate("aborted");
     if (signal?.aborted) abort();
@@ -252,7 +283,14 @@ async function executeAssignment({
   let normalizedEventCount = 0;
   let latestRolloutUsage = null;
   let stopUsageMonitor = null;
+  let providerSessionId = null;
+  let processControl = null;
+  let allowBudgetWrapUp = false;
+  let wrapUpRequested = false;
+  let wrapUpCompleted = false;
+  let invalidLineCount = 0;
   let processResult;
+  const wrapUpAtTokens = wrapUpTriggerTokens(tokenBudget);
 
   const appendRoleProgress = (message) => {
     store.appendEvent({
@@ -274,12 +312,55 @@ async function executeAssignment({
       },
     });
   };
+  const retainLatestUsage = (usage) => {
+    if (
+      latestUsage === null ||
+      usage.totalTokens >= latestUsage.totalTokens
+    ) {
+      latestUsage = usage;
+    }
+  };
+  const enforceTokenBudget = (totalTokens) => {
+    if (totalTokens > tokenBudget.hardLimitTokens) {
+      budgetExceeded = true;
+      if (
+        finalOutput === undefined ||
+        adapter.usageEnforcement === "live"
+      ) {
+        processControl?.terminate("hard_token_limit");
+      }
+      return;
+    }
+    if (
+      allowBudgetWrapUp &&
+      totalTokens >= wrapUpAtTokens &&
+      finalOutput === undefined &&
+      providerSessionId !== null &&
+      typeof adapter.createResumeLaunchSpec === "function" &&
+      !wrapUpRequested
+    ) {
+      wrapUpRequested = true;
+      store.appendEvent({
+        runId: assignment.runId,
+        actor: role,
+        type: "budget.wrap_up_requested",
+        payload: {
+          phase,
+          observedTokens: totalTokens,
+          wrapUpTriggerTokens: wrapUpAtTokens,
+          hardLimitTokens: tokenBudget.hardLimitTokens,
+          reservedTokens: tokenBudget.hardLimitTokens - wrapUpAtTokens,
+          providerSessionId,
+          message: `${role}: exploration stopped; reserved budget is being used for a partial report`,
+        },
+      });
+      processControl?.terminate("budget_wrap_up");
+    }
+  };
   const recordLiveUsage = (usage) => {
     latestRolloutUsage = usage;
-    latestUsage = usage.cumulative;
-    if (usage.cumulative.totalTokens > tokenBudget.hardLimitTokens) {
-      budgetExceeded = true;
-    }
+    retainLatestUsage(usage.cumulative);
+    enforceTokenBudget(usage.cumulative.totalTokens);
     store.appendEvent({
       runId: assignment.runId,
       actor: role,
@@ -297,6 +378,72 @@ async function executeAssignment({
       `${role}: ${completedShellCommandCount}/${shellCommandBudget ?? "?"} commands completed · ${usage.cumulative.totalTokens.toLocaleString("en-US")} tokens`,
     );
   };
+  const stopLiveUsageMonitor = () => {
+    try {
+      stopUsageMonitor?.();
+    } catch (error) {
+      store.appendEvent({
+        runId: assignment.runId,
+        actor: role,
+        type: "provider.telemetry.unavailable",
+        payload: {
+          reason: "usage_monitor_stop_failed",
+          error: processFailure(error),
+        },
+      });
+    } finally {
+      stopUsageMonitor = null;
+    }
+  };
+  const handleWrapUpEvent = (event) => {
+    const output = adapter.extractFinalOutput(event);
+    if (output !== undefined) finalOutput = output;
+
+    const usage = adapter.extractUsage(event);
+    if (usage !== null && usage !== undefined) {
+      retainLatestUsage(usage);
+      enforceTokenBudget(usage.totalTokens);
+    }
+
+    const normalized = adapter.normalizeEvent(event);
+    if (normalized !== null && normalized !== undefined) {
+      normalizedEventCount += 1;
+      store.appendEvent({
+        runId: assignment.runId,
+        actor: role,
+        type: normalized.type,
+        payload: normalized.payload,
+      });
+      if (
+        normalized.type === "provider.session.started" &&
+        typeof normalized.payload?.providerSessionId === "string" &&
+        typeof adapter.startUsageMonitor === "function" &&
+        stopUsageMonitor === null
+      ) {
+        providerSessionId = normalized.payload.providerSessionId;
+        try {
+          stopUsageMonitor = adapter.startUsageMonitor({
+            providerSessionId,
+            onUsage: recordLiveUsage,
+          });
+        } catch (error) {
+          store.appendEvent({
+            runId: assignment.runId,
+            actor: role,
+            type: "provider.telemetry.unavailable",
+            payload: {
+              reason: "usage_monitor_start_failed",
+              error: processFailure(error),
+            },
+          });
+        }
+      }
+    }
+
+    return budgetExceeded
+      ? { terminate: true, reason: "hard_token_limit" }
+      : undefined;
+  };
 
   try {
     const launch = adapter.createLaunchSpec(
@@ -306,17 +453,19 @@ async function executeAssignment({
     processResult = await runJsonlProcess(launch, {
       signal,
       killGraceMs,
+      onControlReady(control) {
+        processControl = control;
+        allowBudgetWrapUp = true;
+      },
       onEvent(event) {
-        const usage = adapter.extractUsage(event);
-        if (usage !== null && usage !== undefined) {
-          latestUsage = usage;
-          if (usage.totalTokens > tokenBudget.hardLimitTokens) {
-            budgetExceeded = true;
-          }
-        }
-
         const output = adapter.extractFinalOutput(event);
         if (output !== undefined) finalOutput = output;
+
+        const usage = adapter.extractUsage(event);
+        if (usage !== null && usage !== undefined) {
+          retainLatestUsage(usage);
+          enforceTokenBudget(usage.totalTokens);
+        }
 
         const normalized = adapter.normalizeEvent(event);
         if (normalized !== null && normalized !== undefined) {
@@ -329,25 +478,29 @@ async function executeAssignment({
           });
           if (
             normalized.type === "provider.session.started" &&
-            typeof normalized.payload?.providerSessionId === "string" &&
-            typeof adapter.startUsageMonitor === "function" &&
-            stopUsageMonitor === null
+            typeof normalized.payload?.providerSessionId === "string"
           ) {
-            try {
-              stopUsageMonitor = adapter.startUsageMonitor({
-                providerSessionId: normalized.payload.providerSessionId,
-                onUsage: recordLiveUsage,
-              });
-            } catch (error) {
-              store.appendEvent({
-                runId: assignment.runId,
-                actor: role,
-                type: "provider.telemetry.unavailable",
-                payload: {
-                  reason: "usage_monitor_start_failed",
-                  error: processFailure(error),
-                },
-              });
+            providerSessionId = normalized.payload.providerSessionId;
+            if (
+              typeof adapter.startUsageMonitor === "function" &&
+              stopUsageMonitor === null
+            ) {
+              try {
+                stopUsageMonitor = adapter.startUsageMonitor({
+                  providerSessionId,
+                  onUsage: recordLiveUsage,
+                });
+              } catch (error) {
+                store.appendEvent({
+                  runId: assignment.runId,
+                  actor: role,
+                  type: "provider.telemetry.unavailable",
+                  payload: {
+                    reason: "usage_monitor_start_failed",
+                    error: processFailure(error),
+                  },
+                });
+              }
             }
           }
           if (
@@ -379,15 +532,99 @@ async function executeAssignment({
         if (shellCommandBudgetExceeded) {
           return { terminate: true, reason: "shell_command_budget" };
         }
-        if (budgetExceeded && adapter.usageEnforcement === "live") {
+        if (
+          budgetExceeded &&
+          (finalOutput === undefined || adapter.usageEnforcement === "live")
+        ) {
           return { terminate: true, reason: "hard_token_limit" };
+        }
+        if (wrapUpRequested && allowBudgetWrapUp) {
+          return { terminate: true, reason: "budget_wrap_up" };
         }
         return undefined;
       },
     });
+    invalidLineCount += processResult.invalidLineCount;
+    processControl = null;
+    stopLiveUsageMonitor();
+
+    if (
+      processResult.terminationReason === "budget_wrap_up" &&
+      providerSessionId !== null &&
+      typeof adapter.createResumeLaunchSpec === "function"
+    ) {
+      finalOutput = undefined;
+      allowBudgetWrapUp = false;
+      if (typeof adapter.startUsageMonitor === "function") {
+        try {
+          stopUsageMonitor = adapter.startUsageMonitor({
+            providerSessionId,
+            onUsage: recordLiveUsage,
+          });
+        } catch (error) {
+          store.appendEvent({
+            runId: assignment.runId,
+            actor: role,
+            type: "provider.telemetry.unavailable",
+            payload: {
+              reason: "usage_monitor_start_failed",
+              error: processFailure(error),
+            },
+          });
+        }
+      }
+      processResult = await runJsonlProcess(
+        adapter.createResumeLaunchSpec(
+          assignment,
+          renderBudgetWrapUpPrompt(assignment),
+          providerSessionId,
+        ),
+        {
+          signal,
+          killGraceMs,
+          onControlReady(control) {
+            processControl = control;
+          },
+          onEvent: handleWrapUpEvent,
+        },
+      );
+      invalidLineCount += processResult.invalidLineCount;
+      processControl = null;
+      wrapUpCompleted =
+        processResult.exitCode === 0 && finalOutput !== undefined;
+      store.appendEvent({
+        runId: assignment.runId,
+        actor: role,
+        type: wrapUpCompleted
+          ? "budget.wrap_up_completed"
+          : "budget.wrap_up_failed",
+        payload: {
+          phase,
+          hardLimitTokens: tokenBudget.hardLimitTokens,
+          observedTokens: latestUsage?.totalTokens ?? null,
+          providerSessionId,
+          resultRetained: wrapUpCompleted,
+          summary:
+            wrapUpCompleted && typeof finalOutput?.summary === "string"
+              ? finalOutput.summary
+              : null,
+          deadEnds:
+            wrapUpCompleted && Array.isArray(finalOutput?.deadEnds)
+              ? finalOutput.deadEnds.filter(
+                  (item) => typeof item === "string",
+                )
+              : [],
+          message: wrapUpCompleted
+            ? `${role}: partial budget report retained`
+            : `${role}: partial budget report could not be completed`,
+        },
+      });
+    }
   } catch (error) {
     const failure = {
-      reason: "provider_process_error",
+      reason: wrapUpRequested
+        ? "budget_wrap_up_process_error"
+        : "provider_process_error",
       error: processFailure(error),
     };
     store.appendEvent({
@@ -398,19 +635,7 @@ async function executeAssignment({
     });
     return { role, status: "failed", failure };
   } finally {
-    try {
-      stopUsageMonitor?.();
-    } catch (error) {
-      store.appendEvent({
-        runId: assignment.runId,
-        actor: role,
-        type: "provider.telemetry.unavailable",
-        payload: {
-          reason: "usage_monitor_stop_failed",
-          error: processFailure(error),
-        },
-      });
-    }
+    stopLiveUsageMonitor();
   }
 
   if (latestUsage !== null) {
@@ -424,12 +649,12 @@ async function executeAssignment({
       ...latestUsage,
     });
   }
-  if (processResult.invalidLineCount > 0) {
+  if (invalidLineCount > 0) {
     store.appendEvent({
       runId: assignment.runId,
       actor: role,
       type: "provider.output.invalid",
-      payload: { lineCount: processResult.invalidLineCount },
+      payload: { lineCount: invalidLineCount },
     });
   }
 
@@ -484,21 +709,24 @@ async function executeAssignment({
     completionOnlyOverrunRecorded = true;
   };
   if (budgetExceeded) {
+    const interruptedAtHardLimit =
+      processResult.terminationReason === "hard_token_limit";
+    const resultRetainedAfterInterrupt =
+      interruptedAtHardLimit && finalOutput !== undefined;
     const overrun = {
       reason: "hard_token_limit_exceeded",
       phase,
       targetTokens: tokenBudget.targetTokens,
       hardLimitTokens: tokenBudget.hardLimitTokens,
       observedTokens: latestUsage.totalTokens,
-      enforcement:
-        adapter.usageEnforcement === "live" &&
-        processResult.terminationReason === "hard_token_limit"
-          ? "live_stream_interrupt"
-          : "post_completion",
-      calibrationEligible: adapter.usageEnforcement === "post_completion",
+      enforcement: interruptedAtHardLimit
+        ? "live_stream_interrupt"
+        : "post_completion",
+      calibrationEligible:
+        !interruptedAtHardLimit || resultRetainedAfterInterrupt,
       withinDeclaredResourceEnvelope: false,
     };
-    if (adapter.usageEnforcement === "post_completion") {
+    if (!interruptedAtHardLimit || resultRetainedAfterInterrupt) {
       completionOnlyOverrun = overrun;
     } else {
       store.appendEvent({
@@ -533,10 +761,19 @@ async function executeAssignment({
     return { role, status: "cancelled", failure };
   }
 
-  if (processResult.exitCode !== 0) {
+  if (
+    processResult.exitCode !== 0 &&
+    !(
+      processResult.terminationReason === "hard_token_limit" &&
+      finalOutput !== undefined
+    )
+  ) {
     recordCompletionOnlyOverrun(false, false);
     const failure = {
-      reason: "provider_process_failed",
+      reason:
+        wrapUpRequested && !wrapUpCompleted
+          ? "budget_wrap_up_failed"
+          : "provider_process_failed",
       exitCode: processResult.exitCode,
       exitSignal: processResult.exitSignal,
       stderrCharacters: processResult.stderrCharacters,
@@ -569,7 +806,21 @@ async function executeAssignment({
     model: participant.model,
     normalizedEventCount,
     tokenMeasurement: latestUsage === null ? "unavailable" : "measured",
-    calibrationEligible: completionOnlyOverrun === null,
+    calibrationEligible:
+      completionOnlyOverrun === null ||
+      completionOnlyOverrun.calibrationEligible === true,
+    evidenceCompleteness: wrapUpCompleted
+      ? "partial_budget_exhausted"
+      : "complete",
+    ...(wrapUpCompleted
+      ? {
+          budgetWrapUp: {
+            wrapUpTriggerTokens: wrapUpAtTokens,
+            hardLimitTokens: tokenBudget.hardLimitTokens,
+            resultRetained: true,
+          },
+        }
+      : {}),
     ...(completionOnlyOverrun === null
       ? {}
       : { budgetOverrun: completionOnlyOverrun }),
@@ -584,7 +835,9 @@ async function executeAssignment({
   return {
     role,
     status:
-      completionOnlyOverrun === null
+      wrapUpCompleted
+        ? "completed_partial_budget"
+        : completionOnlyOverrun === null
         ? "completed"
         : "completed_over_budget",
     completion,
@@ -931,6 +1184,7 @@ export async function runInvestigationPhase({
   const assignments = createInvestigationAssignments({
     runId,
     target,
+    auditMode: run.runConditions.auditMode ?? "task_specific",
     task: run.task,
     candidate,
     capabilities: {
@@ -1036,6 +1290,7 @@ export async function runInvestigationPhase({
   const orchestratorAssignment = createOrchestratorAssignment({
     runId,
     target,
+    auditMode: run.runConditions.auditMode ?? "task_specific",
     task: run.task,
     orchestrator,
     tokenBudgets: run.runConditions.tokenBudgets,

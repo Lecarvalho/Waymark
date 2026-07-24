@@ -59,6 +59,12 @@ const ORCHESTRATOR_EVIDENCE = Object.freeze([
   "repository-navigation recommendations linked only to supplied navigation-fact claims",
   "a named repository change and repeatable before/after check per recommendation",
 ]);
+const SYSTEM_EXPLANATION_CONSTRAINTS = Object.freeze([
+  "This is a system-lookup probe. Find enough cited evidence to answer the short question correctly; do not infer a requested code change.",
+  "Keep the answer concise. Explanatory depth and prose length do not improve the result.",
+  "The primary measurement is navigation cost: processed tokens, searches, file hops, dead ends, and effort before a supported answer.",
+  "Do not treat hypothetical change-surface recall as required evidence in this mode.",
+]);
 const REASONING_EFFORTS = new Set([
   "low",
   "medium",
@@ -114,6 +120,7 @@ export function resolveAuditTokenBudgets(value) {
 }
 
 export function createInvestigationAssignments(input) {
+  const auditMode = input.auditMode ?? "task_specific";
   const tokenBudgets = resolveAuditTokenBudgets(input.tokenBudgets);
   const candidateReasoningEffort = resolveReasoningEffort(
     input.reasoningEfforts?.candidate,
@@ -128,6 +135,7 @@ export function createInvestigationAssignments(input) {
     role: "candidate",
     participant: input.candidate,
     target: input.target,
+    auditMode,
     task: input.task,
     executionPolicy: FRESH_EXECUTION_POLICY,
     ...(candidateReasoningEffort
@@ -139,6 +147,9 @@ export function createInvestigationAssignments(input) {
       : {}),
     constraints: Object.freeze([
       ...READ_ONLY_CONSTRAINTS,
+      ...(auditMode === "system_explanation"
+        ? SYSTEM_EXPLANATION_CONSTRAINTS
+        : []),
       "Each finding must have kind navigation_fact and state one atomic fact about discoverability, ownership clarity, dependency clarity, change-surface visibility, verification discoverability, or instruction quality.",
       "Each navigation finding must name one Waymark dimension and state the concrete navigation friction: searches, file hops, ambiguity, hidden edges, or an undiscoverable verification path.",
       "Do not put probe-feature behavior, implementation advice, desired future architecture, or a proposed feature change surface in findings.",
@@ -162,6 +173,7 @@ export function createInvestigationAssignments(input) {
       role: "independent",
       participant: independent,
       target: input.target,
+      auditMode,
       task: input.task,
       executionPolicy: FRESH_EXECUTION_POLICY,
       ...(independentReasoningEffort
@@ -173,6 +185,9 @@ export function createInvestigationAssignments(input) {
         : {}),
       constraints: Object.freeze([
         ...READ_ONLY_CONSTRAINTS,
+        ...(auditMode === "system_explanation"
+          ? SYSTEM_EXPLANATION_CONSTRAINTS
+          : []),
         ...(input.additionalConstraints?.independent ?? []),
       ]),
       expectedEvidence: INDEPENDENT_EVIDENCE,
@@ -181,6 +196,7 @@ export function createInvestigationAssignments(input) {
 }
 
 export function createOrchestratorAssignment(input) {
+  const auditMode = input.auditMode ?? "task_specific";
   const tokenBudgets = resolveAuditTokenBudgets(input.tokenBudgets);
   const reasoningEffort = resolveReasoningEffort(
     input.reasoningEffort,
@@ -191,6 +207,7 @@ export function createOrchestratorAssignment(input) {
     role: "orchestrator",
     participant: input.orchestrator,
     target: input.target,
+    auditMode,
     task: input.task,
     executionPolicy: FRESH_EXECUTION_POLICY,
     ...(reasoningEffort ? { reasoningEffort } : {}),
@@ -200,6 +217,9 @@ export function createOrchestratorAssignment(input) {
       : {}),
     constraints: Object.freeze([
       ...READ_ONLY_CONSTRAINTS,
+      ...(auditMode === "system_explanation"
+        ? SYSTEM_EXPLANATION_CONSTRAINTS
+        : []),
       ...(input.additionalConstraints ?? []),
       "Use only the supplied claim IDs in challenges, verification requests, and recommendations.",
       "Recommendation claim IDs must reference atomic repository-navigation facts. Never use probe results, feature behavior, implementation advice, desired architecture, or proposed feature change-surface assertions as recommendation evidence.",
@@ -225,11 +245,17 @@ export function renderAssignmentPrompt(assignment) {
   const prompt = [
     `Act as the Waymark ${assignment.role} for run ${assignment.runId}.`,
     `Inspect ${assignment.target.path} at commit ${assignment.target.commitSha}.`,
-    `Task: ${assignment.task}`,
+    `Audit mode: ${assignment.auditMode}`,
+    `${
+      assignment.auditMode === "system_explanation"
+        ? "Explanation question"
+        : "Task"
+    }: ${assignment.task}`,
     "Execution:",
     "- Run in a fresh process with no inherited conversation history.",
     "- Start a new non-resumed provider session; its local rollout log is used only for normalized live telemetry.",
     `- Target ${assignment.tokenBudget.targetTokens} processed tokens; hard limit ${assignment.tokenBudget.hardLimitTokens}.`,
+    "- Waymark reserves the final 20% of the hard limit for a structured partial report and may interrupt exploration before the ceiling.",
     "Constraints:",
     constraints,
     "Return:",

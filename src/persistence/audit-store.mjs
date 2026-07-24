@@ -611,6 +611,57 @@ export class AuditStore {
     return rows.map((row) => this.#mapRunWithParticipants(row));
   }
 
+  readCompletedTokenAverages({ auditMode } = {}) {
+    this.#assertOpen();
+    if (
+      auditMode !== undefined &&
+      (typeof auditMode !== "string" || auditMode.trim() === "")
+    ) {
+      throw new TypeError("auditMode must be a non-empty string");
+    }
+    const rows = this.#database
+      .prepare(`
+        SELECT
+          phase,
+          COUNT(*) AS sample_count,
+          AVG(run_tokens) AS average_tokens
+        FROM (
+          SELECT
+            token_measurements.run_id,
+            token_measurements.phase,
+            SUM(token_measurements.total_tokens) AS run_tokens
+          FROM token_measurements
+          INNER JOIN audit_runs
+            ON audit_runs.id = token_measurements.run_id
+          WHERE audit_runs.status = 'completed'
+            AND (
+              ? IS NULL
+              OR COALESCE(
+                json_extract(audit_runs.run_conditions_json, '$.auditMode'),
+                'task_specific'
+              ) = ?
+            )
+          GROUP BY token_measurements.run_id, token_measurements.phase
+        )
+        GROUP BY phase
+      `)
+      .all(auditMode ?? null, auditMode ?? null);
+    const byPhase = new Map(rows.map((row) => [row.phase, row]));
+
+    return Object.fromEntries(
+      TOKEN_PHASES.map((phase) => {
+        const row = byPhase.get(phase);
+        return [
+          phase,
+          {
+            averageTokens: row ? Math.round(row.average_tokens) : null,
+            sampleSize: row ? Number(row.sample_count) : 0,
+          },
+        ];
+      }),
+    );
+  }
+
   readRun(runId) {
     this.#assertOpen();
     const normalizedRunId = this.#requiredString(runId, "runId");

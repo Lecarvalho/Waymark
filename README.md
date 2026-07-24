@@ -88,6 +88,30 @@ On Windows, Waymark resolves the installed Codex JavaScript entry point instead
 of spawning a `.cmd` launcher. Set `WAYMARK_CODEX_ENTRY` or pass
 `--codex-entry <path>` if it is installed in a nonstandard location.
 
+## Audited roles
+
+Each role runs in a fresh, assignment-only process so its evidence and token
+cost remain separate.
+
+- **Candidate:** performs the primary repository investigation. It follows the
+  selected navigation probe, records searches and dead ends, and returns cited
+  navigation findings plus a separate concise probe answer for validation.
+  Candidate confidence is evidence, but the candidate cannot assign a Waymark
+  score.
+- **Independent researcher:** investigates the same probe independently and in
+  parallel with the candidate. It looks for missed owners, consumers,
+  dependencies, instructions, and verification paths; challenges unsupported
+  claims; and suggests safe deterministic checks. Agreement with the candidate
+  supports a claim but does not prove it.
+- **Orchestrator:** receives the completed investigations and cross-examines
+  their claims. It records disagreements and qualifications, requests
+  deterministic verification, and drafts repository-navigation
+  recommendations using only supported navigation evidence. It cannot assign
+  the authoritative score.
+
+After these roles finish, Waymark verifies the claims and its deterministic
+scorer computes the authoritative score and reliability.
+
 ## Reliability model
 
 The candidate never assigns the final score. Waymark derives authority from:

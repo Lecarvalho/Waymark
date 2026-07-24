@@ -9,8 +9,7 @@ export interface PreparedAuditParticipant {
 
 export interface PreparedAuditRequest {
   targetRepositoryPath: string;
-  auditMode: "general" | "task_specific";
-  name: string;
+  auditMode: "general" | "task_specific" | "system_explanation";
   task: string;
   participants: Record<
     "candidate" | "independent" | "orchestrator",
@@ -27,7 +26,12 @@ export const GENERAL_AUDIT_TASK_SUITE: {
 
 export function validatePreparedAuditRequest(
   input: PreparedAuditRequest,
-): PreparedAuditRequest;
+): PreparedAuditRequest & { name: string };
+
+export function inferAuditName(input: {
+  auditMode: PreparedAuditRequest["auditMode"];
+  task: string;
+}): string;
 
 export function buildPreparedAuditRequest(
   input: PreparedAuditRequest,

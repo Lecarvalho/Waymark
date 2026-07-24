@@ -89,6 +89,7 @@ function fakeAdapter(
   modeByRole = {},
   usageEnforcement = "post_completion",
   usageMonitor = null,
+  resumable = false,
 ) {
   return {
     id: "fake",
@@ -112,6 +113,25 @@ function fakeAdapter(
         stdin: prompt,
       };
     },
+    ...(resumable
+      ? {
+          createResumeLaunchSpec(assignment, prompt) {
+            return {
+              command: process.execPath,
+              arguments: [
+                fakeProviderPath,
+                "success",
+                assignment.role,
+                ...(assignment.context?.claims?.[0]?.id
+                  ? [assignment.context.claims[0].id]
+                  : []),
+              ],
+              cwd: assignment.target.path,
+              stdin: prompt,
+            };
+          },
+        }
+      : {}),
     extractUsage: extractCodexUsage,
     extractFinalOutput: extractCodexFinalOutput,
     normalizeEvent: normalizeCodexEvent,
@@ -342,6 +362,96 @@ test("live provider usage and command progress reach the journal before completi
   );
 });
 
+test("a resumable provider stops exploration and retains a partial report", async (t) => {
+  const directory = mkdtempSync(join(tmpdir(), "waymark-budget-wrap-up-"));
+  const store = new AuditStore({ databasePath: join(directory, "audit.sqlite") });
+  t.after(() => store.close());
+  const run = createRun(store, {
+    independent: false,
+    candidateHardLimit: 100,
+  });
+  const startUsageMonitor = ({ onUsage }) => {
+    onUsage({
+      cumulative: {
+        inputTokens: 65,
+        cachedInputTokens: 20,
+        outputTokens: 20,
+        totalTokens: 85,
+      },
+      context: {
+        inputTokens: 50,
+        cachedInputTokens: 15,
+        outputTokens: 10,
+        totalTokens: 60,
+      },
+      contextWindowTokens: 258_400,
+      contextPercent: 0.02,
+    });
+    return () => {};
+  };
+
+  const result = await runInvestigationPhase({
+    store,
+    runId: run.id,
+    adapters: [
+      fakeAdapter({}, "post_completion", startUsageMonitor, true),
+    ],
+    killGraceMs: 100,
+  });
+
+  assert.equal(result.status, "active");
+  assert.equal(result.results[0].status, "completed_partial_budget");
+  assert.equal(
+    result.results[0].completion.evidenceCompleteness,
+    "partial_budget_exhausted",
+  );
+  const report = store.readReport(run.id);
+  const requested = report.events.find(
+    ({ actor, type }) =>
+      actor === "candidate" && type === "budget.wrap_up_requested",
+  );
+  assert.equal(requested.payload.wrapUpTriggerTokens, 80);
+  assert.equal(requested.payload.reservedTokens, 20);
+  assert.equal(
+    report.events.some(
+      ({ actor, type, payload }) =>
+        actor === "candidate" &&
+        type === "budget.wrap_up_completed" &&
+        payload.resultRetained === true,
+    ),
+    true,
+  );
+  assert.equal(report.claims.length > 0, true);
+  assert.equal(
+    report.events.find(
+      ({ actor, type }) => actor === "candidate" && type === "probe.result",
+    ).payload.status,
+    "partial",
+  );
+  assert.equal(
+    report.events.some(({ type }) => type === "orchestration.completed"),
+    true,
+  );
+  const snapshot = toRunSnapshot(report, 1);
+  assert.equal(
+    snapshot.calibration.status,
+    "eligible_with_partial_budget_report",
+  );
+  assert.equal(snapshot.calibration.eligible, true);
+  assert.equal(
+    snapshot.calibration.resourceSignals[0].type,
+    "partial_budget_report",
+  );
+  assert.equal(
+    snapshot.evidence.some(
+      ({ source, status }) =>
+        source === "candidate partial report" &&
+        status === "Partial - budget reserve",
+    ),
+    true,
+  );
+});
+
 test("the runner rejects a role on shell command N+1 and counts declined commands", async (t) => {
   const directory = mkdtempSync(join(tmpdir(), "waymark-command-budget-"));
   const store = new AuditStore({ databasePath: join(directory, "audit.sqlite") });
@@ -446,6 +556,7 @@ test("a completion-only token overrun remains valid evidence and continues", asy
 
   assert.equal(result.status, "active");
   assert.equal(result.results[0].status, "completed_over_budget");
+  assert.equal(result.results[0].completion.calibrationEligible, true);
   const report = store.readReport(run.id);
   assert.equal(report.run.status, "active");
   assert.equal(report.aggregates.tokensByPhase.candidate_navigation, 110);
@@ -477,7 +588,7 @@ test("a completion-only token overrun remains valid evidence and continues", asy
   );
 });
 
-test("a provider with live usage is interrupted at its hard limit", async (t) => {
+test("a live hard-limit interrupt retains a completed structured result", async (t) => {
   const directory = mkdtempSync(join(tmpdir(), "waymark-live-budget-"));
   const store = new AuditStore({ databasePath: join(directory, "audit.sqlite") });
   t.after(() => store.close());
@@ -495,17 +606,20 @@ test("a provider with live usage is interrupted at its hard limit", async (t) =>
     killGraceMs: 100,
   });
 
-  assert.equal(result.status, "failed");
+  assert.equal(result.status, "active");
+  assert.equal(result.results[0].status, "completed_over_budget");
+  assert.equal(result.results[0].completion.calibrationEligible, true);
   const report = store.readReport(run.id);
   const exceeded = report.events.find(({ type }) => type === "budget.exceeded");
   assert.equal(exceeded.payload.enforcement, "live_stream_interrupt");
   assert.equal(exceeded.payload.observedTokens, 110);
+  assert.equal(exceeded.payload.resultRetained, true);
+  assert.equal(exceeded.payload.workflowContinued, true);
 });
 
 test("the Codex adapter uses the JavaScript entry point and isolated exec flags", () => {
   const adapter = createCodexProcessAdapter({ entryPath: fakeProviderPath });
-  const launch = adapter.createLaunchSpec(
-    {
+  const assignment = {
       runId: "run-1",
       role: "candidate",
       participant: {
@@ -530,9 +644,8 @@ test("the Codex adapter uses the JavaScript entry point and isolated exec flags"
       tokenBudget: { targetTokens: 100, hardLimitTokens: 200 },
       constraints: [],
       expectedEvidence: [],
-    },
-    "assignment only",
-  );
+    };
+  const launch = adapter.createLaunchSpec(assignment, "assignment only");
 
   assert.equal(launch.command, process.execPath);
   assert.equal(launch.arguments[0], fakeProviderPath);
@@ -566,6 +679,16 @@ test("the Codex adapter uses the JavaScript entry point and isolated exec flags"
     launch.environment[`GIT_CONFIG_VALUE_${safeDirectoryIndex}`],
     repositoryRoot.replaceAll("\\", "/"),
   );
+  const resume = adapter.createResumeLaunchSpec(
+    assignment,
+    "report partial findings",
+    "session-1",
+  );
+  assert.deepEqual(resume.arguments.slice(1, 3), ["exec", "resume"]);
+  assert.ok(resume.arguments.includes('sandbox_mode="read-only"'));
+  assert.equal(resume.arguments.at(-2), "session-1");
+  assert.equal(resume.arguments.at(-1), "-");
+  assert.equal(resume.stdin, "report partial findings");
 
   const usage = extractCodexUsage({
     type: "turn.completed",
