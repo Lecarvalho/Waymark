@@ -87,6 +87,12 @@ function integer(value, path, fallback = 0) {
   return value;
 }
 
+function optionalInteger(value, path) {
+  return value === undefined || value === null
+    ? null
+    : integer(value, path);
+}
+
 function id(value, path, createId) {
   return value === undefined || value === null
     ? createId()
@@ -260,24 +266,35 @@ export function validateRecordVerification(value, { now, createId }) {
 
 export function validateTokenMeasurement(value, { now, createId }) {
   const input = object(value, "input");
-  const inputTokens = integer(input.inputTokens, "inputTokens");
-  const outputTokens = integer(input.outputTokens, "outputTokens");
-  const cachedInputTokens = integer(
+  const inputTokens = optionalInteger(input.inputTokens, "inputTokens");
+  const outputTokens = optionalInteger(input.outputTokens, "outputTokens");
+  const cachedInputTokens = optionalInteger(
     input.cachedInputTokens,
     "cachedInputTokens",
   );
-  const cacheCreationTokens = integer(
+  const cacheCreationTokens = optionalInteger(
     input.cacheCreationTokens,
     "cacheCreationTokens",
   );
-  const totalTokens = integer(
-    input.totalTokens,
-    "totalTokens",
-    inputTokens + outputTokens,
-  );
+  const totalTokens =
+    input.totalTokens === undefined || input.totalTokens === null
+      ? inputTokens !== null && outputTokens !== null
+        ? inputTokens + outputTokens
+        : fail(
+            "totalTokens",
+            "is required when inputTokens or outputTokens is unavailable",
+          )
+      : integer(input.totalTokens, "totalTokens");
 
-  if (totalTokens < inputTokens + outputTokens) {
+  if (totalTokens < (inputTokens ?? 0) + (outputTokens ?? 0)) {
     fail("totalTokens", "must be at least inputTokens + outputTokens");
+  }
+  if (
+    inputTokens !== null &&
+    cachedInputTokens !== null &&
+    cachedInputTokens > inputTokens
+  ) {
+    fail("cachedInputTokens", "must not exceed inputTokens");
   }
 
   return {

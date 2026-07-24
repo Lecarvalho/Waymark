@@ -204,6 +204,14 @@ test("audit journal, evidence, verdicts, and tokens survive reopen", () => {
   assert.equal(report.aggregates.tokensBySource.provider_reported, 150);
   assert.equal(report.aggregates.tokensBySource.measured, 40);
   assert.equal(report.aggregates.tokensBySource.estimated, 90);
+  assert.equal(
+    report.tokens.find(({ id }) => id === "token-2").cachedInputTokens,
+    null,
+  );
+  assert.equal(
+    report.tokens.find(({ id }) => id === "token-2").cacheCreationTokens,
+    null,
+  );
   assert.equal("scores" in report, false);
   assert.throws(
     () =>
@@ -416,7 +424,7 @@ test("schema v1 verification rows migrate to monotonic per-run sequence", () => 
   legacy.close();
 
   const store = new AuditStore({ databasePath });
-  assert.equal(store.schemaVersion, 3);
+  assert.equal(store.schemaVersion, 4);
   assert.deepEqual(
     store
       .readSnapshot("legacy-run")

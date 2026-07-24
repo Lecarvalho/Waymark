@@ -39,6 +39,13 @@ export type WaymarkRunSnapshot = {
     source: string;
     status: string;
     tone: "good" | "bad" | "warn";
+    challenge: {
+      status: "open" | "resolved";
+      assessment: string | null;
+      issue: string | null;
+      resolution: string | null;
+      disposition: string | null;
+    } | null;
   }>;
   recommendations: Array<{
     priority: string;
@@ -74,6 +81,15 @@ export type WaymarkRunSnapshot = {
       currency: null;
       reason: string;
     };
+  };
+  scoreBreakdown: {
+    dimensions: Array<{
+      key: string;
+      label: string;
+      score: number;
+      weight: number;
+    }>;
+    adequacyPassed: boolean | null;
   };
   metrics: {
     navigability: number | null;

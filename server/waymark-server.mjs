@@ -78,33 +78,33 @@ function summarizeTokens(measurements) {
     (total, measurement) => total + measurement.totalTokens,
     0,
   );
-  const inputTokens = measurements.reduce(
-    (total, measurement) => total + measurement.inputTokens,
-    0,
-  );
-  const cachedInputTokens = measurements.reduce(
-    (total, measurement) => total + measurement.cachedInputTokens,
-    0,
-  );
-  const outputTokens = measurements.reduce(
-    (total, measurement) => total + measurement.outputTokens,
-    0,
-  );
+  const sumOptionalField = (field) => {
+    const available = measurements
+      .map((measurement) => measurement[field])
+      .filter((value) => typeof value === "number");
+    return available.length === measurements.length
+      ? available.reduce((total, value) => total + value, 0)
+      : null;
+  };
+  const inputTokens = sumOptionalField("inputTokens");
+  const cachedInputTokens = sumOptionalField("cachedInputTokens");
+  const outputTokens = sumOptionalField("outputTokens");
+  const cacheCreationTokens = sumOptionalField("cacheCreationTokens");
 
   return {
     totalTokens,
     inputTokens,
     cachedInputTokens,
-    uncachedInputTokens: Math.max(0, inputTokens - cachedInputTokens),
+    uncachedInputTokens:
+      inputTokens === null || cachedInputTokens === null
+        ? null
+        : Math.max(0, inputTokens - cachedInputTokens),
     outputTokens,
-    unclassifiedTokens: Math.max(
-      0,
-      totalTokens - inputTokens - outputTokens,
-    ),
-    cacheCreationTokens: measurements.reduce(
-      (total, measurement) => total + measurement.cacheCreationTokens,
-      0,
-    ),
+    unclassifiedTokens:
+      inputTokens === null || outputTokens === null
+        ? null
+        : Math.max(0, totalTokens - inputTokens - outputTokens),
+    cacheCreationTokens,
     source: tokenSource(measurements),
   };
 }
@@ -133,6 +133,51 @@ function verifyAuthoritativeScore(event) {
   } catch {
     return {};
   }
+}
+
+const PHASE_LABELS = Object.freeze({
+  candidate_navigation: "Candidate run",
+  independent_validation: "Blind research",
+  orchestration: "Cross-examination",
+  deterministic_verification: "Verification",
+  report_generation: "Scoring",
+});
+
+const SCORE_DIMENSION_LABELS = Object.freeze({
+  discoveryEfficiency: "Discovery",
+  ownershipClarity: "Ownership",
+  dependencyClarity: "Dependencies",
+  changeSurfaceRecall: "Change surface",
+  verificationDiscoverability: "Verification",
+  instructionQuality: "Instructions",
+});
+
+function phaseLabel(value) {
+  if (typeof value !== "string") return null;
+  return PHASE_LABELS[value] ?? value;
+}
+
+function participantStatus(role, events, runStatus) {
+  const roleEvents = events.filter((event) => event.actor === role);
+  const hasType = (...types) =>
+    roleEvents.some((event) => types.includes(event.type));
+
+  if (hasType("budget.exceeded", "investigation.failed")) return "Failed";
+  if (hasType("investigation.interrupted")) return "Interrupted";
+  if (hasType("investigation.completed")) return "Complete";
+  if (runStatus === "active") {
+    return roleEvents.length > 0 ? "Active" : "Queued";
+  }
+  if (runStatus === "completed") {
+    return roleEvents.length > 0 ? "Complete" : "Not run";
+  }
+  return roleEvents.length > 0 ? "Interrupted" : "Not run";
+}
+
+function humanizeReason(value) {
+  return typeof value === "string" && value.length > 0
+    ? value.replaceAll("_", " ")
+    : "unknown failure";
 }
 
 export function toRunSnapshot(report, runCount) {
@@ -164,6 +209,39 @@ export function toRunSnapshot(report, runCount) {
       .map((event) => event.payload?.challengeId)
       .filter((challengeId) => typeof challengeId === "string"),
   );
+  const challengeByClaim = new Map();
+  for (const challenge of challengeEvents) {
+    const claimId = challenge.payload?.claimId;
+    const challengeId = challenge.payload?.challengeId;
+    if (typeof claimId !== "string" || typeof challengeId !== "string") {
+      continue;
+    }
+    const resolution = lastDefinedEvent(
+      events,
+      (event) =>
+        event.type === "challenge.resolved" &&
+        event.payload?.challengeId === challengeId,
+    );
+    challengeByClaim.set(claimId, {
+      status: resolution ? "resolved" : "open",
+      assessment:
+        typeof challenge.payload?.assessment === "string"
+          ? challenge.payload.assessment
+          : null,
+      issue:
+        typeof challenge.payload?.issue === "string"
+          ? challenge.payload.issue
+          : null,
+      resolution:
+        typeof resolution?.payload?.resolution === "string"
+          ? resolution.payload.resolution
+          : null,
+      disposition:
+        typeof resolution?.payload?.disposition === "string"
+          ? resolution.payload.disposition
+          : null,
+    });
+  }
   const latestVerificationByClaim = new Map();
   for (const verification of report.verifications) {
     latestVerificationByClaim.set(verification.claimId, verification);
@@ -220,9 +298,7 @@ export function toRunSnapshot(report, runCount) {
   const phase =
     status === "completed"
       ? "Complete"
-      : typeof progressEvent?.payload?.phase === "string"
-        ? progressEvent.payload.phase
-        : "Discovery";
+      : (phaseLabel(progressEvent?.payload?.phase) ?? "Discovery");
   const overall =
     numberOrNull(score?.overall?.score);
   const reliability =
@@ -249,8 +325,24 @@ export function toRunSnapshot(report, runCount) {
     typeof latestEvent?.payload?.message === "string"
       ? latestEvent.payload.message
       : latestEvent?.type === "run.finished"
-        ? "Audit completed and saved."
+        ? run.status === "completed"
+          ? "Audit completed and saved."
+          : `Audit failed: ${humanizeReason(
+              latestEvent.payload?.summary?.reason,
+            )}.`
         : latestEvent?.type ?? "Run created";
+  const participantSnapshots = run.participants.map((participant) => ({
+    role: participant.role,
+    provider: participant.provider,
+    model: participant.model,
+    status: participantStatus(participant.role, events, run.status),
+    tokens: tokensByActor.has(participant.role)
+      ? tokensByActor.get(participant.role)
+      : null,
+    tokenSource: tokenSource(
+      tokenMeasurementsByActor.get(participant.role) ?? [],
+    ),
+  }));
 
   return {
     id: run.id,
@@ -269,35 +361,28 @@ export function toRunSnapshot(report, runCount) {
         ? run.runConditions.agentHost
         : "Codex",
     latestEvent: latestEventText,
-    activeAgentCount:
-      status === "running"
-        ? run.participants.filter(
-            (participant) =>
-              participant.role !== "reporter" &&
-              participant.role !== "verifier",
-          ).length
-        : 0,
+    activeAgentCount: participantSnapshots.filter(
+      (participant) =>
+        participant.status === "Active" &&
+        participant.role !== "reporter" &&
+        participant.role !== "verifier",
+    ).length,
     models: {
       candidate: candidate?.model ?? "unknown",
       orchestrator: orchestrator?.model ?? "unknown",
     },
-    participants: run.participants.map((participant) => ({
-      role: participant.role,
-      provider: participant.provider,
-      model: participant.model,
-      status: status === "running" ? "Active" : "Complete",
-      tokens: tokensByActor.has(participant.role)
-        ? tokensByActor.get(participant.role)
-        : null,
-      tokenSource: tokenSource(
-        tokenMeasurementsByActor.get(participant.role) ?? [],
-      ),
-    })),
+    participants: participantSnapshots,
     evidence: report.claims.map((claim) => {
       const verification = latestVerificationByClaim.get(claim.id);
+      const challenge = challengeByClaim.get(claim.id) ?? null;
+      const qualified =
+        challenge?.status === "resolved" &&
+        challenge?.disposition === "qualified";
       const statusText =
         verification?.verdict === "verified"
-          ? "Verified"
+          ? qualified
+            ? "Verified · qualified"
+            : "Verified"
           : verification?.verdict === "contradicted"
             ? "Contradicted"
             : "Unverified";
@@ -311,8 +396,9 @@ export function toRunSnapshot(report, runCount) {
             }`
           : "No citation",
         status: statusText,
+        challenge,
         tone:
-          verification?.verdict === "verified"
+          verification?.verdict === "verified" && !qualified
             ? "good"
             : verification?.verdict === "contradicted"
               ? "bad"
@@ -333,7 +419,9 @@ export function toRunSnapshot(report, runCount) {
         description:
           typeof event.payload.description === "string"
             ? event.payload.description
-            : "",
+            : typeof event.payload.detail === "string"
+              ? event.payload.detail
+              : "",
         gain:
           typeof event.payload.gain === "string" ? event.payload.gain : "—",
         cost:
@@ -362,6 +450,28 @@ export function toRunSnapshot(report, runCount) {
         currency: null,
         reason: "No versioned provider pricing snapshot was recorded.",
       },
+    },
+    scoreBreakdown: {
+      dimensions:
+        score?.dimensions && typeof score.dimensions === "object"
+          ? Object.entries(score.dimensions)
+              .filter(
+                ([key, dimension]) =>
+                  SCORE_DIMENSION_LABELS[key] &&
+                  typeof dimension?.score === "number" &&
+                  typeof dimension?.weight === "number",
+              )
+              .map(([key, dimension]) => ({
+                key,
+                label: SCORE_DIMENSION_LABELS[key],
+                score: dimension.score,
+                weight: dimension.weight,
+              }))
+          : [],
+      adequacyPassed:
+        typeof score?.adequacy?.passed === "boolean"
+          ? score.adequacy.passed
+          : null,
     },
     metrics: {
       navigability: overall,

@@ -1781,6 +1781,18 @@ code {
   box-shadow: 0 0 0 4px rgba(185, 244, 123, 0.06);
 }
 
+.phase.failed .phase-index {
+  border-color: var(--red);
+  background: rgba(255, 92, 92, 0.08);
+  color: var(--red);
+}
+
+.phase.interrupted .phase-index {
+  border-color: var(--amber);
+  background: rgba(244, 181, 90, 0.08);
+  color: var(--amber);
+}
+
 .phase-copy {
   display: grid;
   gap: 2px;
@@ -1804,6 +1816,14 @@ code {
 
 .phase.active .phase-state {
   color: var(--lime);
+}
+
+.phase.failed .phase-state {
+  color: var(--red);
+}
+
+.phase.interrupted .phase-state {
+  color: var(--amber);
 }
 
 .live-event {
@@ -1897,6 +1917,11 @@ code {
 .agent-avatar.amber,
 .agent-status.amber {
   color: var(--amber);
+}
+
+.agent-avatar.red,
+.agent-status.red {
+  color: var(--red);
 }
 
 .agent-copy > div {
@@ -2053,6 +2078,17 @@ code {
   font-weight: 530;
 }
 
+.evidence-claim {
+  display: grid;
+  gap: 5px;
+}
+
+.evidence-claim small {
+  color: var(--amber);
+  font-size: 7px;
+  line-height: 1.5;
+}
+
 .evidence-row code {
   overflow: hidden;
   color: var(--muted-bright);
@@ -2146,6 +2182,82 @@ code {
   color: var(--muted-bright);
   font-size: 8px;
   line-height: 1.45;
+}
+
+.score-breakdown {
+  display: grid;
+  gap: 11px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+
+.score-breakdown-heading {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.score-breakdown-heading h3 {
+  margin: 3px 0 0;
+  font-size: 13px;
+}
+
+.score-breakdown-heading > span {
+  color: var(--lime);
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 7px;
+}
+
+.score-dimension-list {
+  display: grid;
+  gap: 8px;
+}
+
+.score-dimension {
+  display: grid;
+  grid-template-columns: 76px minmax(45px, 1fr) 32px 47px;
+  align-items: center;
+  gap: 7px;
+  color: var(--muted-bright);
+  font-size: 7px;
+}
+
+.score-dimension > div {
+  height: 4px;
+  overflow: hidden;
+  border-radius: 99px;
+  background: #2a3038;
+}
+
+.score-dimension i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--blue);
+}
+
+.score-dimension strong,
+.score-dimension small {
+  font-family: var(--font-geist-mono), monospace;
+  font-weight: 500;
+}
+
+.score-dimension strong {
+  color: var(--text);
+  text-align: right;
+}
+
+.score-dimension small {
+  color: var(--muted);
+  text-align: right;
+}
+
+.score-breakdown > p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 7px;
+  line-height: 1.55;
 }
 
 .gate-list {

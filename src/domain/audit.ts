@@ -131,10 +131,10 @@ export interface TokenMeasurement {
   source: TokenSource;
   provider: string | null;
   model: string | null;
-  inputTokens: number;
-  outputTokens: number;
-  cachedInputTokens: number;
-  cacheCreationTokens: number;
+  inputTokens: number | null;
+  outputTokens: number | null;
+  cachedInputTokens: number | null;
+  cacheCreationTokens: number | null;
   totalTokens: number;
   measuredAt: string;
 }

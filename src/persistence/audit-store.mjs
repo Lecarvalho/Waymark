@@ -14,7 +14,7 @@ import {
   validateTokenMeasurement,
 } from "../protocol/validation.mjs";
 
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 export const DEFAULT_DATABASE_PATH = ".waymark/waymark.sqlite";
 
 const RESERVED_ACTOR_PATTERN = /^waymark(?::|$)/;
@@ -241,12 +241,12 @@ export function bootstrapDatabase(database) {
       ),
       provider TEXT,
       model TEXT,
-      input_tokens INTEGER NOT NULL CHECK (input_tokens >= 0),
-      output_tokens INTEGER NOT NULL CHECK (output_tokens >= 0),
-      cached_input_tokens INTEGER NOT NULL CHECK (cached_input_tokens >= 0),
-      cache_creation_tokens INTEGER NOT NULL CHECK (cache_creation_tokens >= 0),
+      input_tokens INTEGER CHECK (input_tokens >= 0),
+      output_tokens INTEGER CHECK (output_tokens >= 0),
+      cached_input_tokens INTEGER CHECK (cached_input_tokens >= 0),
+      cache_creation_tokens INTEGER CHECK (cache_creation_tokens >= 0),
       total_tokens INTEGER NOT NULL CHECK (
-        total_tokens >= input_tokens + output_tokens
+        total_tokens >= COALESCE(input_tokens, 0) + COALESCE(output_tokens, 0)
       ),
       measured_at TEXT NOT NULL
     ) STRICT;
@@ -387,6 +387,87 @@ export function bootstrapDatabase(database) {
 
         DROP TABLE token_measurements;
         ALTER TABLE token_measurements_v3 RENAME TO token_measurements;
+      `);
+      database.exec("COMMIT");
+    } catch (error) {
+      database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  if (previousVersion > 0 && previousVersion < 4) {
+    database.exec("BEGIN IMMEDIATE");
+    try {
+      database.exec(`
+        DROP TRIGGER IF EXISTS token_measurements_no_update;
+        DROP TRIGGER IF EXISTS token_measurements_no_delete;
+        DROP INDEX IF EXISTS token_measurements_run;
+
+        CREATE TABLE token_measurements_v4 (
+          id TEXT PRIMARY KEY,
+          run_id TEXT NOT NULL REFERENCES audit_runs(id),
+          event_id TEXT REFERENCES audit_events(id),
+          actor TEXT NOT NULL,
+          phase TEXT NOT NULL CHECK (
+            phase IN (
+              'candidate_navigation',
+              'independent_validation',
+              'orchestration',
+              'deterministic_verification',
+              'report_generation'
+            )
+          ),
+          source TEXT NOT NULL CHECK (
+            source IN ('provider_reported', 'measured', 'estimated')
+          ),
+          provider TEXT,
+          model TEXT,
+          input_tokens INTEGER CHECK (input_tokens >= 0),
+          output_tokens INTEGER CHECK (output_tokens >= 0),
+          cached_input_tokens INTEGER CHECK (cached_input_tokens >= 0),
+          cache_creation_tokens INTEGER CHECK (cache_creation_tokens >= 0),
+          total_tokens INTEGER NOT NULL CHECK (
+            total_tokens >=
+              COALESCE(input_tokens, 0) + COALESCE(output_tokens, 0)
+          ),
+          measured_at TEXT NOT NULL
+        ) STRICT;
+
+        INSERT INTO token_measurements_v4 (
+          id,
+          run_id,
+          event_id,
+          actor,
+          phase,
+          source,
+          provider,
+          model,
+          input_tokens,
+          output_tokens,
+          cached_input_tokens,
+          cache_creation_tokens,
+          total_tokens,
+          measured_at
+        )
+        SELECT
+          id,
+          run_id,
+          event_id,
+          actor,
+          phase,
+          source,
+          provider,
+          model,
+          input_tokens,
+          output_tokens,
+          cached_input_tokens,
+          cache_creation_tokens,
+          total_tokens,
+          measured_at
+        FROM token_measurements;
+
+        DROP TABLE token_measurements;
+        ALTER TABLE token_measurements_v4 RENAME TO token_measurements;
       `);
       database.exec("COMMIT");
     } catch (error) {

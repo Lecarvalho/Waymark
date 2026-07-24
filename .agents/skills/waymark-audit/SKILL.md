@@ -24,6 +24,13 @@ the default journal is not appropriate.
    subagents forked from the controlling conversation as audited roles. Give
    both the same target commit and task. Do not reveal one investigation to the
    other before their initial findings.
+   Before paid work, prove the exact host command shapes with a no-model
+   preflight. On Windows, invoke the Codex JavaScript entry point with the
+   current Node executable instead of spawning a `.cmd` launcher directly.
+   Give each role a small, declared command envelope and only primitives already
+   confirmed compatible with the host policy. Prefer narrow `rg --files`,
+   selected-file `rg -n --max-count`, and explicitly bounded `Get-Content`.
+   A blocked command still consumes navigation budget and must be recorded.
 4. Append concise events for searches, files opened, dead ends, rules found,
    ownership/dependency answers, consumer discovery, verification workflows,
    interruptions, and failures. Record each actor's tokens separately with the
@@ -58,6 +65,28 @@ If a phase exceeds its declared hard token limit, append `budget.exceeded` with
 the measured breakdown and finish the run as failed or calibration-ineligible.
 If orchestration otherwise cannot continue, append a failure event and finish
 the run as `failed` or `cancelled`; do not manufacture missing evidence.
+Keep failed calibration attempts as separate unscored runs. Never reuse their
+context or silently raise a hard limit after observing the result.
+
+## Fresh-session preflight
+
+Before the next audit:
+
+1. Confirm the target path, mode (`general` or `feature`), immutable commit, and
+   clean read-only status.
+2. Start the local observer and verify its SQLite and SSE endpoints before
+   launching roles.
+3. Confirm the provider launcher, JSONL usage event, output schema, read-only
+   sandbox, and allowed read-command shapes with a cheap preflight.
+4. Declare efficiency targets separately from calibrated validity ceilings.
+   Targets express desired cost; hard ceilings must be chosen from a prior
+   bounded measurement for that host/model/task class and stay fixed for the
+   run.
+5. Append each role's `investigation.started` event before launch. Stream
+   observable tool/file/search events into SQLite as the JSONL arrives, then
+   verify in the UI that active-role counts, phase, and token source are current.
+6. After completion, confirm every stored optional token dimension came from
+   telemetry. Missing subfields remain unavailable, never zero.
 
 ## Authority boundary
 

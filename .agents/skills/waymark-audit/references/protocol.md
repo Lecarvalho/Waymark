@@ -68,6 +68,18 @@ expose live cumulative usage when a hard limit is reached. Providers that only
 report usage at turn completion must append `budget.exceeded` and disqualify
 the run when the final value crosses the limit. A single-turn reporting
 limitation must never be described as preemptive enforcement.
+The target is the efficiency objective; the hard limit is a separately
+calibrated validity ceiling. Establish the ceiling before the run from a prior
+bounded measurement for the same host/model/task class. Do not raise it after
+seeing the current result. Preserve any over-budget attempt as a distinct,
+failed, unscored run.
+
+Use a preflight to confirm the exact provider launcher and read-command policy.
+On Windows/Node 24, spawning a `.cmd` file directly can fail with `EINVAL`;
+launch the provider's JavaScript entry point with `process.execPath`, or use a
+known-compatible shell invocation. Narrow file-name discovery and selected-file
+searches are more reliable than pipelines or repository-wide matching-line
+searches under strict execution policies.
 
 ## Journal evidence
 
@@ -130,6 +142,10 @@ Only role-process usage belongs in these records. The controlling session's
 development, debugging, browser checks, and report discussion are out of scope.
 Currency cost is unavailable unless the run records a versioned provider
 pricing snapshot; never infer current prices after the fact.
+Within an otherwise valid token record, omit optional dimensions the host did
+not report. Persist them as unavailable/null, not zero. In particular, do not
+invent cache-creation tokens when Codex reports only input, cached-input, and
+output usage.
 
 ## Build and persist the score
 

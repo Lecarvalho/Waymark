@@ -90,6 +90,10 @@ test("CLI persists deterministic scoring with reserved authority", () => {
 
   const reopened = new AuditStore({ databasePath });
   const report = reopened.readReport(run.id);
+  assert.equal(report.tokens[0].inputTokens, null);
+  assert.equal(report.tokens[0].outputTokens, null);
+  assert.equal(report.tokens[0].cachedInputTokens, null);
+  assert.equal(report.tokens[0].cacheCreationTokens, null);
   const scoreEvent = report.events.find(
     (event) => event.type === "score.completed",
   );

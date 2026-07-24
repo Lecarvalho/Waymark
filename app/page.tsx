@@ -6,7 +6,7 @@ import { useWaymarkLive } from "./use-waymark-live";
 type Phase = {
   label: string;
   detail: string;
-  status: "complete" | "active" | "queued";
+  status: "complete" | "active" | "queued" | "failed" | "interrupted";
 };
 
 const phases: Phase[] = [
@@ -36,6 +36,22 @@ const phases: Phase[] = [
     status: "queued",
   },
 ];
+
+function participantPhaseStatus(status: string | undefined): Phase["status"] {
+  if (status === "Active") return "active";
+  if (status === "Complete") return "complete";
+  if (status === "Failed") return "failed";
+  if (status === "Interrupted") return "interrupted";
+  return "queued";
+}
+
+const activePhaseByRole: Record<string, string> = {
+  candidate: "Candidate run",
+  independent: "Blind research",
+  orchestrator: "Cross-examination",
+  verifier: "Verification",
+  reporter: "Scoring",
+};
 
 const practicePairs = [
   {
@@ -218,6 +234,8 @@ export default function Home() {
   const repositoryCommit = snapshot?.repository.commit ?? "—";
   const auditTask = snapshot?.task ?? "";
   const auditPhase = snapshot?.phase ?? "";
+  const auditStatusLabel =
+    snapshot?.status === "failed" ? "Failed" : auditPhase;
   const auditProgress = snapshot?.progress ?? 0;
   const navigability = snapshot?.metrics.navigability ?? null;
   const reliability = snapshot?.metrics.reliability ?? null;
@@ -228,15 +246,35 @@ export default function Home() {
   const claimsChallenged = snapshot?.metrics.claimsChallenged ?? 0;
   const openChallenges = snapshot?.metrics.openChallenges ?? 0;
   const displayedEvent = snapshot?.latestEvent ?? "";
-  const activePhaseIndex = snapshot
-    ? Math.max(
-        0,
-        phases.findIndex(
-          (phase) =>
-            phase.label.toLowerCase() === snapshot.phase.toLowerCase(),
-        ),
-      )
-    : 0;
+  const phaseParticipantRoles = [
+    "candidate",
+    "independent",
+    "orchestrator",
+    "verifier",
+  ] as const;
+  const displayedPhases = phases.map((phase, index) => {
+    if (!snapshot) return phase;
+    if (snapshot.status === "completed") {
+      return { ...phase, status: "complete" as const };
+    }
+    if (index === phases.length - 1) {
+      return {
+        ...phase,
+        status:
+          snapshot.status === "running" &&
+          snapshot.phase.toLowerCase() === "scoring"
+            ? ("active" as const)
+            : ("queued" as const),
+      };
+    }
+    const participant = snapshot.participants.find(
+      ({ role }) => role === phaseParticipantRoles[index],
+    );
+    return {
+      ...phase,
+      status: participantPhaseStatus(participant?.status),
+    };
+  });
   const displayedAgents = snapshot
     ? snapshot.participants
         .filter((participant) =>
@@ -251,7 +289,12 @@ export default function Home() {
             .join(" "),
           model: participant.model,
           status: participant.status,
-          accent: ["blue", "lime", "amber"][index] ?? "blue",
+          accent:
+            participant.status === "Failed"
+              ? "red"
+              : participant.status === "Interrupted"
+                ? "amber"
+                : (["blue", "lime", "amber"][index] ?? "blue"),
           tokens:
             participant.tokens === null
               ? "Unavailable"
@@ -266,7 +309,11 @@ export default function Home() {
                   : participant.tokenSource === "mixed"
                     ? "mixed sources"
                     : "usage unavailable"
-          } · ${snapshot.phase}`,
+          } · ${
+            participant.status === "Active"
+              ? (activePhaseByRole[participant.role] ?? snapshot.phase)
+              : participant.status
+          }`,
         }))
     : [];
   const displayedEvidence = snapshot?.evidence ?? [];
@@ -296,8 +343,10 @@ export default function Home() {
   const verifiedAccuracy = snapshot?.metrics.verifiedAccuracy ?? 0;
   const confidenceGap = candidateConfidence - verifiedAccuracy;
   const hasResolvedEvidence = displayedEvidence.some(
-    (row) => row.status === "Verified" || row.status === "Contradicted",
+    (row) =>
+      row.status.startsWith("Verified") || row.status === "Contradicted",
   );
+  const scoreDimensions = snapshot?.scoreBreakdown?.dimensions ?? [];
   const scoredHistory = history.filter(
     (run) => run.metrics.navigability !== null,
   );
@@ -430,7 +479,7 @@ export default function Home() {
                 <div className="audit-context">
                   <span>Live audit</span>
                   <span aria-hidden="true">/</span>
-                  <strong>{auditPhase}</strong>
+                  <strong>{auditStatusLabel}</strong>
                 </div>
                 <h1>How hard is this change to understand?</h1>
                 <p>
@@ -466,7 +515,9 @@ export default function Home() {
                 <small>
                   {snapshot.status === "completed"
                     ? "Audit complete"
-                    : `${auditPhase} in progress`}
+                    : snapshot.status === "failed"
+                      ? "Audit failed"
+                      : `${auditPhase} in progress`}
                 </small>
               </div>
             </section>
@@ -576,25 +627,27 @@ export default function Home() {
                     <h2>Audit progress</h2>
                   </div>
                   <span className="running-badge">
-                    {snapshot.status === "running" ? "Live updates" : "Saved"}
+                    {snapshot.status === "running"
+                      ? "Live updates"
+                      : snapshot.status === "failed"
+                        ? "Failed"
+                        : "Saved"}
                   </span>
                 </div>
 
                 <ol className="phase-list">
-                  {phases.map((phase, index) => {
-                    const phaseStatus =
-                      snapshot.status === "completed"
-                        ? "complete"
-                        : index < activePhaseIndex
-                        ? "complete"
-                        : index === activePhaseIndex
-                          ? "active"
-                          : "queued";
-
+                  {displayedPhases.map((phase, index) => {
+                    const phaseStatus = phase.status;
                     return (
                     <li className={`phase ${phaseStatus}`} key={phase.label}>
                       <div className="phase-index">
-                        {phaseStatus === "complete" ? "✓" : index + 1}
+                        {phaseStatus === "complete"
+                          ? "✓"
+                          : phaseStatus === "failed"
+                            ? "!"
+                            : phaseStatus === "interrupted"
+                              ? "×"
+                            : index + 1}
                       </div>
                       <div className="phase-copy">
                         <strong>{phase.label}</strong>
@@ -838,7 +891,18 @@ export default function Home() {
                   ) : (
                     displayedEvidence.map((row) => (
                       <div className="evidence-row" role="row" key={row.claim}>
-                        <strong role="cell">{row.claim}</strong>
+                        <div className="evidence-claim" role="cell">
+                          <strong>{row.claim}</strong>
+                          {row.challenge ? (
+                            <small>
+                              {row.challenge.status === "resolved"
+                                ? (row.challenge.resolution ??
+                                  "Challenge resolved.")
+                                : (row.challenge.issue ??
+                                  "Challenge remains open.")}
+                            </small>
+                          ) : null}
+                        </div>
                         <code role="cell">{row.source}</code>
                         <span
                           className={`evidence-status ${row.tone}`}
@@ -891,6 +955,41 @@ export default function Home() {
                       : "No claim has a deterministic verdict yet, so calibration cannot be measured."}
                   </p>
                 </div>
+
+                {scoreDimensions.length > 0 ? (
+                  <div className="score-breakdown">
+                    <div className="score-breakdown-heading">
+                      <div>
+                        <span className="section-kicker">Score basis</span>
+                        <h3>Why {navigability}/100</h3>
+                      </div>
+                      <span>
+                        {snapshot.scoreBreakdown.adequacyPassed
+                          ? "Adequacy passed"
+                          : "Adequacy not met"}
+                      </span>
+                    </div>
+                    <div className="score-dimension-list">
+                      {scoreDimensions.map((dimension) => (
+                        <div className="score-dimension" key={dimension.key}>
+                          <span>{dimension.label}</span>
+                          <div aria-hidden="true">
+                            <i style={{ width: `${dimension.score}%` }} />
+                          </div>
+                          <strong>{dimension.score}</strong>
+                          <small>
+                            {Math.round(dimension.weight * 100)}% weight
+                          </small>
+                        </div>
+                      ))}
+                    </div>
+                    <p>
+                      Navigability scores path-finding quality. The separate
+                      candidate token-efficiency score is{" "}
+                      {candidateBudget?.efficiencyScore ?? "unavailable"}/100.
+                    </p>
+                  </div>
+                ) : null}
               </article>
               </section>
             )}
