@@ -59,6 +59,24 @@ npm run waymark -- help
 Mutation commands accept JSON with `--input-json`, standard input, or
 `--input-file`. Every command emits one JSON line suitable for automation.
 
+After creating an active run with candidate and orchestrator participants
+(and, normally, an independent participant), launch the isolated investigation:
+
+```bash
+npm run waymark -- investigation run --run <run-id>
+```
+
+The Codex adapter starts each audited role in a separate ephemeral
+assignment-only process with a read-only sandbox. Candidate and independent
+roles run in parallel. JSONL tool events and host-measured token usage are
+written to the journal as they arrive. A live hard-limit overrun interrupts the
+role; Codex completion-only usage is checked immediately afterward and an
+overrun fails the run as calibration-ineligible.
+
+On Windows, Waymark resolves the installed Codex JavaScript entry point instead
+of spawning a `.cmd` launcher. Set `WAYMARK_CODEX_ENTRY` or pass
+`--codex-entry <path>` if it is installed in a nonstandard location.
+
 ## Reliability model
 
 The candidate never assigns the final score. Waymark derives authority from:

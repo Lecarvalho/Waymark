@@ -3,6 +3,8 @@
 import { readFileSync } from "node:fs";
 import process from "node:process";
 
+import { createCodexProcessAdapter } from "../src/orchestration/codex-adapter.mjs";
+import { runInvestigationPhase } from "../src/orchestration/process-runner.mjs";
 import { AuditStore } from "../src/persistence/index.mjs";
 import {
   buildScoreInput,
@@ -15,6 +17,8 @@ const COMMANDS = {
   "run list": "List recent audit runs",
   "run read": "Read run metadata",
   "run finish": "Append a terminal event and finish a run",
+  "investigation run":
+    "Run fresh candidate and independent provider processes",
   "event append": "Append an ordered audit event",
   "event read": "Read ordered events",
   "claim submit": "Submit an evidence claim",
@@ -287,7 +291,7 @@ function calculateScore(store, options) {
   return { result, inputHash, completion };
 }
 
-function execute(store, positionals, options) {
+async function execute(store, positionals, options) {
   const command = positionals.slice(0, 2).join(" ");
   switch (command) {
     case "run create":
@@ -308,6 +312,24 @@ function execute(store, positionals, options) {
       return {
         command,
         data: store.finishRun(required(options, "run"), finishInput(options)),
+      };
+    case "investigation run":
+      return {
+        command,
+        data: await runInvestigationPhase({
+          store,
+          runId: required(options, "run"),
+          adapters: [
+            createCodexProcessAdapter({
+              ...(options["codex-entry"]
+                ? { entryPath: String(options["codex-entry"]) }
+                : {}),
+              ...(options["output-schema"]
+                ? { outputSchemaPath: String(options["output-schema"]) }
+                : {}),
+            }),
+          ],
+        }),
       };
     case "event append":
       return { command, data: store.appendEvent(appendEventInput(options)) };
@@ -394,7 +416,7 @@ if (
     store = new AuditStore({
       databasePath: parsed.options.db ?? undefined,
     });
-    const result = execute(store, parsed.positionals, parsed.options);
+    const result = await execute(store, parsed.positionals, parsed.options);
     process.stdout.write(
       `${JSON.stringify({ ok: true, command: result.command, data: result.data })}\n`,
     );

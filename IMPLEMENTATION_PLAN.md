@@ -117,7 +117,8 @@ Scoring formulas and thresholds are versioned and independent from report prose.
 - [x] Automated end-to-end vertical-slice test
 - [x] Run and calibrate the first real repository audit from a paired agent
 - [ ] Replace inherited interactive subagents with fresh provider processes and
-  mechanically enforced execution budgets
+  mechanically enforced execution budgets (implemented and locally validated;
+  real provider smoke test pending)
 
 ### Deliverables
 
@@ -209,6 +210,30 @@ tests/                       Contract, persistence, scoring, and smoke tests
 6. Connect the React interface to the live read model.
 7. Exercise one complete Codex-driven audit.
 8. Calibrate before adding more providers or presentation features.
+
+## Completion Gate for Every Milestone
+
+Apply this gate independently to Milestones 1 through 5. A milestone is not
+complete until every step passes:
+
+1. Inventory the existing implementation paths, scripts, adapters, templates,
+   tests, and documentation that overlap the milestone.
+2. Identify code or instructions superseded by the new implementation. Remove
+   or consolidate duplicate entry points so one authoritative workflow remains.
+   Preserve helpers only when they serve a distinct, documented purpose.
+3. Add deterministic tests that exercise the milestone without paid model work
+   or external credentials, including its failure and limit behavior.
+4. Run the repository's relevant lint, production build, tests, and diff checks.
+   Resolve regressions before continuing.
+5. Run a real, bounded smoke test through the authoritative user-facing path
+   with fixed model identities, immutable inputs, declared token targets and
+   hard limits, and live persisted evidence.
+6. Confirm that the smoke test used no deprecated or parallel implementation
+   path, stayed within the declared authority boundaries, and produced enough
+   evidence to diagnose failures.
+7. Record the validation result and any known limitation in this plan. Mark the
+   milestone complete only after the real smoke test passes. Keep failed attempts
+   as visible, separate records rather than rewriting or discarding them.
 
 ## Definition of Done for the First Build
 

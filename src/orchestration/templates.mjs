@@ -1,49 +1,39 @@
-import type {
-  AuditAssignment,
-  AuditExecutionPolicy,
-  AuditTokenBudgets,
-  OrchestrationCapabilities,
-  RepositoryTarget,
-} from "./types";
-import type { RunParticipantInput } from "../domain/audit";
-
 export const READ_ONLY_CONSTRAINTS = Object.freeze([
   "Keep the target repository read-only.",
   "Do not install dependencies or generate files in the target.",
   "Cite repository-relative paths with one-based line ranges.",
   "Report unknowns and dead ends explicitly.",
-] as const);
+]);
 
-export const FRESH_EXECUTION_POLICY: AuditExecutionPolicy = Object.freeze({
+export const FRESH_EXECUTION_POLICY = Object.freeze({
   isolation: "fresh_process",
   sessionPersistence: "ephemeral",
   contextPolicy: "assignment_only",
   measurementScope: "role_process_only",
 });
 
-export const DEFAULT_AUDIT_TOKEN_BUDGETS: AuditTokenBudgets =
-  Object.freeze({
-    candidate_navigation: Object.freeze({
-      targetTokens: 12_000,
-      hardLimitTokens: 24_000,
-    }),
-    independent_validation: Object.freeze({
-      targetTokens: 24_000,
-      hardLimitTokens: 48_000,
-    }),
-    orchestration: Object.freeze({
-      targetTokens: 12_000,
-      hardLimitTokens: 24_000,
-    }),
-    deterministic_verification: Object.freeze({
-      targetTokens: 6_000,
-      hardLimitTokens: 12_000,
-    }),
-    report_generation: Object.freeze({
-      targetTokens: 4_000,
-      hardLimitTokens: 8_000,
-    }),
-  });
+export const DEFAULT_AUDIT_TOKEN_BUDGETS = Object.freeze({
+  candidate_navigation: Object.freeze({
+    targetTokens: 12_000,
+    hardLimitTokens: 24_000,
+  }),
+  independent_validation: Object.freeze({
+    targetTokens: 24_000,
+    hardLimitTokens: 48_000,
+  }),
+  orchestration: Object.freeze({
+    targetTokens: 12_000,
+    hardLimitTokens: 24_000,
+  }),
+  deterministic_verification: Object.freeze({
+    targetTokens: 6_000,
+    hardLimitTokens: 12_000,
+  }),
+  report_generation: Object.freeze({
+    targetTokens: 4_000,
+    hardLimitTokens: 8_000,
+  }),
+});
 
 const CANDIDATE_EVIDENCE = Object.freeze([
   "entry points and relevant locations opened",
@@ -51,29 +41,53 @@ const CANDIDATE_EVIDENCE = Object.freeze([
   "required consumers and likely change surface",
   "applicable instructions and verification workflow",
   "atomic claims with confidence and citations",
-] as const);
+]);
 
 const INDEPENDENT_EVIDENCE = Object.freeze([
   "independently located owners and consumers",
   "hidden or conflicting dependencies",
   "citation and instruction challenges",
   "safe deterministic verification candidates",
-] as const);
+]);
 
-export interface AssignmentTemplateInput {
-  runId: string;
-  target: RepositoryTarget;
-  task: string;
-  candidate: RunParticipantInput;
-  capabilities: OrchestrationCapabilities;
-  tokenBudgets?: AuditTokenBudgets;
+export function resolveAuditTokenBudgets(value) {
+  if (value === undefined || value === null) {
+    return DEFAULT_AUDIT_TOKEN_BUDGETS;
+  }
+  if (typeof value !== "object" || Array.isArray(value)) {
+    throw new TypeError("runConditions.tokenBudgets must be an object");
+  }
+
+  const result = {};
+  for (const [phase, fallback] of Object.entries(
+    DEFAULT_AUDIT_TOKEN_BUDGETS,
+  )) {
+    const budget = value[phase] ?? fallback;
+    if (typeof budget !== "object" || budget === null || Array.isArray(budget)) {
+      throw new TypeError(`tokenBudgets.${phase} must be an object`);
+    }
+    const { targetTokens, hardLimitTokens } = budget;
+    if (!Number.isSafeInteger(targetTokens) || targetTokens < 1) {
+      throw new TypeError(
+        `tokenBudgets.${phase}.targetTokens must be a positive integer`,
+      );
+    }
+    if (
+      !Number.isSafeInteger(hardLimitTokens) ||
+      hardLimitTokens < targetTokens
+    ) {
+      throw new TypeError(
+        `tokenBudgets.${phase}.hardLimitTokens must be an integer at least as large as targetTokens`,
+      );
+    }
+    result[phase] = Object.freeze({ targetTokens, hardLimitTokens });
+  }
+  return Object.freeze(result);
 }
 
-export function createInvestigationAssignments(
-  input: AssignmentTemplateInput,
-): readonly AuditAssignment[] {
-  const tokenBudgets = input.tokenBudgets ?? DEFAULT_AUDIT_TOKEN_BUDGETS;
-  const candidate: AuditAssignment = {
+export function createInvestigationAssignments(input) {
+  const tokenBudgets = resolveAuditTokenBudgets(input.tokenBudgets);
+  const candidate = {
     runId: input.runId,
     role: "candidate",
     participant: input.candidate,
@@ -106,7 +120,7 @@ export function createInvestigationAssignments(
   ]);
 }
 
-export function renderAssignmentPrompt(assignment: AuditAssignment): string {
+export function renderAssignmentPrompt(assignment) {
   const constraints = assignment.constraints
     .map((constraint) => `- ${constraint}`)
     .join("\n");

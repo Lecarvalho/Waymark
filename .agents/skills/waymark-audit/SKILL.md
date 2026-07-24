@@ -19,27 +19,20 @@ the default journal is not appropriate.
    format files, generate artifacts, or run commands that write into it. Use only
    safe read-only probes. A future implementation probe requires an explicitly
    disposable worktree outside the target.
-3. Dispatch a candidate and an independent researcher in parallel using fresh,
-   non-resumed provider processes with assignment-only context. Never use
-   subagents forked from the controlling conversation as audited roles. Give
-   both the same target commit and task. Do not reveal one investigation to the
-   other before their initial findings.
-   Before paid work, prove the exact host command shapes with a no-model
-   preflight. On Windows, invoke the Codex JavaScript entry point with the
-   current Node executable instead of spawning a `.cmd` launcher directly.
-   Give each role a small, declared command envelope and only primitives already
-   confirmed compatible with the host policy. Prefer narrow `rg --files`,
-   selected-file `rg -n --max-count`, and explicitly bounded `Get-Content`.
-   A blocked command still consumes navigation budget and must be recorded.
-4. Append concise events for searches, files opened, dead ends, rules found,
-   ownership/dependency answers, consumer discovery, verification workflows,
-   interruptions, and failures. Record each actor's tokens separately with the
-   correct phase and `provider_reported`, `measured`, or `estimated` source.
-   Prefer host-side telemetry such as Codex JSONL `turn.completed.usage` or
-   persisted rollout token counters over asking an agent to report its usage.
-   Emit progress events during investigation rather than buffering the trace
-   until an agent finishes. Count only the audited role process: development,
-   debugging, UI checks, and operator conversation never enter the run.
+3. Run `node bin/waymark.mjs --db <journal> investigation run --run <run-id>`.
+   This is the only supported investigation launcher. It dispatches candidate
+   and independent roles in parallel as fresh, non-resumed provider processes
+   with assignment-only context and a read-only sandbox. Never replace it with
+   subagents forked from the controlling conversation or an ad hoc provider
+   command. Before paid work, prove the installed Codex JavaScript entry point
+   with a no-model preflight; use `--codex-entry <path>` or
+   `WAYMARK_CODEX_ENTRY` when automatic Windows discovery is unavailable.
+4. Confirm that the runner persisted live tool events, completion or failure
+   events, and each actor's host-measured tokens in the correct phase. Missing
+   telemetry remains unavailable. A blocked command still consumes navigation
+   budget. Count only the audited role process: development, debugging, UI
+   checks, and operator conversation never enter the run. Append later
+   cross-examination and verification events through the main Waymark CLI.
 5. Submit the candidate's material findings as claims with exact repository-relative
    citations, confidence, and criticality. The independent researcher challenges
    missing consumers, hidden dependencies, unsupported certainty, and conflicting

@@ -63,6 +63,19 @@ cached-input, and output tokens. Cached input is a subset of input, so processed
 tokens are `input + output`, not `input + cached input + output`. Persist live
 tool events during the turn and the final host-measured usage at completion.
 
+For the built-in Codex adapter, run the isolated candidate and independent
+processes for an existing active run with:
+
+```powershell
+node bin/waymark.mjs --db <journal> investigation run --run <run-id>
+```
+
+Use `--codex-entry <path-to-codex.js>` or `WAYMARK_CODEX_ENTRY` when automatic
+launcher discovery is unavailable. A successful investigation keeps the run
+active for cross-examination and deterministic verification. A provider
+failure, interruption, missing structured result, or hard-limit overrun
+finishes the run as failed or cancelled and calibration-ineligible.
+
 Every run declares the budget object shown above. Interrupt providers that
 expose live cumulative usage when a hard limit is reached. Providers that only
 report usage at turn completion must append `budget.exceeded` and disqualify
@@ -95,8 +108,6 @@ Recommended event types are `investigation.started`, `search.performed`,
 `challenge.raised`, `challenge.resolved`, `probe.executed`,
 `investigation.completed`, and `investigation.failed`. Event actors and types
 beginning with `waymark`, plus `score.*` and `run.finished`, are reserved.
-The optional `scripts/emit-event.mjs` helper emits a validated event input JSON
-from `--run`, `--actor`, `--type`, `--payload-json`, and optional token flags.
 
 Claim criticalities are `critical`, `high`, `medium`, and `low`. Cite
 repository-relative paths and one-based line ranges. Keep assertions atomic.
