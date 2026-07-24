@@ -189,6 +189,64 @@ Scoring formulas and thresholds are versioned and independent from report prose.
   The implementation is ready for the second real-provider calibration but the
   milestone remains open until that run passes the completion gate.
 
+### Milestone 1 completion-gate calibration attempt 2
+
+- Failed calibration run:
+  `clapline-email-outbox-d692d68-20260724-02`.
+- The run used a new SQLite journal with no prior runs. The Clapline target was
+  clean and read-only at immutable commit
+  `d692d68afa2680309e702b12752016b8d943a793` before launch and remained clean at
+  that commit after all role processes completed.
+- Preflight validation passed before paid work: the installed Codex JavaScript
+  entry point was invoked directly on Windows, the read-only local service
+  exposed the intended SQLite path and SSE `ready` event, lint and production
+  build passed, all 28 deterministic tests passed, and `git diff --check` was
+  clean.
+- The authoritative `investigation run` launcher executed fresh,
+  assignment-only candidate and independent processes in parallel, imported
+  seven candidate claims, and then executed a fresh assignment-only
+  orchestrator. No controlling-conversation or inherited subagent context was
+  charged to the run.
+- Host-measured role usage stayed below the predeclared token hard ceilings:
+  candidate `gpt-5.6-terra` low used 166,271 processed tokens against a
+  12,000-token target and 180,000-token ceiling; independent `gpt-5.6-sol` high
+  used 205,874 against a 24,000-token target and 320,000-token ceiling; and
+  orchestrator `gpt-5.6-sol` high used 194,423 against a 12,000-token target and
+  320,000-token ceiling. Total measured role-process usage was 566,568 tokens.
+  Optional cache-creation tokens remained unavailable rather than being
+  recorded as zero.
+- The run is calibration-ineligible because the candidate emitted seven
+  persisted `command_execution` starts against its declared six-command
+  envelope. The independent used 8/8 and the orchestrator used 6/6. The current
+  launcher communicates shell-command limits in the assignment but does not
+  mechanically stop or reject a role when that limit is crossed.
+- Deterministic static inspection recorded verdicts for every claim: five were
+  verified and two remained explicitly unverified. The unverified transaction
+  claim combined observed Npgsql behavior with an architectural preference and
+  assumptions about uninspected writers. The unverified change-surface claim
+  cited message, sender, and template abstractions while asserting a broader
+  schema, dispatcher, retry, monitoring, and integration-test topology that its
+  citations did not establish.
+- `report finalize` correctly rejected the recommendation draft with
+  `RECOMMENDATION_CLAIM_NOT_VERIFIED`; therefore no structured recommendations
+  were finalized and authoritative scoring was not run. The attempt was
+  finished as `failed` with the command-budget violation and finalizer rejection
+  persisted in the append-only journal. No score or reliability value exists
+  for this attempt.
+- Live observer checks saw monotonic authoritative progress at 5% during
+  parallel research, 40% during fresh orchestration, 65% during deterministic
+  verification, and a terminal failed projection at 79%. The failed report
+  showed all three model roles complete with measured usage, five verified of
+  seven claims, zero finalized recommendations, no authoritative score, and the
+  completion-gate failure message. These checks used the dedicated observer on
+  web port 5182 and service port 4319; the separately running default observer
+  was connected to port 4318 and an empty default journal.
+- Milestone 1 remains open. Before another paid calibration, mechanically
+  enforce or post-completion reject shell-command envelopes, and constrain
+  candidate claims/recommendation evidence so proposed navigation changes cite
+  atomic, deterministically verifiable repository facts. Preserve this failed
+  run as a separate historical record.
+
 ### Deliverables
 
 1. Domain types for runs, events, claims, verification, token measurements, and
