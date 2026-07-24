@@ -205,34 +205,37 @@ test("default Codex capabilities expose every locally supported model", () => {
   );
 });
 
-test("prepared audit prompts are deterministic, self-contained, and preparation-only", () => {
+test("prepared audit prompts are deterministic, concise, and preparation-only", () => {
   const first = buildPreparedAuditRequest(preparedInput());
   const second = buildPreparedAuditRequest(preparedInput());
 
   assert.equal(first, second);
   assert.match(first, /Use \$waymark-audit/);
   assert.match(first, /C:\\\\work\\\\target/);
-  assert.match(first, /Reuse the already-running Waymark service/);
+  assert.match(first, /Reuse the existing service/);
   assert.match(
     first,
-    /Pass --db "C:\\\\work\\\\waymark\\\\\.waymark\\\\waymark\.sqlite" to every Waymark CLI command/,
+    /Pass that path with --db to every CLI command/,
   );
-  assert.match(first, /do not create or select another SQLite database/);
-  assert.match(first, /Do not switch ports/);
+  assert.match(first, /Do not start or restart services, switch ports, or create another database/);
   assert.match(
     first,
-    /Concise name: "Add partial refunds with manager approval and idempotency"/,
+    /Name: "Add partial refunds with manager approval and idempotency"/,
   );
   assert.match(first, /candidate-model/);
   assert.match(first, /reasoning=xhigh/);
-  assert.match(first, /candidate_navigation: target=12000; hard_limit=24000/);
-  assert.match(first, /final 20% .* reserved for reporting/i);
-  assert.match(first, /resume the same provider session/i);
-  assert.match(first, /final 20% .* reserved for reporting/i);
-  assert.match(first, /resume the same provider session/i);
-  assert.match(first, /fresh assignment-only role processes/);
-  assert.match(first, /preparing or copying it in Waymark did not create or start a run/);
+  assert.match(first, /candidate_navigation: 12000\/24000/);
+  assert.match(first, /reserve the final 20% for reporting/i);
+  assert.match(first, /fresh-process launcher/);
+  assert.match(first, /Preparing or copying it did not create or start a run/);
   assert.match(first, /immutable repository identity and commit/);
+  assert.match(first, /verificationPolicy="repository_appropriate"/);
+  assert.match(first, /Static inspection is sufficient for fully supported navigation-only claims/);
+  assert.match(first, /Do not automatically install dependencies, restore packages, start services, or enable network access/);
+  assert.match(first, /request narrow authorization and keep setup separate from later sandboxed\/offline execution/);
+  assert.match(first, /call the deterministic scorer even when an adequacy check fails/);
+  assert.doesNotMatch(first, /only if the evidence and calibration gates pass/);
+  assert.ok(first.length < 4_500, `prepared prompt is ${first.length} characters`);
 });
 
 test("prepared general audits require the versioned suite instead of a task", () => {
@@ -242,11 +245,11 @@ test("prepared general audits require the versioned suite instead of a task", ()
 
   const prompt = buildPreparedAuditRequest(input);
   assert.match(prompt, /waymark-general-navigation@1\.0\.0/);
-  assert.match(prompt, /Concise name: "General repository navigation"/);
+  assert.match(prompt, /Name: "General repository navigation"/);
   assert.match(prompt, /Orientation: locate the repository map/);
   assert.match(prompt, /Verification discovery: locate the documented validation command/);
-  assert.match(prompt, /Do not invent a feature request/);
-  assert.doesNotMatch(prompt, /Use this engineering task verbatim/);
+  assert.match(prompt, /do not invent a feature request/);
+  assert.doesNotMatch(prompt, /Probe task:/);
 });
 
 test("prepared system explanations measure finding cost instead of prose depth", () => {
@@ -255,17 +258,15 @@ test("prepared system explanations measure finding cost instead of prose depth",
   input.task = "How are refunds approved?";
 
   const prompt = buildPreparedAuditRequest(input);
-  assert.match(prompt, /Audit mode: system_explanation/);
+  assert.match(prompt, /Mode: system_explanation/);
   assert.match(
     prompt,
-    /Record runConditions\.auditMode as "system_explanation"/,
+    /runConditions\.auditMode="system_explanation"/,
   );
-  assert.match(prompt, /Use this short system question verbatim/);
-  assert.match(prompt, /prose length is not the objective/);
-  assert.match(prompt, /navigation tokens, searches, file hops, dead ends/);
-  assert.match(prompt, /Do not propose or implement a feature change/);
-  assert.match(prompt, /Do not treat missing hypothetical change-surface recall as a failure/);
-  assert.doesNotMatch(prompt, /Use this engineering task verbatim/);
+  assert.match(prompt, /Probe question: "How are refunds approved\?"/);
+  assert.match(prompt, /Measure navigation cost, not prose depth/);
+  assert.match(prompt, /hypothetical change-surface recall/);
+  assert.doesNotMatch(prompt, /Probe task:/);
 });
 
 test("system-explanation mode reaches fresh role assignments", () => {

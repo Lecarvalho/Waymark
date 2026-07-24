@@ -137,6 +137,15 @@ Missing or contradicted critical evidence caps both the navigability score and
 report reliability. Candidate token efficiency is considered only after the
 adequacy gate passes.
 
+Verification is repository-appropriate rather than tied to a language or test
+runner. Static inspection may fully verify navigation-only claims. Executable
+probes run only when they are material and safe; commands that may write use an
+isolated disposable copy, and dependency installation, package restore, service
+startup, or network access requires separate explicit authorization. An
+unavailable probe is recorded as evidence and flows into adequacy, caps, and
+token-efficiency eligibility instead of automatically turning an otherwise
+complete audit into a protocol failure.
+
 ## Project map
 
 ```text

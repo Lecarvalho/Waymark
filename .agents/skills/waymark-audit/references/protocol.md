@@ -29,6 +29,7 @@ node bin/waymark.mjs --db <journal> run create --input-file <run.json>
   "runConditions": {
     "auditMode": "task_specific",
     "parallelResearch": true,
+    "verificationPolicy": "repository_appropriate",
     "candidateReasoningEffort": "low",
     "independentReasoningEffort": "high",
     "orchestratorReasoningEffort": "high",
@@ -158,6 +159,28 @@ system mechanics as the report's primary evidence. For a
 supported answer as the adequacy gate, and primarily measure the tokens and
 navigation work required to find it. Do not reward prose depth or require
 hypothetical change-surface recall.
+
+Choose verification commands from the target repository's documented workflow;
+do not assume a language, package manager, test framework, or service topology.
+Use this order:
+
+1. Static inspection when source, configuration, or a dependency graph fully
+   proves a navigation-only claim.
+2. A sandboxed executable probe when it is material and can run without
+   mutating the target or requiring new authority.
+3. An isolated disposable copy for commands that may generate build or test
+   artifacts, provided required dependencies are already available.
+4. A persisted failed or unavailable probe when execution requires dependency
+   installation, package restore, service startup, network access, secrets, or
+   broader permissions that were not explicitly authorized.
+
+Do not combine network-enabled dependency preparation with repository-code
+execution in one automatically elevated command. If a user explicitly
+authorizes dependency preparation, keep it separate from the later sandboxed,
+offline executable probe. A missing or failed executable probe remains visible
+evidence and may affect adequacy, caps, reliability, and token-efficiency
+eligibility; it does not by itself justify replacing deterministic scoring with
+a failed run.
 
 After recording deterministic verdicts for every recommendation claim, finalize
 the fresh orchestrator draft:

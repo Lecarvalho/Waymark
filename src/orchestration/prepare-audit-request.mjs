@@ -101,66 +101,51 @@ export function validatePreparedAuditRequest(input) {
 
 export function buildPreparedAuditRequest(input) {
   const request = validatePreparedAuditRequest(input);
-  let taskLine;
+  let probeLines;
   if (request.auditMode === "general") {
-    taskLine = [
-          `Use this versioned standardized task suite: ${GENERAL_AUDIT_TASK_SUITE.id}@${GENERAL_AUDIT_TASK_SUITE.version}.`,
-          ...GENERAL_AUDIT_TASK_SUITE.tasks.map(
-            (task, index) => `  ${index + 1}. ${task}`,
-          ),
-          "Treat the suite only as a repository-navigation probe. Do not invent a feature request or broaden the report into general code quality.",
-        ].join("\n");
+    probeLines = [
+      `- Probe suite: ${GENERAL_AUDIT_TASK_SUITE.id}@${GENERAL_AUDIT_TASK_SUITE.version}`,
+      ...GENERAL_AUDIT_TASK_SUITE.tasks.map(
+        (task, index) => `  ${index + 1}. ${task}`,
+      ),
+      "  Treat this only as a navigation probe; do not invent a feature request or assess general code quality.",
+    ];
   } else if (request.auditMode === "system_explanation") {
-    taskLine = [
-      `Use this short system question verbatim as the navigation probe: ${JSON.stringify(
-        request.task,
-      )}`,
-      "Find enough cited repository evidence to answer correctly, then give a concise answer. Explanatory depth or prose length is not the objective.",
-      "Treat candidate navigation tokens, searches, file hops, dead ends, and the effort required to reach the supported answer as the primary measurement.",
-      "Do not propose or implement a feature change. Do not treat missing hypothetical change-surface recall as a failure in this mode.",
-    ].join("\n");
+    probeLines = [
+      `- Probe question: ${JSON.stringify(request.task)}`,
+      "  Find enough cited evidence for a concise answer. Measure navigation cost, not prose depth or hypothetical change-surface recall.",
+    ];
   } else {
-    taskLine = `Use this engineering task verbatim as a navigation probe: ${JSON.stringify(
-      request.task,
-    )}`;
+    probeLines = [`- Probe task: ${JSON.stringify(request.task)}`];
   }
 
   return [
-    "Use $waymark-audit to run an evidence-backed Waymark audit.",
+    "Use $waymark-audit to run this evidence-backed audit from the current Waymark checkout.",
     "",
-    "Authoritative workflow:",
-    "- Run the Waymark CLI and repository-local audit skill from the current Waymark checkout.",
-    `- Reuse the already-running Waymark service at ${request.serviceUrl}. Do not run npm run dev, npm run dev:service, or start another Waymark service.`,
-    `- Call ${request.serviceUrl}/health before creating the run and require its databasePath to equal ${JSON.stringify(request.journalPath)}.`,
-    `- Pass --db ${JSON.stringify(request.journalPath)} to every Waymark CLI command. Create a new run in that journal; do not create or select another SQLite database.`,
-    "- If the existing service is unavailable or reports a different journal, stop and report the mismatch. Do not switch ports, create a replacement database, or restart user-owned processes without explicit authorization.",
-    "- Use the skill's single authoritative launcher and protocol. Do not replace it with ad hoc subagents or inherited conversation context.",
-    "- Keep the target repository read-only during discovery. Use an explicitly disposable worktree outside the target only if a future implementation probe is authorized.",
-    "- Run candidate and independent research in parallel in fresh assignment-only role processes, then cross-examine claims and perform safe deterministic verification.",
-    "- Reserve the final 20% of every hard token limit for a structured partial report. When live usage reaches the wrap-up threshold, stop the full provider process tree and resume the same provider session with a no-tools reporting directive; preserve partial findings and traceability barriers instead of discarding the work.",
-    "- If telemetry jumps past the hard limit or the provider exits over budget before returning structured output, make one reporting-only rescue attempt in the same session. It may not call tools and must finish within 60 seconds.",
-    "- Persist interruptions, failures, unverifiable claims, tool traces, token measurements, and budget overruns. Never let a candidate assign an authoritative score.",
-    "- This copied request authorizes the paired agent to run the audit; preparing or copying it in Waymark did not create or start a run.",
-    "",
-    "Audit request:",
     `- Target repository: ${JSON.stringify(request.targetRepositoryPath)}`,
-    `- Existing Waymark service: ${request.serviceUrl}`,
-    `- Authoritative audit journal: ${JSON.stringify(request.journalPath)}`,
-    `- Audit mode: ${request.auditMode}`,
-    `- Record runConditions.auditMode as ${JSON.stringify(request.auditMode)} so budgets and comparisons stay within this probe type.`,
-    `- Concise name: ${JSON.stringify(request.name)}`,
-    `- ${taskLine}`,
+    `- Waymark service: ${request.serviceUrl}`,
+    `- Journal: ${JSON.stringify(request.journalPath)}`,
+    `- Mode: ${request.auditMode}`,
+    `- Name: ${JSON.stringify(request.name)}`,
+    ...probeLines,
     "- Participants:",
     ...ROLES.map((role) => {
       const participant = request.participants[role];
       return `  - ${role}: provider=${participant.provider}; model=${participant.model}; reasoning=${participant.reasoningEffort}`;
     }),
-    "- Phase token targets and hard limits (the final 20% is reserved for reporting):",
+    "- Token budgets (target/hard limit; reserve the final 20% for reporting):",
     ...Object.entries(request.tokenBudgets).map(
       ([phase, budget]) =>
-        `  - ${phase}: target=${budget.targetTokens}; hard_limit=${budget.hardLimitTokens}`,
+        `  - ${phase}: ${budget.targetTokens}/${budget.hardLimitTokens}`,
     ),
     "",
-    "Before launching paid role work, resolve and record the target's immutable repository identity and commit, confirm the exact local journal observed by the UI, and perform the skill's no-model provider preflight. Finish through deterministic scoring and the stored report only if the evidence and calibration gates pass.",
+    "Required safeguards:",
+    `- Reuse the existing service. Before creating a run, require ${request.serviceUrl}/health to report databasePath=${JSON.stringify(request.journalPath)}. Pass that path with --db to every CLI command. Do not start or restart services, switch ports, or create another database.`,
+    `- Record runConditions.auditMode=${JSON.stringify(request.auditMode)} and verificationPolicy="repository_appropriate". Resolve the immutable repository identity and commit before paid work; keep the target read-only.`,
+    "- Follow the skill's preflight, fresh-process launcher, parallel research, budget/rescue, telemetry, and scoring protocol exactly. Do not substitute inherited subagents or let the candidate score.",
+    "- Discover verification from repository instructions and choose the safest deterministic method that proves each claim. Static inspection is sufficient for fully supported navigation-only claims.",
+    "- Run an executable command only when it is material and safe. Isolate commands that may write outside the target. Do not automatically install dependencies, restore packages, start services, or enable network access. If one is required, request narrow authorization and keep setup separate from later sandboxed/offline execution; if unavailable or declined, record the probe limitation.",
+    "- Finalize the evidence-linked report and call the deterministic scorer even when an adequacy check fails; preserve its caps and token-efficiency eligibility result. Mark the run failed only for a protocol/policy failure or missing required structured evidence.",
+    "- This copied request authorizes the audit. Preparing or copying it did not create or start a run.",
   ].join("\n");
 }

@@ -55,10 +55,17 @@ the default journal is not appropriate.
    Behavior mechanics are validation evidence, not report content. The independent researcher and
    orchestrator may expose missing consumers, hidden dependencies, unsupported
    certainty, and conflicting instructions, but agreement is not proof.
-6. Verify every critical claim deterministically where possible. Prefer static
-   inspection and safe executable probes. Record `verified`, `contradicted`, or
-   `unverified`; never silently drop unresolved claims. Include `citationStatus`
-   and `independentAssessment` in verification evidence as described in the
+6. Verify every critical claim deterministically where possible. Discover the
+   repository's own validation workflow and choose the least-privileged method
+   that proves each claim. Static inspection is sufficient for fully supported
+   navigation-only claims. Run an executable probe only when it is material and
+   safe; isolate commands that may write outside the target. Never
+   automatically install dependencies, restore packages, start services, or
+   enable network access. If required setup or permission is unavailable,
+   record the probe as failed or unavailable with the exact limitation and
+   continue the report. Record `verified`, `contradicted`, or `unverified`;
+   never silently drop unresolved claims. Include `citationStatus` and
+   `independentAssessment` in verification evidence as described in the
    protocol.
 7. Run `node bin/waymark.mjs --db <journal> report finalize --run <run-id>`.
    This deterministically rejects recommendation drafts that cite missing,
@@ -72,12 +79,15 @@ the default journal is not appropriate.
    key. Read the stored report, then optionally run
    `node .agents/skills/waymark-audit/scripts/build-score-input.mjs` to assemble
    a preview of the canonical scorer input. Inspect it for traceability.
-9. Call `score calculate --finish` with the observation-count JSON. The CLI
-   rebuilds canonical scorer input from the persisted report, stores its hash,
-   and completes the run atomically. Only the Waymark deterministic scorer may
-   emit the authoritative score. Read the stored report and summarize evidence,
-   caps, confidence gap, reliability, the declared candidate target, the
-   observed candidate-process token total, and their exact efficiency formula.
+9. Call `score calculate --finish` with the observation-count JSON. An
+   adequacy failure is a scored evidence limitation, not by itself a protocol
+   failure: preserve the scorer's caps and token-efficiency eligibility result
+   instead of preemptively failing the run. The CLI rebuilds canonical scorer
+   input from the persisted report, stores its hash, and completes the run
+   atomically. Only the Waymark deterministic scorer may emit the authoritative
+   score. Read the stored report and summarize evidence, caps, confidence gap,
+   reliability, the declared candidate target, the observed candidate-process
+   token total, and their exact efficiency formula.
 10. If the completed report's recommendations require a corrected evidence
     review, append a post-run evidence review with `report recommend`. Every action must cite
     existing deterministically verified claim IDs and identify exact
