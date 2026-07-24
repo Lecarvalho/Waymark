@@ -9,6 +9,8 @@ export interface PreparedAuditParticipant {
 
 export interface PreparedAuditRequest {
   targetRepositoryPath: string;
+  journalPath: string;
+  serviceUrl: string;
   auditMode: "general" | "task_specific" | "system_explanation";
   task: string;
   participants: Record<

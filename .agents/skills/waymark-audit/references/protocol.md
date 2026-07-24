@@ -97,12 +97,15 @@ hard-limit overrun retains the structured result, continues the benchmark, and
 records a failed resource-envelope outcome.
 
 Every run declares the budget object shown above. Interrupt providers that
-expose live cumulative usage when a hard limit is reached. Providers that only
-report usage at turn completion must append `budget.exceeded`, retain the
-complete result, and continue the audit when the final value crosses the limit.
-The report remains valid evidence and must distinguish task completion from the
-failed resource-envelope outcome. A single-turn reporting limitation must
-never be described as preemptive enforcement.
+expose live cumulative usage when the reporting reserve is reached. Stop the
+full provider process tree and resume the same session once with a no-tools
+structured-report directive. If telemetry jumps directly past the hard limit,
+or the provider exits over budget without output, make that same reporting-only
+rescue attempt. It has a 60-second deadline and any tool call invalidates it.
+Providers that only report usage at turn completion must append
+`budget.exceeded`, retain a complete result, and continue the audit when the
+final value crosses the limit. The report remains valid evidence and must
+distinguish task completion from the failed resource-envelope outcome.
 Shell command budgets are enforced from live command-start events. Command N+1
 terminates the role, appends `policy.violation`, and disqualifies the run. A
 provider-declined command still counts because the attempted command has already
@@ -116,10 +119,13 @@ envelope as exceeded rather than claiming that it stayed within the declared
 reference.
 
 Use a preflight to confirm the exact provider launcher and read-command policy.
-Start or reuse the observer at the web URL visible to the user, connect its
-service to the exact SQLite journal selected for the run, and confirm the
-intended run ID in the UI before launching paid roles. Do not silently use a
-second web or service port when the user's observer is already running.
+Reuse the observer and service already started by the user. Call `/health`,
+treat its `databasePath` as the authoritative journal, and pass that exact path
+with `--db` to every CLI command. Create each audit as a new run in that shared
+journal; never create a new database per audit. Confirm the intended run ID in
+the UI before launching paid roles. If the service is unavailable or its
+journal differs from the prepared request, stop and report the mismatch. Do not
+run the development launcher, switch ports, or restart user-owned processes.
 On Windows/Node 24, spawning a `.cmd` file directly can fail with `EINVAL`;
 launch the provider's JavaScript entry point with `process.execPath`, or use a
 known-compatible shell invocation. Narrow file-name discovery and selected-file

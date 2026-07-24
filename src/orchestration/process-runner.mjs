@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { createInterface } from "node:readline";
 import process from "node:process";
 
@@ -11,6 +11,7 @@ import {
 const MAX_STDERR_CHARACTERS = 8_000;
 const MAX_RESULT_CHARACTERS = 64_000;
 const BUDGET_WRAP_UP_RESERVE_RATIO = 0.2;
+const BUDGET_WRAP_UP_TIMEOUT_MS = 60_000;
 
 export class OrchestrationError extends Error {
   constructor(code, message, details = undefined) {
@@ -52,6 +53,7 @@ function renderBudgetWrapUpPrompt(assignment) {
   return [
     "Budget wrap-up directive.",
     "Stop investigating immediately. Do not call tools, run commands, or read more files.",
+    `Return one concise structured report within ${BUDGET_WRAP_UP_TIMEOUT_MS / 1_000} seconds.`,
     "Return the required structured result now using only evidence already gathered in this session.",
     "Treat the result as partial: state what was found, every unresolved question, and the concrete searches, file hops, ambiguity, or traceability barriers that prevented completion.",
     "Keep repository claims tied to citations already observed. Do not invent citations or attribute budget exhaustion solely to the repository.",
@@ -81,7 +83,13 @@ function processFailure(error) {
 
 function runJsonlProcess(
   launch,
-  { onEvent, onControlReady, signal, killGraceMs = 1_000 },
+  {
+    onEvent,
+    onControlReady,
+    signal,
+    killGraceMs = 1_000,
+    timeoutMs,
+  },
 ) {
   return new Promise((resolve, reject) => {
     let settled = false;
@@ -89,6 +97,7 @@ function runJsonlProcess(
     let stderr = "";
     let terminationReason = null;
     let forcedKillTimer;
+    let timeoutTimer;
 
     const child = spawn(launch.command, launch.arguments, {
       cwd: launch.cwd,
@@ -101,7 +110,16 @@ function runJsonlProcess(
     const terminate = (reason) => {
       if (child.exitCode !== null || child.signalCode !== null) return;
       terminationReason = reason;
-      child.kill();
+      if (process.platform === "win32" && Number.isSafeInteger(child.pid)) {
+        const result = spawnSync(
+          "taskkill",
+          ["/PID", String(child.pid), "/T", "/F"],
+          { stdio: "ignore", windowsHide: true },
+        );
+        if (result.status !== 0) child.kill();
+        return;
+      }
+      child.kill("SIGTERM");
       forcedKillTimer = setTimeout(() => {
         if (child.exitCode === null && child.signalCode === null) {
           child.kill("SIGKILL");
@@ -110,6 +128,13 @@ function runJsonlProcess(
       forcedKillTimer.unref?.();
     };
     onControlReady?.({ terminate });
+    if (Number.isSafeInteger(timeoutMs) && timeoutMs > 0) {
+      timeoutTimer = setTimeout(
+        () => terminate("report_timeout"),
+        timeoutMs,
+      );
+      timeoutTimer.unref?.();
+    }
 
     const abort = () => terminate("aborted");
     if (signal?.aborted) abort();
@@ -120,6 +145,7 @@ function runJsonlProcess(
       settled = true;
       signal?.removeEventListener("abort", abort);
       clearTimeout(forcedKillTimer);
+      clearTimeout(timeoutTimer);
       reject(error);
     });
 
@@ -153,6 +179,7 @@ function runJsonlProcess(
       settled = true;
       signal?.removeEventListener("abort", abort);
       clearTimeout(forcedKillTimer);
+      clearTimeout(timeoutTimer);
       resolve({
         exitCode,
         exitSignal,
@@ -288,6 +315,8 @@ async function executeAssignment({
   let allowBudgetWrapUp = false;
   let wrapUpRequested = false;
   let wrapUpCompleted = false;
+  let reportingOnly = false;
+  let reportToolViolation = false;
   let invalidLineCount = 0;
   let processResult;
   const wrapUpAtTokens = wrapUpTriggerTokens(tokenBudget);
@@ -321,24 +350,18 @@ async function executeAssignment({
     }
   };
   const enforceTokenBudget = (totalTokens) => {
-    if (totalTokens > tokenBudget.hardLimitTokens) {
-      budgetExceeded = true;
-      if (
-        finalOutput === undefined ||
-        adapter.usageEnforcement === "live"
-      ) {
-        processControl?.terminate("hard_token_limit");
-      }
-      return;
-    }
-    if (
+    if (reportingOnly) return;
+    const canRequestWrapUp =
       allowBudgetWrapUp &&
       totalTokens >= wrapUpAtTokens &&
       finalOutput === undefined &&
       providerSessionId !== null &&
       typeof adapter.createResumeLaunchSpec === "function" &&
-      !wrapUpRequested
-    ) {
+      !wrapUpRequested;
+    if (canRequestWrapUp) {
+      if (totalTokens > tokenBudget.hardLimitTokens) {
+        budgetExceeded = true;
+      }
       wrapUpRequested = true;
       store.appendEvent({
         runId: assignment.runId,
@@ -350,11 +373,27 @@ async function executeAssignment({
           wrapUpTriggerTokens: wrapUpAtTokens,
           hardLimitTokens: tokenBudget.hardLimitTokens,
           reservedTokens: tokenBudget.hardLimitTokens - wrapUpAtTokens,
+          reportTimeoutMs: BUDGET_WRAP_UP_TIMEOUT_MS,
           providerSessionId,
+          trigger:
+            totalTokens > tokenBudget.hardLimitTokens
+              ? "telemetry_overshot_hard_limit"
+              : "reporting_reserve_reached",
           message: `${role}: exploration stopped; reserved budget is being used for a partial report`,
         },
       });
       processControl?.terminate("budget_wrap_up");
+      return;
+    }
+    if (totalTokens > tokenBudget.hardLimitTokens) {
+      budgetExceeded = true;
+      if (
+        finalOutput === undefined ||
+        adapter.usageEnforcement === "live"
+      ) {
+        processControl?.terminate("hard_token_limit");
+      }
+      return;
     }
   };
   const recordLiveUsage = (usage) => {
@@ -438,10 +477,16 @@ async function executeAssignment({
           });
         }
       }
+      if (
+        normalized.type === "provider.tool.started" &&
+        normalized.payload?.toolType === "command_execution"
+      ) {
+        reportToolViolation = true;
+      }
     }
 
-    return budgetExceeded
-      ? { terminate: true, reason: "hard_token_limit" }
+    return reportToolViolation
+      ? { terminate: true, reason: "report_tool_violation" }
       : undefined;
   };
 
@@ -532,14 +577,14 @@ async function executeAssignment({
         if (shellCommandBudgetExceeded) {
           return { terminate: true, reason: "shell_command_budget" };
         }
+        if (wrapUpRequested && allowBudgetWrapUp) {
+          return { terminate: true, reason: "budget_wrap_up" };
+        }
         if (
           budgetExceeded &&
           (finalOutput === undefined || adapter.usageEnforcement === "live")
         ) {
           return { terminate: true, reason: "hard_token_limit" };
-        }
-        if (wrapUpRequested && allowBudgetWrapUp) {
-          return { terminate: true, reason: "budget_wrap_up" };
         }
         return undefined;
       },
@@ -548,13 +593,71 @@ async function executeAssignment({
     processControl = null;
     stopLiveUsageMonitor();
 
+    if (wrapUpRequested && finalOutput !== undefined) {
+      wrapUpCompleted = true;
+      store.appendEvent({
+        runId: assignment.runId,
+        actor: role,
+        type: "budget.wrap_up_completed",
+        payload: {
+          phase,
+          hardLimitTokens: tokenBudget.hardLimitTokens,
+          observedTokens: latestUsage?.totalTokens ?? null,
+          providerSessionId,
+          resultRetained: true,
+          reportingOnly: false,
+          reportTimeoutMs: BUDGET_WRAP_UP_TIMEOUT_MS,
+          reportToolViolation: false,
+          terminationReason: processResult.terminationReason,
+          summary:
+            typeof finalOutput?.summary === "string"
+              ? finalOutput.summary
+              : null,
+          deadEnds: Array.isArray(finalOutput?.deadEnds)
+            ? finalOutput.deadEnds.filter(
+                (item) => typeof item === "string",
+              )
+            : [],
+          message: `${role}: structured result arrived while exploration was stopping`,
+        },
+      });
+    }
+
     if (
-      processResult.terminationReason === "budget_wrap_up" &&
+      !wrapUpRequested &&
+      budgetExceeded &&
+      finalOutput === undefined &&
+      providerSessionId !== null &&
+      typeof adapter.createResumeLaunchSpec === "function"
+    ) {
+      wrapUpRequested = true;
+      store.appendEvent({
+        runId: assignment.runId,
+        actor: role,
+        type: "budget.wrap_up_requested",
+        payload: {
+          phase,
+          observedTokens: latestUsage?.totalTokens ?? null,
+          wrapUpTriggerTokens: wrapUpAtTokens,
+          hardLimitTokens: tokenBudget.hardLimitTokens,
+          reservedTokens: tokenBudget.hardLimitTokens - wrapUpAtTokens,
+          reportTimeoutMs: BUDGET_WRAP_UP_TIMEOUT_MS,
+          providerSessionId,
+          trigger: "provider_exit_after_budget_overrun",
+          message: `${role}: provider exited without a result; attempting a no-tools partial report`,
+        },
+      });
+    }
+
+    if (
+      wrapUpRequested &&
+      finalOutput === undefined &&
       providerSessionId !== null &&
       typeof adapter.createResumeLaunchSpec === "function"
     ) {
       finalOutput = undefined;
       allowBudgetWrapUp = false;
+      reportingOnly = true;
       if (typeof adapter.startUsageMonitor === "function") {
         try {
           stopUsageMonitor = adapter.startUsageMonitor({
@@ -586,12 +689,15 @@ async function executeAssignment({
             processControl = control;
           },
           onEvent: handleWrapUpEvent,
+          timeoutMs: BUDGET_WRAP_UP_TIMEOUT_MS,
         },
       );
       invalidLineCount += processResult.invalidLineCount;
       processControl = null;
       wrapUpCompleted =
-        processResult.exitCode === 0 && finalOutput !== undefined;
+        processResult.exitCode === 0 &&
+        finalOutput !== undefined &&
+        !reportToolViolation;
       store.appendEvent({
         runId: assignment.runId,
         actor: role,
@@ -604,6 +710,10 @@ async function executeAssignment({
           observedTokens: latestUsage?.totalTokens ?? null,
           providerSessionId,
           resultRetained: wrapUpCompleted,
+          reportingOnly: true,
+          reportTimeoutMs: BUDGET_WRAP_UP_TIMEOUT_MS,
+          reportToolViolation,
+          terminationReason: processResult.terminationReason,
           summary:
             wrapUpCompleted && typeof finalOutput?.summary === "string"
               ? finalOutput.summary
@@ -747,6 +857,25 @@ async function executeAssignment({
       });
       return { role, status: "budget_exceeded", failure: overrun };
     }
+  }
+
+  if (wrapUpRequested && !wrapUpCompleted) {
+    recordCompletionOnlyOverrun(false, false);
+    const failure = {
+      reason: reportToolViolation
+        ? "budget_wrap_up_tool_violation"
+        : "budget_wrap_up_failed",
+      phase,
+      reportToolViolation,
+      terminationReason: processResult.terminationReason,
+    };
+    store.appendEvent({
+      runId: assignment.runId,
+      actor: role,
+      type: `${lifecycle}.failed`,
+      payload: failure,
+    });
+    return { role, status: "failed", failure };
   }
 
   if (signal?.aborted || processResult.terminationReason === "aborted") {

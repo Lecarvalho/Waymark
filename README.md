@@ -41,12 +41,21 @@ The default URLs are:
 The SQLite database defaults to `.waymark/waymark.sqlite`. Override it with
 `WAYMARK_DB_PATH`.
 
+If a Waymark service is already listening on the configured port and reports
+the same database through `/health`, `npm run dev` reuses it instead of starting
+another service. If the journal differs, startup stops with an explicit error;
+it never creates a replacement database silently.
+
 ## Prepare an audit request
 
 Use the secondary **Prepare audit request** action in the observer interface to
 assemble a self-contained prompt for the paired coding-agent session. Provider,
 model, and reasoning choices come from the read-only local adapter capability
 endpoint. The form can also declare phase token targets and hard limits.
+
+The generated request records the running service URL and its exact SQLite path.
+The paired agent must append a new run to that journal and must not start a
+second service or create a database for the audit.
 
 Opening, editing, or copying a prepared request does not create a run, invoke a
 model, or write to SQLite. Only the explicit **Copy audit request** action writes
@@ -80,9 +89,11 @@ npm run waymark -- investigation run --run <run-id>
 The Codex adapter starts each audited role in a separate ephemeral
 assignment-only process with a read-only sandbox. Candidate and independent
 roles run in parallel. JSONL tool events and host-measured token usage are
-written to the journal as they arrive. A live hard-limit overrun interrupts the
-role; Codex completion-only usage is checked immediately afterward and an
-overrun fails the run as calibration-ineligible.
+written to the journal as they arrive. Reaching the reporting reserve interrupts
+the full provider process tree. Waymark then resumes that same session once,
+without tools and with a 60-second deadline, to retain a structured partial
+report. This rescue also runs when telemetry jumps past the ceiling or an
+over-budget provider exits before returning output.
 
 On Windows, Waymark resolves the installed Codex JavaScript entry point instead
 of spawning a `.cmd` launcher. Set `WAYMARK_CODEX_ENTRY` or pass

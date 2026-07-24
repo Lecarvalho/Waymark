@@ -18,7 +18,12 @@ function emit(value) {
 
 emit({ type: "thread.started", thread_id: `fresh-${role}` });
 emit({ type: "turn.started" });
-const commandCount = mode === "command-over-budget" ? 7 : 1;
+const commandCount =
+  mode === "report-only"
+    ? 0
+    : mode === "command-over-budget"
+      ? 7
+      : 1;
 for (let index = 1; index <= commandCount; index += 1) {
   const item = {
     id: `${role}-command-${index}`,
@@ -41,7 +46,9 @@ for (let index = 1; index <= commandCount; index += 1) {
   });
 }
 
-if (mode === "failure") {
+if (mode === "await-interrupt") {
+  setInterval(() => {}, 10_000);
+} else if (mode === "failure") {
   process.stderr.write("simulated provider failure");
   process.exitCode = 7;
 } else {

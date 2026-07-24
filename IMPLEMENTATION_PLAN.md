@@ -506,15 +506,22 @@ preparation-only request workflow are implemented:
   token telemetry. Interruptions, failures, policy violations, and resource
   overruns remain explicit journal evidence.
 - Resumable providers reserve the final 20% of each hard token limit for
-  reporting. At the wrap-up threshold, Waymark stops exploration and resumes
-  the same provider session with a no-tools partial-report directive. Cited
+  reporting. At the wrap-up threshold, Waymark stops the full provider process
+  tree and resumes the same provider session once with a no-tools partial-report
+  directive and a 60-second deadline. The same rescue runs when telemetry jumps
+  past the hard limit or an over-budget provider exits without output. Cited
   findings, dead ends, unresolved traceability, and budget exhaustion remain
-  usable evidence; the final ceiling still terminates uncontrolled work.
+  usable evidence.
 - The read-only local service exposes installed provider-adapter capabilities,
   model-specific reasoning efforts, supported audit modes, and automatic phase
   targets without adding a mutation route. Each target uses the average
   observed tokens from completed runs for that phase and audit mode, and falls
   back to the rubric default until matching history exists.
+- The service already started by the user is authoritative for both port and
+  SQLite journal. The development launcher probes `/health` and reuses an
+  existing Waymark service by default. Prepared requests embed that service's
+  exact `databasePath`, require `--db` on every CLI command, and stop on a
+  mismatch instead of creating a per-audit database or switching ports.
 - The observer interface provides a secondary, keyboard-accessible “Prepare
   audit request” modal. Repository scope, audit mode, task, participant
   selections, and editable hard limits remain in browser memory. Target-token
@@ -526,13 +533,35 @@ preparation-only request workflow are implemented:
   not in the React presentation. `WAYMARK_CODEX_MODELS_JSON` can replace the
   bundled Codex declaration without changing the interface.
 
-Automated validation on 2026-07-24 passed the production build, lint, and all 45
+Automated validation on 2026-07-24 passed the production build, lint, and all 53
 tests. New contract coverage proves adapter discovery, model-specific reasoning,
 historical token-target derivation, resumable budget wrap-up, retained partial
 evidence, deterministic general, task-specific, and system-explanation prompts,
 mode-specific role assignments and historical averages, hard-limit safety, the
-read-only capability endpoint, and the absence of an audit run after capability
-reads or rejected mutations.
+read-only capability endpoint, shared-service journal reuse and mismatch
+handling, and the absence of an audit run after capability reads or rejected
+mutations.
+
+### Milestone 2 completion-gate attempt 1
+
+- Failed audit: `pokwe-general-navigation-d88ba7a-20260724-01`, stored in the
+  shared `pokwe-general-20260724.sqlite` journal against clean Pokwe commit
+  `d88ba7aa9dac4b0139fd625237ca9dd75d450ba5`.
+- Candidate and independent processes consumed 191,833 and 731,628 measured
+  tokens against 24,000 and 48,000 hard limits. The journal retained 292
+  telemetry and tool events but no `budget.wrap_up_requested`, structured
+  findings, claims, orchestration, verification, or score.
+- The attempt exposed two unhandled safety paths: Windows termination did not
+  guarantee that the full provider process tree stopped, and a coarse telemetry
+  update could jump directly past both the reserve threshold and hard limit
+  without entering reporting recovery.
+- Remediation now kills the Windows process tree, prioritizes reporting recovery
+  even after a telemetry overshoot, and makes one same-session no-tools rescue
+  after an over-budget provider exits without output. The rescue is limited to
+  60 seconds and any tool call invalidates it. Deterministic regressions cover
+  threshold overshoot, post-exit recovery, and reporting-tool rejection.
+- This failed attempt remains unchanged and visible. It does not satisfy the
+  Milestone 2 completion gate.
 
 The milestone is not marked complete yet. Its completion-gate smoke test must
 still copy a prepared request through the real modal, execute that exact request

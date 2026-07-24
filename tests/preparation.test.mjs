@@ -25,6 +25,8 @@ function createFakeCodexEntry(directory) {
 function preparedInput() {
   return {
     targetRepositoryPath: "C:\\work\\target",
+    journalPath: "C:\\work\\waymark\\.waymark\\waymark.sqlite",
+    serviceUrl: "http://127.0.0.1:4318",
     auditMode: "task_specific",
     task: "Add partial refunds with manager approval and idempotency.",
     participants: {
@@ -210,6 +212,13 @@ test("prepared audit prompts are deterministic, self-contained, and preparation-
   assert.equal(first, second);
   assert.match(first, /Use \$waymark-audit/);
   assert.match(first, /C:\\\\work\\\\target/);
+  assert.match(first, /Reuse the already-running Waymark service/);
+  assert.match(
+    first,
+    /Pass --db "C:\\\\work\\\\waymark\\\\\.waymark\\\\waymark\.sqlite" to every Waymark CLI command/,
+  );
+  assert.match(first, /do not create or select another SQLite database/);
+  assert.match(first, /Do not switch ports/);
   assert.match(
     first,
     /Concise name: "Add partial refunds with manager approval and idempotency"/,

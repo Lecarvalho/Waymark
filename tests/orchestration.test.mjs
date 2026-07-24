@@ -90,6 +90,7 @@ function fakeAdapter(
   usageEnforcement = "post_completion",
   usageMonitor = null,
   resumable = false,
+  resumeMode = "report-only",
 ) {
   return {
     id: "fake",
@@ -120,7 +121,7 @@ function fakeAdapter(
               command: process.execPath,
               arguments: [
                 fakeProviderPath,
-                "success",
+                resumeMode,
                 assignment.role,
                 ...(assignment.context?.claims?.[0]?.id
                   ? [assignment.context.claims[0].id]
@@ -394,7 +395,12 @@ test("a resumable provider stops exploration and retains a partial report", asyn
     store,
     runId: run.id,
     adapters: [
-      fakeAdapter({}, "post_completion", startUsageMonitor, true),
+      fakeAdapter(
+        { candidate: "await-interrupt" },
+        "post_completion",
+        startUsageMonitor,
+        true,
+      ),
     ],
     killGraceMs: 100,
   });
@@ -450,6 +456,196 @@ test("a resumable provider stops exploration and retains a partial report", asyn
     ),
     true,
   );
+});
+
+test("a telemetry jump past the hard limit still retains a rescue report", async (t) => {
+  const directory = mkdtempSync(join(tmpdir(), "waymark-budget-overshoot-"));
+  const store = new AuditStore({ databasePath: join(directory, "audit.sqlite") });
+  t.after(() => store.close());
+  const run = createRun(store, {
+    independent: false,
+    candidateHardLimit: 100,
+  });
+  const startUsageMonitor = ({ onUsage }) => {
+    onUsage({
+      cumulative: {
+        inputTokens: 125,
+        cachedInputTokens: 80,
+        outputTokens: 25,
+        totalTokens: 150,
+      },
+      context: {
+        inputTokens: 60,
+        cachedInputTokens: 40,
+        outputTokens: 10,
+        totalTokens: 70,
+      },
+      contextWindowTokens: 258_400,
+      contextPercent: 0.03,
+    });
+    return () => {};
+  };
+
+  const result = await runInvestigationPhase({
+    store,
+    runId: run.id,
+    adapters: [
+      fakeAdapter(
+        { candidate: "await-interrupt" },
+        "post_completion",
+        startUsageMonitor,
+        true,
+      ),
+    ],
+    killGraceMs: 100,
+  });
+
+  assert.equal(result.status, "active");
+  assert.equal(result.results[0].status, "completed_partial_budget");
+  const report = store.readReport(run.id);
+  const requested = report.events.find(
+    ({ actor, type }) =>
+      actor === "candidate" && type === "budget.wrap_up_requested",
+  );
+  assert.equal(requested.payload.trigger, "telemetry_overshot_hard_limit");
+  assert.equal(requested.payload.observedTokens, 150);
+  assert.equal(
+    report.events.some(
+      ({ actor, type, payload }) =>
+        actor === "candidate" &&
+        type === "budget.wrap_up_completed" &&
+        payload.resultRetained === true &&
+        payload.reportingOnly === true,
+    ),
+    true,
+  );
+  assert.equal(
+    report.events.some(
+      ({ actor, type, payload }) =>
+        actor === "candidate" &&
+        type === "budget.exceeded" &&
+        payload.resultRetained === true &&
+        payload.workflowContinued === true,
+    ),
+    true,
+  );
+  assert.equal(report.claims.length > 0, true);
+});
+
+test("a post-exit overrun resumes the provider for a rescue report", async (t) => {
+  const directory = mkdtempSync(join(tmpdir(), "waymark-budget-post-exit-"));
+  const store = new AuditStore({ databasePath: join(directory, "audit.sqlite") });
+  t.after(() => store.close());
+  const run = createRun(store, {
+    independent: false,
+    candidateHardLimit: 100,
+  });
+  const startUsageMonitor = ({ onUsage }) => () => {
+    onUsage({
+      cumulative: {
+        inputTokens: 125,
+        cachedInputTokens: 80,
+        outputTokens: 25,
+        totalTokens: 150,
+      },
+      context: {
+        inputTokens: 60,
+        cachedInputTokens: 40,
+        outputTokens: 10,
+        totalTokens: 70,
+      },
+      contextWindowTokens: 258_400,
+      contextPercent: 0.03,
+    });
+  };
+
+  const result = await runInvestigationPhase({
+    store,
+    runId: run.id,
+    adapters: [
+      fakeAdapter(
+        { candidate: "failure" },
+        "post_completion",
+        startUsageMonitor,
+        true,
+      ),
+    ],
+    killGraceMs: 100,
+  });
+
+  assert.equal(result.status, "active");
+  assert.equal(result.results[0].status, "completed_partial_budget");
+  const report = store.readReport(run.id);
+  assert.equal(
+    report.events.some(
+      ({ actor, type, payload }) =>
+        actor === "candidate" &&
+        type === "budget.wrap_up_completed" &&
+        payload.resultRetained === true,
+    ),
+    true,
+  );
+  assert.equal(
+    report.events.some(
+      ({ actor, type }) =>
+        actor === "candidate" && type === "investigation.failed",
+    ),
+    false,
+  );
+  assert.equal(report.claims.length > 0, true);
+});
+
+test("a rescue report is rejected if the provider calls tools", async (t) => {
+  const directory = mkdtempSync(join(tmpdir(), "waymark-budget-report-tools-"));
+  const store = new AuditStore({ databasePath: join(directory, "audit.sqlite") });
+  t.after(() => store.close());
+  const run = createRun(store, {
+    independent: false,
+    candidateHardLimit: 100,
+  });
+  const startUsageMonitor = ({ onUsage }) => {
+    onUsage({
+      cumulative: {
+        inputTokens: 65,
+        cachedInputTokens: 20,
+        outputTokens: 20,
+        totalTokens: 85,
+      },
+      context: {
+        inputTokens: 50,
+        cachedInputTokens: 15,
+        outputTokens: 10,
+        totalTokens: 60,
+      },
+      contextWindowTokens: 258_400,
+      contextPercent: 0.02,
+    });
+    return () => {};
+  };
+
+  const result = await runInvestigationPhase({
+    store,
+    runId: run.id,
+    adapters: [
+      fakeAdapter(
+        { candidate: "await-interrupt" },
+        "post_completion",
+        startUsageMonitor,
+        true,
+        "success",
+      ),
+    ],
+    killGraceMs: 100,
+  });
+
+  assert.equal(result.status, "failed");
+  const report = store.readReport(run.id);
+  const failedWrapUp = report.events.find(
+    ({ actor, type }) =>
+      actor === "candidate" && type === "budget.wrap_up_failed",
+  );
+  assert.equal(failedWrapUp.payload.reportToolViolation, true);
+  assert.equal(failedWrapUp.payload.resultRetained, false);
 });
 
 test("the runner rejects a role on shell command N+1 and counts declined commands", async (t) => {

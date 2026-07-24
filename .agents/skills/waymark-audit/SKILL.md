@@ -12,7 +12,8 @@ the default journal is not appropriate.
 ## Workflow
 
 1. Resolve the target's immutable repository identity and commit without changing
-   it. Create a run with a concise, human-readable name, the verbatim probe,
+   it. Create a run in the journal reported by the already-running Waymark
+   service, with a concise, human-readable name, the verbatim probe,
    candidate and orchestrator identities, declared tool policy, fresh-process
    execution policy, phase token budgets, run conditions, and protocol/rubric
    versions. Record `auditMode` in `runConditions` as `general`,
@@ -85,16 +86,23 @@ the default journal is not appropriate.
     the report narrative only; it never changes scores, reliability, or token
     records.
 
+When live usage reaches the reporting reserve, stop the full provider process
+tree and resume the same session once with a reporting-only directive. If a
+telemetry update jumps past the hard limit, or the provider exits over budget
+before returning structured output, make the same rescue attempt instead of
+discarding the session. The rescue may not call tools and has a 60-second
+deadline. Persist and continue with a valid partial result; if the rescue fails,
+record that failure explicitly.
+
 If a provider reports a hard-token-limit overrun only after returning a complete
 structured result, append `budget.exceeded`, retain that result, continue the
 workflow, and record that the result exceeded its declared resource reference.
 The overrun is scored navigability evidence, not a reason to discard
-already-paid work or invalidate an otherwise protocol-compliant benchmark. A
-live interruption with no complete result still finishes the run as failed. If
+already-paid work or invalidate an otherwise protocol-compliant benchmark. If
 orchestration otherwise cannot continue, append a failure event and finish the
-run as `failed` or `cancelled`; do not manufacture missing evidence. Keep
-failed attempts as separate runs. Never reuse their context or silently raise a
-hard limit after observing the result.
+run as `failed` or `cancelled`; do not manufacture missing evidence. Keep failed
+attempts as separate runs. Never reuse their context or silently raise a hard
+limit after observing the result.
 
 ## Fresh-session preflight
 
@@ -102,11 +110,14 @@ Before the next audit:
 
 1. Confirm the target path, mode (`general`, `task_specific`, or
    `system_explanation`), immutable commit, and clean read-only status.
-2. Start the local observer on the user-visible web URL and verify that its
-   service reads the exact SQLite journal selected for the run. If an observer
-   is already running, use its configured service port or restart it; do not
-   silently open a second web/service port. Confirm that the UI shows the
-   intended run ID before launching roles, then verify its SSE endpoint.
+2. Reuse the observer and service already started by the user. Call its
+   `/health` endpoint and treat the returned `databasePath` as the authoritative
+   journal. Pass that exact path with `--db` to every CLI command and create a
+   new run inside it; never create a new database for a new audit. Do not run
+   `npm run dev`, `npm run dev:service`, change ports, or restart user-owned
+   processes. If the service is unavailable or its journal differs from the
+   prepared request, stop and report the mismatch. Confirm that the UI shows
+   the intended run ID before launching roles, then verify its SSE endpoint.
 3. Confirm the provider launcher, JSONL usage event, output schema, read-only
    sandbox, and allowed read-command shapes with a cheap preflight.
 4. Declare efficiency targets separately from calibrated validity ceilings.

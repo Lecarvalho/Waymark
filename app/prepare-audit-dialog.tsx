@@ -166,8 +166,12 @@ export function PrepareAuditDialog() {
   const repositoryInput = useRef<HTMLInputElement>(null);
   const [targetRepositoryPath, setTargetRepositoryPath] = useState("");
   const [auditMode, setAuditMode] = useState<AuditMode>("task_specific");
-  const { capabilities, state: capabilityState } =
-    useProviderCapabilities(auditMode);
+  const {
+    capabilities,
+    databasePath,
+    serviceUrl,
+    state: capabilityState,
+  } = useProviderCapabilities(auditMode);
   const [task, setTask] = useState("");
   const [participants, setParticipants] =
     useState<ParticipantSelections>(emptyParticipants);
@@ -224,6 +228,8 @@ export function PrepareAuditDialog() {
     if (errors.length > 0 || resolvedTokenBudgets === null) return "";
     return buildPreparedAuditRequest({
       targetRepositoryPath,
+      journalPath: databasePath ?? "",
+      serviceUrl,
       auditMode,
       task,
       participants: resolvedParticipants as Record<
@@ -235,6 +241,8 @@ export function PrepareAuditDialog() {
   }, [
     errors.length,
     targetRepositoryPath,
+    databasePath,
+    serviceUrl,
     auditMode,
     task,
     resolvedParticipants,
@@ -380,6 +388,12 @@ export function PrepareAuditDialog() {
                     value={targetRepositoryPath}
                   />
                 </label>
+                {databasePath && (
+                  <p className="prepare-mode-note">
+                    This request will reuse the running service at {serviceUrl}
+                    {" "}and append its run to <code>{databasePath}</code>.
+                  </p>
+                )}
                 <label className="prepare-field is-wide">
                   <span>Audit mode</span>
                   <select
