@@ -215,6 +215,81 @@ test("audit journal, evidence, verdicts, and tokens survive reopen", () => {
   assert.equal("scores" in report, false);
   assert.throws(
     () =>
+      store.appendReportRecommendations(run.id, {
+        scope: "feature_implementation",
+        recommendations: [],
+      }),
+    /repository_navigation/,
+  );
+  assert.throws(
+    () =>
+      store.appendReportRecommendations(run.id, {
+        scope: "repository_navigation",
+        recommendations: [
+          {
+            id: "missing-evidence",
+            priority: "P1",
+            title: "Name the owner",
+            problem: "Ownership is unclear.",
+            change: "Create one owning module.",
+            repositoryChanges: ["Add the module index."],
+            claimIds: ["missing-claim"],
+            practiceIds: ["01"],
+            affectedDimensions: ["ownershipClarity"],
+            tokenMechanism: "Agents search fewer neighboring layers.",
+            validationChecks: [
+              "The owner is discoverable by file name.",
+            ],
+          },
+        ],
+      }),
+    (error) =>
+      error instanceof AuditStoreError &&
+      error.code === "RECOMMENDATION_CLAIM_NOT_FOUND",
+  );
+  const recommendationEvent = store.appendReportRecommendations(run.id, {
+    createdAt: "2026-07-23T12:06:00.000Z",
+    scope: "repository_navigation",
+    recommendations: [
+      {
+        id: "recommendation-1",
+        priority: "P1",
+        title: "Expose refund ownership",
+        problem: "The owning path is not obvious from the repository root.",
+        change: "Add a refund feature index beside the owning service.",
+        repositoryChanges: [
+          "Document the entry point, service, repository, and focused tests.",
+        ],
+        claimIds: ["claim-1"],
+        practiceIds: ["01", "03"],
+        affectedDimensions: [
+          "ownershipClarity",
+          "discoveryEfficiency",
+        ],
+        tokenMechanism:
+          "One feature index replaces repeated global ownership searches.",
+        validationChecks: [
+          "A fresh agent finds the owning service from the feature index.",
+        ],
+        limitations: ["No point gain is projected."],
+        effort: null,
+      },
+    ],
+  });
+  assert.equal(recommendationEvent.sequence, 5);
+  assert.equal(recommendationEvent.actor, "waymark:reporter");
+  assert.equal(recommendationEvent.type, "report.recommendations");
+  assert.equal(
+    recommendationEvent.payload.scope,
+    "repository_navigation",
+  );
+  assert.equal(
+    store.readReport(run.id).events.at(-1).payload.recommendations[0]
+      .claimIds[0],
+    "claim-1",
+  );
+  assert.throws(
+    () =>
       store.appendEvent({
         runId: run.id,
         actor: "candidate",

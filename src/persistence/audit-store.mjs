@@ -10,6 +10,7 @@ import {
   validateCreateRun,
   validateFinishRun,
   validateRecordVerification,
+  validateReportRecommendations,
   validateSubmitClaim,
   validateTokenMeasurement,
 } from "../protocol/validation.mjs";
@@ -656,6 +657,70 @@ export class AuditStore {
         });
       }
       return { ...event, sequence, tokenMeasurement: undefined };
+    });
+  }
+
+  appendReportRecommendations(runId, input) {
+    this.#assertOpen();
+    const normalizedRunId = this.#requiredString(runId, "runId");
+    const reportRecommendations = validateReportRecommendations(
+      input,
+      this.#dependencies(),
+    );
+
+    return this.#transaction(() => {
+      const run = this.readRun(normalizedRunId);
+      if (run.status !== "completed") {
+        throw new AuditStoreError(
+          "RUN_NOT_COMPLETED",
+          `Run ${normalizedRunId} is ${run.status}; report recommendations require a completed run`,
+        );
+      }
+
+      const report = this.readReport(normalizedRunId);
+      const claims = new Map(report.claims.map((claim) => [claim.id, claim]));
+      for (const recommendation of reportRecommendations.recommendations) {
+        for (const claimId of recommendation.claimIds) {
+          if (!claims.has(claimId)) {
+            throw new AuditStoreError(
+              "RECOMMENDATION_CLAIM_NOT_FOUND",
+              `Recommendation ${recommendation.id} references unknown claim ${claimId}`,
+            );
+          }
+          const deterministicVerification = report.verifications
+            .filter(
+              (verification) =>
+                verification.claimId === claimId &&
+                ["static_inspection", "executable_probe"].includes(
+                  verification.method,
+                ),
+            )
+            .sort(
+              (left, right) =>
+                (left.sequence ?? 0) - (right.sequence ?? 0),
+            )
+            .at(-1);
+          if (deterministicVerification?.verdict !== "verified") {
+            throw new AuditStoreError(
+              "RECOMMENDATION_CLAIM_NOT_VERIFIED",
+              `Recommendation ${recommendation.id} requires a deterministically verified claim: ${claimId}`,
+            );
+          }
+        }
+      }
+
+      return this.#appendReservedEvent({
+        runId: normalizedRunId,
+        actor: "waymark:reporter",
+        type: "report.recommendations",
+        payload: {
+          schemaVersion: reportRecommendations.schemaVersion,
+          scope: reportRecommendations.scope,
+          method: reportRecommendations.method,
+          recommendations: reportRecommendations.recommendations,
+        },
+        occurredAt: reportRecommendations.createdAt,
+      });
     });
   }
 

@@ -30,6 +30,16 @@ const TOKEN_SOURCES = new Set([
   "measured",
   "estimated",
 ]);
+const RECOMMENDATION_PRIORITIES = new Set(["P0", "P1", "P2", "P3"]);
+const PRACTICE_IDS = new Set(["01", "02", "03", "04", "05", "06", "07"]);
+const SCORE_DIMENSIONS = new Set([
+  "discoveryEfficiency",
+  "ownershipClarity",
+  "dependencyClarity",
+  "changeSurfaceRecall",
+  "verificationDiscoverability",
+  "instructionQuality",
+]);
 
 export class ProtocolValidationError extends Error {
   constructor(message, details = undefined) {
@@ -97,6 +107,16 @@ function id(value, path, createId) {
   return value === undefined || value === null
     ? createId()
     : string(value, path);
+}
+
+function stringArray(value, path, { minimum = 0, maximum = 20 } = {}) {
+  if (!Array.isArray(value)) {
+    fail(path, "must be an array");
+  }
+  if (value.length < minimum || value.length > maximum) {
+    fail(path, `must contain from ${minimum} through ${maximum} items`);
+  }
+  return value.map((item, index) => string(item, `${path}[${index}]`));
 }
 
 export function validateCreateRun(value, { now, createId }) {
@@ -326,6 +346,122 @@ export function validateFinishRun(value, { now }) {
     summary:
       input.summary === undefined ? {} : object(input.summary, "summary"),
     finishedAt: timestamp(input.finishedAt, "finishedAt", now()),
+  };
+}
+
+export function validateReportRecommendations(value, { now, createId }) {
+  const input = object(value, "input");
+  if (input.scope !== "repository_navigation") {
+    fail(
+      "scope",
+      'must be "repository_navigation"; feature implementation advice is outside Waymark scope',
+    );
+  }
+  if (
+    !Array.isArray(input.recommendations) ||
+    input.recommendations.length < 1 ||
+    input.recommendations.length > 20
+  ) {
+    fail("recommendations", "must contain from 1 through 20 items");
+  }
+
+  const recommendationIds = new Set();
+  const recommendations = input.recommendations.map((item, index) => {
+    const path = `recommendations[${index}]`;
+    const recommendation = object(item, path);
+    const recommendationId = id(
+      recommendation.id,
+      `${path}.id`,
+      createId,
+    );
+    if (recommendationIds.has(recommendationId)) {
+      fail(`${path}.id`, "must be unique within the report");
+    }
+    recommendationIds.add(recommendationId);
+
+    const claimIds = stringArray(
+      recommendation.claimIds,
+      `${path}.claimIds`,
+      { minimum: 1, maximum: 20 },
+    );
+    if (new Set(claimIds).size !== claimIds.length) {
+      fail(`${path}.claimIds`, "must not contain duplicates");
+    }
+
+    const practiceIds = stringArray(
+      recommendation.practiceIds,
+      `${path}.practiceIds`,
+      { minimum: 1, maximum: 7 },
+    );
+    for (const [practiceIndex, practiceId] of practiceIds.entries()) {
+      if (!PRACTICE_IDS.has(practiceId)) {
+        fail(
+          `${path}.practiceIds[${practiceIndex}]`,
+          "must be a Practice Guide ID from 01 through 07",
+        );
+      }
+    }
+
+    const affectedDimensions = stringArray(
+      recommendation.affectedDimensions,
+      `${path}.affectedDimensions`,
+      { minimum: 1, maximum: SCORE_DIMENSIONS.size },
+    );
+    for (const [dimensionIndex, dimension] of affectedDimensions.entries()) {
+      if (!SCORE_DIMENSIONS.has(dimension)) {
+        fail(
+          `${path}.affectedDimensions[${dimensionIndex}]`,
+          "must be a scored navigability dimension",
+        );
+      }
+    }
+
+    return {
+      id: recommendationId,
+      priority: enumeration(
+        recommendation.priority,
+        RECOMMENDATION_PRIORITIES,
+        `${path}.priority`,
+      ),
+      title: string(recommendation.title, `${path}.title`),
+      problem: string(recommendation.problem, `${path}.problem`),
+      change: string(recommendation.change, `${path}.change`),
+      repositoryChanges: stringArray(
+        recommendation.repositoryChanges,
+        `${path}.repositoryChanges`,
+        { minimum: 1, maximum: 12 },
+      ),
+      claimIds,
+      practiceIds,
+      affectedDimensions,
+      tokenMechanism: string(
+        recommendation.tokenMechanism,
+        `${path}.tokenMechanism`,
+      ),
+      validationChecks: stringArray(
+        recommendation.validationChecks,
+        `${path}.validationChecks`,
+        { minimum: 1, maximum: 12 },
+      ),
+      limitations:
+        recommendation.limitations === undefined
+          ? []
+          : stringArray(
+              recommendation.limitations,
+              `${path}.limitations`,
+              { maximum: 8 },
+            ),
+      effort:
+        optionalString(recommendation.effort, `${path}.effort`) ?? null,
+    };
+  });
+
+  return {
+    schemaVersion: "waymark-navigation-recommendations/1.0.0",
+    scope: "repository_navigation",
+    method: "post_run_evidence_review",
+    recommendations,
+    createdAt: timestamp(input.createdAt, "createdAt", now()),
   };
 }
 

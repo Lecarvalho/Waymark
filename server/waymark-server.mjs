@@ -116,7 +116,7 @@ function positiveNumberOrNull(value) {
 }
 
 function verifyAuthoritativeScore(event) {
-  if (!event) return {};
+  if (!event) return { input: null, score: {} };
   const input = event.payload?.input;
   const inputHash = event.payload?.inputHash;
   if (
@@ -125,13 +125,13 @@ function verifyAuthoritativeScore(event) {
     typeof inputHash !== "string" ||
     hashScoreInput(input) !== inputHash
   ) {
-    return {};
+    return { input: null, score: {} };
   }
 
   try {
-    return scoreAudit(input);
+    return { input, score: scoreAudit(input) };
   } catch {
-    return {};
+    return { input: null, score: {} };
   }
 }
 
@@ -151,6 +151,158 @@ const SCORE_DIMENSION_LABELS = Object.freeze({
   verificationDiscoverability: "Verification",
   instructionQuality: "Instructions",
 });
+
+const PRACTICE_CATALOG = Object.freeze({
+  "01": "Organize around behavior",
+  "02": "Make dependency direction explicit",
+  "03": "Name files for the concept they own",
+  "04": "Provide one canonical workflow",
+  "05": "Put instructions close to the code",
+  "06": "Make tests mirror behavior",
+  "07": "Separate generated and external code",
+});
+
+const PRACTICE_FINDING_DEFINITIONS = Object.freeze({
+  discoveryEfficiency: {
+    observationKey: "discovery",
+    practiceIds: ["01", "03"],
+    measured: (value) =>
+      `${value.relevantLocationsFound}/${value.relevantLocationsExpected} relevant locations found; ${value.filesOpened} files opened; ${value.deadEnds} dead ${value.deadEnds === 1 ? "end" : "ends"}.`,
+    issue: (value) =>
+      `${Math.max(
+        0,
+        value.relevantLocationsExpected - value.relevantLocationsFound,
+      )} expected locations were missed and ${value.deadEnds} searches ended without useful evidence.`,
+    action:
+      "Use the feature vocabulary in directory and file names, then add a short feature-area index that links the behavior's entry point, owner, consumers, and tests.",
+    tokenMechanism:
+      "Stronger retrieval signals reduce repeated filename searches, broad text scans, and dead-end file reads.",
+  },
+  ownershipClarity: {
+    observationKey: "ownership",
+    practiceIds: ["01", "03"],
+    measured: (value) =>
+      `${value.correctAnswers}/${value.totalAnswers} ownership questions answered; ${value.ambiguousBoundaries} ambiguous ${value.ambiguousBoundaries === 1 ? "boundary" : "boundaries"}.`,
+    issue: (value) =>
+      `${Math.max(
+        0,
+        value.totalAnswers - value.correctAnswers,
+      )} ownership questions could not be answered from the discovered structure.`,
+    action:
+      "Give the behavior one obvious owning module and name its ingress, orchestration, persistence, and cleanup files for the concepts they own.",
+    tokenMechanism:
+      "Clear ownership prevents agents from reopening neighboring layers to decide where a change belongs.",
+  },
+  dependencyClarity: {
+    observationKey: "dependencies",
+    practiceIds: ["02"],
+    measured: (value) =>
+      `${value.requiredEdgesFound}/${value.requiredEdgesExpected} required dependency edges traced; ${value.hiddenEdgesEncountered} hidden ${value.hiddenEdgesEncountered === 1 ? "edge" : "edges"} encountered.`,
+    issue: (value) =>
+      `${Math.max(
+        0,
+        value.requiredEdgesExpected - value.requiredEdgesFound,
+      )} required dependency edges remained undiscovered and ${value.hiddenEdgesEncountered} ${value.hiddenEdgesEncountered === 1 ? "was" : "were"} hidden behind indirect wiring.`,
+    action:
+      "Document and enforce the dependency path from ingress through application ownership to storage, vendor work, charging, cancellation, and cleanup.",
+    tokenMechanism:
+      "Predictable dependency direction reduces follow-up reads needed to reconstruct runtime wiring and side effects.",
+  },
+  changeSurfaceRecall: {
+    observationKey: "changeSurface",
+    practiceIds: ["01", "02"],
+    measured: (value) =>
+      `${value.requiredConsumersFound}/${value.requiredConsumersExpected} required consumers found; ${value.falsePositiveConsumers} false positives.`,
+    issue: (value) =>
+      `${Math.max(
+        0,
+        value.requiredConsumersExpected - value.requiredConsumersFound,
+      )} required consumers were absent from the candidate's change surface.`,
+    action:
+      "Co-locate or cross-link the behavior's consumers and make outward calls explicit at the owning module boundary.",
+    tokenMechanism:
+      "A visible change surface avoids repeated global searches and later rework caused by missed consumers.",
+  },
+  verificationDiscoverability: {
+    observationKey: "verification",
+    practiceIds: ["04", "06"],
+    measured: (value) =>
+      `${value.workflowsFound}/${value.workflowsExpected} verification workflows found; ${value.successfulProbes}/${value.attemptedProbes} probes succeeded.`,
+    issue: (value) =>
+      `${Math.max(
+        0,
+        value.workflowsExpected - value.workflowsFound,
+      )} expected verification workflows were not discoverable from the implementation path.`,
+    action:
+      "Publish one canonical verification command and place or index acceptance tests beside the behavior they verify.",
+    tokenMechanism:
+      "An obvious feedback loop reduces command hunting, speculative reads, and failed verification attempts.",
+  },
+  instructionQuality: {
+    observationKey: "instructions",
+    practiceIds: ["05"],
+    measured: (value) =>
+      `${value.applicableRulesFound}/${value.applicableRulesExpected} applicable rules found; ${value.conflictsEncountered} ${value.conflictsEncountered === 1 ? "conflict" : "conflicts"}.`,
+    issue: (value) =>
+      `${Math.max(
+        0,
+        value.applicableRulesExpected - value.applicableRulesFound,
+      )} applicable ${
+        value.applicableRulesExpected - value.applicableRulesFound === 1
+          ? "rule was"
+          : "rules were"
+      } not found close enough to the audited behavior.`,
+    action:
+      "Put concise module-specific constraints beside the feature while keeping repository-wide commands at the root.",
+    tokenMechanism:
+      "Local instructions reduce exploratory searches and wrong turns caused by distant or implicit constraints.",
+  },
+});
+
+function buildPracticeFindings(score, scoreInput) {
+  const observations = scoreInput?.observations;
+  if (!observations || typeof observations !== "object") return [];
+
+  return Object.entries(PRACTICE_FINDING_DEFINITIONS)
+    .flatMap(([dimensionKey, definition]) => {
+      const dimension = score?.dimensions?.[dimensionKey];
+      const observation = observations[definition.observationKey];
+      if (
+        !dimension ||
+        typeof dimension.score !== "number" ||
+        typeof dimension.weight !== "number" ||
+        !observation ||
+        dimension.score >= 100
+      ) {
+        return [];
+      }
+
+      return [
+        {
+          dimensionKey,
+          dimensionLabel: SCORE_DIMENSION_LABELS[dimensionKey],
+          score: dimension.score,
+          weight: dimension.weight,
+          practices: definition.practiceIds.map((id) => ({
+            id,
+            title: PRACTICE_CATALOG[id],
+          })),
+          measured: definition.measured(observation),
+          issue: definition.issue(observation),
+          action: definition.action,
+          tokenMechanism: definition.tokenMechanism,
+          maximumScoreHeadroom:
+            Math.round((100 - dimension.score) * dimension.weight * 100) / 100,
+          headroomStatus: "maximum_not_projection",
+        },
+      ];
+    })
+    .sort(
+      (left, right) =>
+        right.maximumScoreHeadroom - left.maximumScoreHeadroom ||
+        left.dimensionLabel.localeCompare(right.dimensionLabel),
+    );
+}
 
 function phaseLabel(value) {
   if (typeof value !== "string") return null;
@@ -188,7 +340,8 @@ export function toRunSnapshot(report, runCount) {
       event.type === "score.completed" &&
       event.actor === "waymark:scorer",
   );
-  const score = verifyAuthoritativeScore(authoritativeScoreEvent);
+  const authoritativeScore = verifyAuthoritativeScore(authoritativeScoreEvent);
+  const score = authoritativeScore.score;
   const progressEvent = lastDefinedEvent(
     events,
     (event) =>
@@ -246,6 +399,9 @@ export function toRunSnapshot(report, runCount) {
   for (const verification of report.verifications) {
     latestVerificationByClaim.set(verification.claimId, verification);
   }
+  const claimsById = new Map(
+    report.claims.map((claim) => [claim.id, claim]),
+  );
   const tokensByActor = new Map();
   const tokenMeasurementsByActor = new Map();
   for (const token of report.tokens) {
@@ -320,17 +476,44 @@ export function toRunSnapshot(report, runCount) {
     candidateUsedTokens === null || candidateHardLimitTokens === null
       ? null
       : candidateUsedTokens > candidateHardLimitTokens;
+  const candidateTargetBasis =
+    positiveNumberOrNull(configuredCandidateBudget?.targetTokens) !== null
+      ? "run_declared"
+      : candidateTargetTokens !== null
+        ? "rubric_default"
+        : "unavailable";
+  const executionConditions = run.runConditions?.execution;
+  const candidateMeasurementScope =
+    executionConditions?.isolation === "fresh_process" &&
+    executionConditions?.contextPolicy === "assignment_only" &&
+    executionConditions?.measurementScope === "role_process_only"
+      ? "Fresh isolated candidate process with assignment-only context"
+      : typeof executionConditions?.measurementScope === "string"
+        ? executionConditions.measurementScope
+        : "Candidate-navigation phase records only";
+  const candidateMeasurementMethod =
+    typeof run.runConditions?.tokenAccounting?.policy === "string"
+      ? run.runConditions.tokenAccounting.policy
+      : candidateNavigationUsage.source === "measured"
+        ? "Host-side telemetry"
+        : candidateNavigationUsage.source === "provider_reported"
+          ? "Provider-reported usage"
+          : candidateNavigationUsage.source === "estimated"
+            ? "Explicit estimate"
+            : null;
   const latestEvent = events.at(-1);
   const latestEventText =
     typeof latestEvent?.payload?.message === "string"
       ? latestEvent.payload.message
-      : latestEvent?.type === "run.finished"
-        ? run.status === "completed"
-          ? "Audit completed and saved."
-          : `Audit failed: ${humanizeReason(
-              latestEvent.payload?.summary?.reason,
-            )}.`
-        : latestEvent?.type ?? "Run created";
+      : latestEvent?.type === "report.recommendations"
+        ? "Evidence-linked recommendations added."
+        : latestEvent?.type === "run.finished"
+          ? run.status === "completed"
+            ? "Audit completed and saved."
+            : `Audit failed: ${humanizeReason(
+                latestEvent.payload?.summary?.reason,
+              )}.`
+          : latestEvent?.type ?? "Run created";
   const participantSnapshots = run.participants.map((participant) => ({
     role: participant.role,
     provider: participant.provider,
@@ -343,6 +526,55 @@ export function toRunSnapshot(report, runCount) {
       tokenMeasurementsByActor.get(participant.role) ?? [],
     ),
   }));
+  const structuredRecommendationEvent = lastDefinedEvent(
+    events,
+    (event) =>
+      event.type === "report.recommendations" &&
+      event.actor === "waymark:reporter" &&
+      event.payload?.scope === "repository_navigation" &&
+      Array.isArray(event.payload?.recommendations),
+  );
+  const structuredRecommendations =
+    structuredRecommendationEvent?.payload.recommendations.map(
+      (recommendation) => ({
+        id: recommendation.id,
+        priority: recommendation.priority,
+        title: recommendation.title,
+        description: recommendation.problem,
+        problem: recommendation.problem,
+        change: recommendation.change,
+        repositoryChanges: recommendation.repositoryChanges,
+        practiceIds: recommendation.practiceIds,
+        affectedDimensions: recommendation.affectedDimensions,
+        tokenMechanism: recommendation.tokenMechanism,
+        validationChecks: recommendation.validationChecks,
+        limitations: recommendation.limitations,
+        evidence: recommendation.claimIds.flatMap((claimId) => {
+          const claim = claimsById.get(claimId);
+          const verification = latestVerificationByClaim.get(claimId);
+          if (!claim) return [];
+          return claim.citations.map((citation) => ({
+            claimId,
+            assertion: claim.assertion,
+            path: citation.path,
+            startLine: citation.startLine ?? null,
+            endLine: citation.endLine ?? null,
+            verdict: verification?.verdict ?? "unverified",
+            method: verification?.method ?? "none",
+          }));
+        }),
+        projectedPoints: null,
+        projectionStatus: "unavailable",
+        projectionReason:
+          "This audit did not record a versioned deterministic impact model.",
+        effort: recommendation.effort,
+        effortReason:
+          recommendation.effort === null
+            ? "Repository change effort was not recorded for this audit."
+            : null,
+        source: "evidence_linked_addendum",
+      }),
+    ) ?? null;
 
   return {
     id: run.id,
@@ -405,30 +637,88 @@ export function toRunSnapshot(report, runCount) {
               : "warn",
       };
     }),
-    recommendations: events
-      .filter((event) => event.type === "recommendation.created")
-      .map((event) => ({
-        priority:
-          typeof event.payload.priority === "string"
-            ? event.payload.priority
-            : "P1",
-        title:
-          typeof event.payload.title === "string"
-            ? event.payload.title
-            : "Untitled recommendation",
-        description:
-          typeof event.payload.description === "string"
-            ? event.payload.description
-            : typeof event.payload.detail === "string"
-              ? event.payload.detail
-              : "",
-        gain:
-          typeof event.payload.gain === "string" ? event.payload.gain : "—",
-        cost:
-          typeof event.payload.cost === "string"
-            ? event.payload.cost
-            : "Unestimated",
-      })),
+    practiceFindings: buildPracticeFindings(
+      score,
+      authoritativeScore.input,
+    ),
+    recommendations:
+      structuredRecommendations ??
+      events
+        .filter((event) => event.type === "recommendation.created")
+        .map((event) => {
+          const projection = event.payload.projection;
+          const hasDeterministicProjection =
+            event.actor === "waymark:projector" &&
+            projection?.method === "deterministic" &&
+            typeof projection?.version === "string" &&
+            typeof projection?.points === "number" &&
+            Number.isFinite(projection.points);
+          const effort =
+            typeof event.payload.effort === "string"
+              ? event.payload.effort
+              : typeof event.payload.effort?.label === "string"
+                ? event.payload.effort.label
+              : typeof event.payload.cost === "string"
+                ? event.payload.cost
+                : null;
+
+          return {
+            id: event.id,
+            priority:
+              typeof event.payload.priority === "string"
+                ? event.payload.priority
+                : "P1",
+            title:
+              typeof event.payload.title === "string"
+                ? event.payload.title
+                : "Untitled recommendation",
+            description:
+              typeof event.payload.description === "string"
+                ? event.payload.description
+                : typeof event.payload.detail === "string"
+                  ? event.payload.detail
+                  : "",
+            problem: null,
+            change: null,
+            repositoryChanges: [],
+            practiceIds: Array.isArray(event.payload.practiceIds)
+              ? event.payload.practiceIds.filter(
+                  (id) => typeof id === "string" && PRACTICE_CATALOG[id],
+                )
+              : [],
+            affectedDimensions: Array.isArray(
+              event.payload.affectedDimensions,
+            )
+              ? event.payload.affectedDimensions.filter(
+                  (key) =>
+                    typeof key === "string" &&
+                    SCORE_DIMENSION_LABELS[key],
+                )
+              : [],
+            tokenMechanism:
+              typeof event.payload.tokenMechanism === "string"
+                ? event.payload.tokenMechanism
+                : null,
+            validationChecks: [],
+            limitations: [],
+            evidence: [],
+            projectedPoints: hasDeterministicProjection
+              ? projection.points
+              : null,
+            projectionStatus: hasDeterministicProjection
+              ? "modeled"
+              : "unavailable",
+            projectionReason: hasDeterministicProjection
+              ? `Deterministic projection ${projection.version}`
+              : "This audit did not record a versioned deterministic impact model.",
+            effort,
+            effortReason:
+              effort === null
+                ? "Implementation effort was not recorded for this audit."
+                : null,
+            source: "legacy_event",
+          };
+        }),
     tokenUsage: {
       overall: overallTokenUsage,
       byPhase: tokenUsageByPhase,
@@ -443,6 +733,12 @@ export function toRunSnapshot(report, runCount) {
           typeof score?.tokenEfficiency?.eligible === "boolean"
             ? score.tokenEfficiency.eligible
             : null,
+        scoreFormula:
+          "min(100, targetTokens / max(observedTokens, targetTokens) × 100)",
+        targetBasis: candidateTargetBasis,
+        measurementScope: candidateMeasurementScope,
+        measurementMethod: candidateMeasurementMethod,
+        isForecast: false,
       },
       monetaryCost: {
         status: "unavailable",

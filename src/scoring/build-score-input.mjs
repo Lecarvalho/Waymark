@@ -223,7 +223,16 @@ function mapTokens(report) {
   return {
     candidateNavigation: {
       ...candidateNavigation,
-      target: TOKEN_TARGETS.defaultCandidateNavigationTokens,
+      target:
+        Number.isSafeInteger(
+          report.run.runConditions?.tokenBudgets?.candidate_navigation
+            ?.targetTokens,
+        ) &&
+        report.run.runConditions.tokenBudgets.candidate_navigation
+          .targetTokens > 0
+          ? report.run.runConditions.tokenBudgets.candidate_navigation
+              .targetTokens
+          : TOKEN_TARGETS.defaultCandidateNavigationTokens,
     },
     validation,
     reportGeneration,

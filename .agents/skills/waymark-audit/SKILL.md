@@ -51,15 +51,33 @@ the default journal is not appropriate.
    `unverified`; never silently drop unresolved claims. Include `citationStatus`
    and `independentAssessment` in verification evidence as described in the
    protocol.
-8. Create the observation-count JSON from the stored trace and verified answer
+8. Create evidence-linked recommendation events from the verified navigation
+   symptoms. The feature request is only a probe: never recommend how to
+   implement it. Recommend repository-level changes to structure, naming,
+   documentation, ownership boundaries, dependency visibility, instructions,
+   or verification discoverability. Map each recommendation to the applicable
+   Practice Guide IDs, affected score dimensions, and the mechanism by which it
+   should reduce navigation tokens. Do not let a model invent projected points.
+   Include a projection only when a versioned deterministic projector
+   calculated it from an explicit observation delta; otherwise leave impact
+   and effort unavailable with their reason.
+9. Create the observation-count JSON from the stored trace and verified answer
    key. Read the stored report, then optionally run
    `node .agents/skills/waymark-audit/scripts/build-score-input.mjs` to assemble
    a preview of the canonical scorer input. Inspect it for traceability.
-9. Call `score calculate --finish` with the observation-count JSON. The CLI
+10. Call `score calculate --finish` with the observation-count JSON. The CLI
    rebuilds canonical scorer input from the persisted report, stores its hash,
    and completes the run atomically. Only the Waymark deterministic scorer may
    emit the authoritative score. Read the stored report and summarize evidence,
-   caps, confidence gap, and reliability.
+   caps, confidence gap, reliability, the declared candidate target, the
+   observed candidate-process token total, and their exact efficiency formula.
+11. If the completed report's recommendations are too generic, append a
+    post-run evidence review with `report recommend`. Every action must cite
+    existing deterministically verified claim IDs and identify exact
+    repository-navigation changes, validation checks, and known limits. Do not
+    turn the probe into a feature implementation plan. This addendum refines
+    the report narrative only; it never changes scores, reliability, or token
+    records.
 
 If a phase exceeds its declared hard token limit, append `budget.exceeded` with
 the measured breakdown and finish the run as failed or calibration-ineligible.

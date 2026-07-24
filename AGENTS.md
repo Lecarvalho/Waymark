@@ -16,8 +16,13 @@ coding agents navigate a target repository.
     suite and does not require a user-supplied feature request.
   - A task-specific audit uses a realistic engineering feature request supplied
     for that repository.
+- A task-specific feature request is only a navigation probe. The report must
+  not advise the user how to implement that feature.
 - A general repository audit aggregates navigability evidence from its task
   suite; it is not a general code-quality assessment.
+- Report repository-specific changes that improve agent navigability,
+  discoverability, ownership clarity, dependency clarity, verification
+  discoverability, and token efficiency.
 - Waymark observes progress, presents evidence, and preserves reports.
 - Do not add prompt inputs, chat controls, or a "start audit" action to the UI.
 - Waymark measures AI coding navigability only. It does not score security,

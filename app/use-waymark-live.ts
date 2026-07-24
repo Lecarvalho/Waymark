@@ -47,12 +47,50 @@ export type WaymarkRunSnapshot = {
       disposition: string | null;
     } | null;
   }>;
+  practiceFindings: Array<{
+    dimensionKey: string;
+    dimensionLabel: string;
+    score: number;
+    weight: number;
+    practices: Array<{
+      id: string;
+      title: string;
+    }>;
+    measured: string;
+    issue: string;
+    action: string;
+    tokenMechanism: string;
+    maximumScoreHeadroom: number;
+    headroomStatus: "maximum_not_projection";
+  }>;
   recommendations: Array<{
+    id: string;
     priority: string;
     title: string;
     description: string;
-    gain: string;
-    cost: string;
+    problem: string | null;
+    change: string | null;
+    repositoryChanges: string[];
+    practiceIds: string[];
+    affectedDimensions: string[];
+    tokenMechanism: string | null;
+    validationChecks: string[];
+    limitations: string[];
+    evidence: Array<{
+      claimId: string;
+      assertion: string;
+      path: string;
+      startLine: number | null;
+      endLine: number | null;
+      verdict: string;
+      method: string;
+    }>;
+    projectedPoints: number | null;
+    projectionStatus: "modeled" | "unavailable";
+    projectionReason: string;
+    effort: string | null;
+    effortReason: string | null;
+    source: "evidence_linked_addendum" | "legacy_event";
   }>;
   tokenUsage: {
     overall: TokenBreakdown;
@@ -74,6 +112,11 @@ export type WaymarkRunSnapshot = {
       hardLimitExceeded: boolean | null;
       efficiencyScore: number | null;
       eligible: boolean | null;
+      scoreFormula: string;
+      targetBasis: "run_declared" | "rubric_default" | "unavailable";
+      measurementScope: string;
+      measurementMethod: string | null;
+      isForecast: false;
     };
     monetaryCost: {
       status: "unavailable";

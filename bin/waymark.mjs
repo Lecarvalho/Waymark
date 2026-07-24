@@ -21,6 +21,8 @@ const COMMANDS = {
   "verification record": "Append a verification verdict",
   "token record": "Append a token measurement",
   "score calculate": "Calculate and persist an authoritative score",
+  "report recommend":
+    "Append evidence-linked recommendations to a completed report",
   "report read": "Read a complete stored report",
 };
 
@@ -223,6 +225,18 @@ function finishInput(options) {
   );
 }
 
+function reportRecommendationInput(options) {
+  const input = readInput(options);
+  if (input === undefined) {
+    const error = new Error(
+      "report recommend requires --input-json or --input-file",
+    );
+    error.code = "INVALID_ARGUMENTS";
+    throw error;
+  }
+  return input;
+}
+
 function calculateScore(store, options) {
   const runId = required(options, "run");
   const observationsFile = readInput(options);
@@ -325,6 +339,14 @@ function execute(store, positionals, options) {
       };
     case "score calculate":
       return { command, data: calculateScore(store, options) };
+    case "report recommend":
+      return {
+        command,
+        data: store.appendReportRecommendations(
+          required(options, "run"),
+          reportRecommendationInput(options),
+        ),
+      };
     case "report read":
       return { command, data: store.readReport(required(options, "run")) };
     default: {

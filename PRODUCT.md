@@ -7,6 +7,11 @@ repository while attempting a realistic engineering task. It makes the
 investigation observable, challenges model claims, preserves the evidence, and
 tracks navigability over time.
 
+The engineering task is a benchmark probe, not a request for implementation
+advice. Waymark reports how hard it was to find the information needed for that
+task and what repository-level changes would make the next agent's navigation
+more direct.
+
 ## Platform
 
 Waymark is a local-first web application paired with coding-agent tools such as
@@ -31,6 +36,8 @@ the observer and durable report surface.
 - Keep repository navigability, audit reliability, and audit economy visibly
   separate; a reliable or navigable result must not hide an over-budget run.
 - Give recommendations with expected discovery and consumption impact.
+- Tie recommendations to repository structure, naming, documentation,
+  boundaries, and verification discoverability observed during the run.
 
 ## Interface Posture
 
@@ -46,3 +53,4 @@ decorative urgency.
 - Treating model agreement as proof
 - Presenting mock data as a real measurement
 - Hiding weak verification behind a confident final score
+- Recommending how to implement the feature used as the navigation probe

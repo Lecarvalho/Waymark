@@ -147,6 +147,101 @@ not report. Persist them as unavailable/null, not zero. In particular, do not
 invent cache-creation tokens when Codex reports only input, cached-input, and
 output usage.
 
+## Record actionable recommendations
+
+Recommendations connect verified navigation friction to the Practice Guide.
+The task or feature request is measurement context only. Recommendations must
+improve the repository's navigability, discoverability, ownership signals,
+dependency visibility, instructions, or verification paths. They must not
+describe how to implement the probed feature.
+Append `recommendation.created` before finishing the run with a structured
+payload:
+
+```json
+{
+  "priority": "P1",
+  "title": "Expose the native-video ingress ownership path",
+  "description": "Link ingress, hashing, cleanup, vendor work, and charging from the owning module.",
+  "practiceIds": ["01", "02", "03"],
+  "affectedDimensions": ["ownershipClarity", "dependencyClarity"],
+  "observedSymptom": "Only 2/4 ownership questions and 3/5 required dependency edges were answered.",
+  "tokenMechanism": "One explicit ownership path removes repeated searches for indirect wiring and side effects.",
+  "evidence": [{"claimId": "claim-id", "citation": "path/to/file:12"}],
+  "effort": null
+}
+```
+
+Practice IDs are `01` through `07` from the UI guide. A recommendation must
+state the observed symptom, repository change, and expected token mechanism.
+Effort may be recorded only with a stated basis; otherwise keep it null.
+
+Do not put a model-written point estimate in `gain`, `projectedPoints`, or
+similar fields. An optional projection is valid only when a versioned,
+deterministic local projector calculates it from a persisted observation
+delta:
+
+```json
+{
+  "projection": {
+    "method": "deterministic",
+    "version": "waymark-impact/1.0.0",
+    "points": 4.25,
+    "observationDelta": {"dependencies.requiredEdgesFound": 1}
+  }
+}
+```
+
+Without that record, the UI reports point impact as unavailable. The weighted
+distance from a dimension score to 100 is maximum rubric headroom, not a
+promised gain and not a token forecast.
+
+### Refine a completed report
+
+Use a post-run evidence review when the original recommendation events do not
+tell a developer exactly what to change. The input is a versioned list of
+repository-navigation actions with concrete repository changes, validation
+checks, known limitations, and references to existing verified claim IDs:
+
+```json
+{
+  "scope": "repository_navigation",
+  "recommendations": [{
+    "id": "native-video-map",
+    "priority": "P1",
+    "title": "Publish the native-video ownership path",
+    "problem": "The probe required repeated searches across API, application, and infrastructure projects.",
+    "change": "Add a feature map beside the owning application command.",
+    "repositoryChanges": [
+      "Link the controller, command, handler, external contract, infrastructure adapter, and focused tests."
+    ],
+    "claimIds": ["verified-claim-id"],
+    "practiceIds": ["01", "02", "03"],
+    "affectedDimensions": ["discoveryEfficiency", "ownershipClarity"],
+    "tokenMechanism": "One indexed path replaces repeated global searches.",
+    "validationChecks": [
+      "Repeat the same navigation probe and compare files opened, dead ends, relevant locations found, and candidate navigation tokens."
+    ],
+    "limitations": ["No point gain is projected."],
+    "effort": null
+  }]
+}
+```
+
+```powershell
+node bin/waymark.mjs --db <journal> report recommend --run <run-id> --input-file <recommendations.json>
+```
+
+`report recommend` accepts completed runs only. Each referenced claim must
+exist and its latest static or executable verification must be `verified`.
+Waymark appends the review to the audit journal and resolves the claim's stored
+citations in the UI. The latest review replaces older recommendation actions
+in the report presentation.
+
+This command is a report addendum, not rescoring. It cannot change score
+events, reliability, observations, or token records. Do not use it to introduce
+new factual claims or feature implementation guidance; verify and persist
+navigation claims during the audit first.
+
 ## Build and persist the score
 
 Create an observations file from recorded, reproducible counts:
