@@ -302,7 +302,7 @@ test("prepared audit prompts are deterministic, concise, and preparation-only", 
   assert.ok(first.length < 1_100, `prepared prompt is ${first.length} characters`);
 });
 
-test("prepared general audits delegate the versioned suite to the skill", () => {
+test("prepared general audits keep fixed assessment policy out of the handoff", () => {
   const input = preparedInput();
   input.auditMode = "general";
   input.task = "";
@@ -316,32 +316,27 @@ test("prepared general audits delegate the versioned suite to the skill", () => 
   assert.doesNotMatch(prompt, /Name:/);
 });
 
-test("the audit skill owns the versioned general navigation suite", () => {
+test("the audit skill owns the single-auditor general contract", () => {
   const skill = readFileSync(
     new URL("../.agents/skills/waymark-audit/SKILL.md", import.meta.url),
     "utf8",
   );
-  const suitePath =
-    "../.agents/skills/waymark-audit/references/general-navigation-suite-2.0.0.json";
-  const suite = JSON.parse(
-    readFileSync(new URL(suitePath, import.meta.url), "utf8"),
+  const protocol = readFileSync(
+    new URL(
+      "../.agents/skills/waymark-audit/references/protocol.md",
+      import.meta.url,
+    ),
+    "utf8",
   );
 
-  assert.match(skill, /references\/general-navigation-suite-2\.0\.0\.json/);
-  assert.equal(suite.id, "waymark-general-navigation");
-  assert.equal(suite.version, "2.0.0");
-  assert.equal(suite.name, "General repository agent-readiness assessment");
-  assert.deepEqual(
-    suite.tasks.map(({ practiceId }) => practiceId),
-    ["01", "02", "03", "04", "05", "06", "07"],
-  );
-  assert.deepEqual(suite.assessmentContract.statuses, [
-    "strong",
-    "mixed",
-    "weak",
-    "not_assessed",
-  ]);
-  assert.ok(suite.constraints.length >= 5);
+  assert.match(skill, /exactly one `auditor`/);
+  assert.match(skill, /does not use a versioned benchmark task suite/);
+  assert.match(skill, /unbounded_by_waymark/);
+  assert.match(skill, /documentation.+cannot be the only evidence/is);
+  assert.match(protocol, /General terminal outcomes/);
+  assert.match(protocol, /`completed`[\s\S]+`partial`[\s\S]+`failed`[\s\S]+`cancelled`/);
+  assert.match(protocol, /`auditor_assessed`/);
+  assert.match(protocol, /scorer do\s+not score general mode/);
 });
 
 test("general mode reaches fresh roles as a seven-principle assessment", () => {

@@ -3,23 +3,30 @@
 ## Objective
 
 Build a local-first audit system that measures how efficiently and reliably a
-coding agent can navigate a target repository while following a general,
-task-specific, or system-explanation probe.
+coding agent can navigate a target repository through either a broad general
+assessment or a reproducible task-specific or system-explanation probe.
 
 The audit request executes in a paired coding-agent session such as Codex or
 Claude Code. Waymark may prepare a compact runtime-input handoff for the user to
 copy into that session; the repository-local skill supplies fixed workflow and
-policy. Waymark remains the observer, evidence ledger, deterministic verifier,
-scoring engine, and durable report surface.
+policy. Waymark remains the observer, evidence ledger, and durable report
+surface. It is also the deterministic verifier and scoring engine for benchmark
+modes.
 
 ## Product Boundaries
 
 - The target repository is read-only during discovery.
 - Waymark measures AI coding navigability only.
-- The candidate model never assigns its own final score.
-- Candidate confidence, candidate performance, and report reliability remain
-  separate measurements.
-- Deterministic evidence outranks model agreement.
+- A general audit uses one most-capable auditor. It does not launch candidate,
+  independent, or orchestrator roles.
+- Task-specific and system-explanation audits retain the candidate,
+  independent, orchestrator, deterministic-verification, scoring, and
+  hard-budget pipeline.
+- In benchmark modes, the candidate never assigns its own final score;
+  candidate confidence, candidate performance, and report reliability remain
+  separate measurements, and deterministic evidence outranks model agreement.
+- General dimension judgments are auditor-inferred and evidence-backed. They
+  are not authoritative deterministic benchmark scores.
 - Mock, estimated, host-measured, provider-reported, unavailable, and verified
   values are labeled.
 - The web application may generate a copyable audit request but never starts an
@@ -29,6 +36,8 @@ scoring engine, and durable report surface.
 - System-explanation probes use a short question and primarily measure the
   tokens and navigation work needed for an adequate supported answer. Prose
   depth and hypothetical change-surface recall are not objectives.
+- General audits have no Waymark hard token limit or token-efficiency score.
+  Measured usage remains visible, and evidence coverage drives completion.
 - Runs and reports are stored locally in SQLite.
 
 ## System Shape
@@ -42,13 +51,19 @@ Repository-local Waymark audit skill
             v
 Provider-neutral local CLI and event protocol
             |
-            +--> Candidate investigation
-            +--> Independent investigation
-            +--> Orchestrator cross-examination
-            +--> Deterministic verification
+            +--> general
+            |       |
+            |       +--> Single auditor research
+            |       +--> Semantic checkpoints
+            |       +--> Finding ledger and auditor-assessed dimensions
             |
-            v
-Versioned scoring and reliability gates
+            +--> task_specific / system_explanation
+                    |
+                    +--> Candidate investigation
+                    +--> Independent investigation
+                    +--> Orchestrator cross-examination
+                    +--> Deterministic verification
+                    +--> Versioned scoring and reliability gates
             |
             v
 SQLite event journal and read models
@@ -67,8 +82,9 @@ React observer interface
 - concise audit name
 - target repository path
 - immutable repository identity and commit
-- simulated engineering task
-- candidate model and orchestrator model identities
+- general assessment scope or benchmark probe
+- one auditor identity for general mode, or candidate, independent, and
+  orchestrator identities for benchmark modes
 - tool policy and run conditions
 - audit protocol and rubric versions
 
@@ -96,20 +112,63 @@ Each claim records:
 - verification verdict
 - verification method and reproducible evidence
 
-### Score
+Benchmark modes retain this claim and verification contract. General mode uses
+immutable finding revisions with cited evidence, lifecycle state, navigation
+cost, affected Practice Guide principles and dimensions, and an append-only
+history.
 
-The final report stores dimensions independently:
+### Result
 
-- discovery efficiency
-- ownership clarity
-- dependency clarity
-- change-surface recall
-- verification discoverability
-- instruction quality
-- token efficiency after adequacy gates
-- report reliability
+Every mode stores the same six navigability dimensions independently:
 
-Scoring formulas and thresholds are versioned and independent from report prose.
+- `discoveryEfficiency`: 20%
+- `ownershipClarity`: 17%
+- `dependencyClarity`: 17%
+- `changeSurfaceRecall`: 20%
+- `verificationDiscoverability`: 16%
+- `instructionQuality`: 10%
+
+For benchmark modes, scoring formulas and thresholds are versioned and
+independent from report prose. Token efficiency is eligible only after adequacy
+gates, and report reliability remains separate.
+
+For general mode, the single auditor infers each dimension judgment from cited
+evidence. A weighted `auditor_assessed` result is available only when every
+dimension has adequate evidence. Partial reports expose the exact assessed
+weight and findings without renormalizing missing dimensions or assigning them
+a score of zero.
+
+### General evidence and completion
+
+The general auditor inspects production code, tests, dependency paths,
+consumers, configuration, workflows, generated or external boundaries,
+documentation, and repository instructions. It records positive evidence for
+strong judgments and concrete friction for mixed or weak judgments. Lack of
+adequate evidence yields `not_assessed`.
+
+Code-structure, naming, ownership, dependency-direction,
+behavior-organization, and test-mirroring conclusions require actual source or
+test citations. Documentation may corroborate but cannot be their sole support.
+When representative behavior or runtime paths exist, the auditor attempts at
+least two, connecting known entry points, owners, dependencies, consumers, and
+tests while preserving unknown nodes.
+
+Semantic checkpoints append findings during research. Revisions never erase
+their predecessors, so late discoveries and changed interpretations remain
+visible. General terminal outcomes are `completed`, `partial`, `failed`, and
+`cancelled`; `partial` requires usable cited evidence but incomplete coverage
+or synthesis, while `failed` means no usable report evidence was recovered.
+
+Soft usage notices, no-progress protection, user cancellation, and
+provider-context continuation are operational safeguards. They are not
+benchmark validity rules and do not introduce a general hard token limit.
+
+> Historical status note: milestone evidence below records the implementation
+> that existed before the general-audit redesign. References to legacy general
+> task suites, benchmark roles, deterministic scoring, or hard limits describe
+> those preserved runs, not the normative general contract above. The
+> benchmark workflow remains normative for `task_specific` and
+> `system_explanation`.
 
 ## Milestone 1 — Local Vertical Slice
 
@@ -666,25 +725,36 @@ Delivered Milestone 2 scope:
 
 ### General repository audit direction
 
-- General mode uses `waymark-general-navigation@2.0.0` as a cold,
-  repository-wide agent-readiness assessment. Candidate and independent roles
-  sample representative surfaces and assess Practice Guide IDs `01` through
-  `07`; task-specific and system-explanation modes remain focused.
-- The orchestrator must reconcile exactly one `strong`, `mixed`, `weak`, or
-  `not_assessed` result for every practice. Every assessed result references
-  cited candidate claims. Mixed and weak practices link to repository-specific
-  improvements with token mechanisms and repeatable validation checks.
-- `report finalize` admits the general practice profile only after every linked
-  claim has deterministic verification. Unknown areas retain explicit coverage
-  limitations instead of inheriting a favorable result.
-- The observer projects the practice profile separately from the authoritative
-  navigability score, audit reliability, and resource economy. Earlier general
-  reports remain visible and are labeled as predating the seven-principle
-  profile.
-- Calibration must add controlled answer keys for all seven practices, measure
-  per-practice false positives and false negatives, and apply one-practice
-  repository improvements to test sensitivity before aggregate practice
-  grading is introduced.
+- General mode is a broad, high-recall repository assessment performed by one
+  most-capable auditor. It does not use the versioned benchmark task suite or
+  launch candidate, independent, or orchestrator roles.
+- The auditor surveys production code, tests, dependency paths and consumers,
+  configuration, workflows, generated or external boundaries, documentation,
+  and instructions. It assesses all seven Practice Guide principles and the six
+  fixed-weight dimensions without claiming literal exhaustive coverage.
+- Findings are emitted at semantic checkpoints and retained in an append-only
+  revision history. Provider telemetry remains distinct from these durable,
+  structured audit judgments.
+- Strong judgments require positive cited evidence. Mixed and weak judgments
+  require concrete cited friction. Code-related conclusions require source or
+  test citations; documentation alone is insufficient.
+- The auditor attempts at least two representative behavior or runtime paths
+  when the repository contains them. Each path connects the known entry point,
+  owner, dependencies, consumers, and tests and preserves unknowns.
+- The observer projects current findings, complete finding histories, coverage,
+  assessed weight, report completeness, measured tokens, and limitations. A
+  complete weighted result is labeled `auditor_assessed`; partial dimension
+  coverage is never renormalized.
+- Completion is coverage-driven. `partial` preserves useful cited evidence
+  after incomplete coverage or synthesis, while `failed` is reserved for runs
+  with no usable report evidence. Cancellation also preserves acknowledged
+  findings.
+- General usage remains measured but unbounded by Waymark. Soft notices,
+  no-progress protection, cancellation, and provider-context continuation
+  protect operations without becoming benchmark validity rules.
+- Earlier general benchmark reports remain visible and are labeled as legacy
+  contracts. Task-specific and system-explanation audits continue to use the
+  existing benchmark workflow and scorer.
 
 ## Milestone 4 — Additional Agent Adapters
 
@@ -741,9 +811,11 @@ complete until every step passes:
    or external credentials, including its failure and limit behavior.
 4. Run the repository's relevant lint, production build, tests, and diff checks.
    Resolve regressions before continuing.
-5. Run a real, bounded smoke test through the authoritative user-facing path
-   with fixed model identities, immutable inputs, declared token targets and
-   hard limits, and live persisted evidence.
+5. Run a real smoke test through the authoritative user-facing path with fixed
+   model identities, immutable inputs, and live persisted evidence. Benchmark
+   smoke tests declare token targets and hard limits; general smoke tests
+   measure usage without a Waymark hard limit and finish based on evidence
+   coverage.
 6. Confirm that the smoke test used no deprecated or parallel implementation
    path, stayed within the declared authority boundaries, and produced enough
    evidence to diagnose failures.
@@ -757,6 +829,9 @@ complete until every step passes:
 
 ## Definition of Done for the First Build
 
-The first build is complete only when one local audit can travel from a Codex
-prompt through the skill, CLI, SQLite journal, deterministic scorer, local
-service, and React report without hand-editing stored data.
+The first benchmark build is complete only when one local audit can travel from
+a Codex prompt through the skill, CLI, SQLite journal, deterministic scorer,
+local service, and React report without hand-editing stored data. The redesigned
+general path is complete when one single-auditor assessment can travel through
+the skill, CLI, append-only finding ledger, local service, and React report
+without invoking the benchmark scorer or hand-editing stored data.

@@ -43,6 +43,8 @@ GA-12 is the integration gate and depends on every preceding task.
 
 **Dependencies:** None.
 
+**Status:** Completed.
+
 ### Context
 
 Waymark currently describes every audit as a reproducible navigation probe
