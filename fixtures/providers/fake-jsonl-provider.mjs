@@ -50,6 +50,230 @@ async function postCheckpoint(value) {
   return acknowledgement;
 }
 
+function generalCheckpointBase() {
+  return {
+    runId: process.env.WAYMARK_CHECKPOINT_RUN_ID,
+    actor: process.env.WAYMARK_CHECKPOINT_ACTOR,
+    providerSessionId: `fresh-${role}`,
+  };
+}
+
+const generalDimensions = [
+  "discoveryEfficiency",
+  "ownershipClarity",
+  "dependencyClarity",
+  "changeSurfaceRecall",
+  "verificationDiscoverability",
+  "instructionQuality",
+];
+const generalPractices = [
+  "organizeAroundBehavior",
+  "explicitDependencyDirection",
+  "conceptOwningNames",
+  "canonicalWorkflow",
+  "proximateInstructions",
+  "testsMirrorBehavior",
+  "separateGeneratedExternal",
+];
+const generalCodeCitation = {
+  path: "src/orchestration/general-audit-runner.mjs",
+  startLine: 1,
+  endLine: 20,
+  symbol: null,
+  source: "production_code",
+};
+const generalTestCitation = {
+  path: "tests/orchestration.test.mjs",
+  startLine: 1,
+  endLine: 20,
+  symbol: null,
+  source: "test",
+};
+
+async function postGeneralFinding({
+  id,
+  signal,
+  title,
+  conclusion,
+  occurredAt,
+}) {
+  const base = generalCheckpointBase();
+  await postCheckpoint({
+    ...base,
+    idempotencyKey: `fake-${id}`,
+    type: "general.finding.recorded",
+    occurredAt,
+    payload: {
+      revision: {
+        revisionId: `${id}-revision-1`,
+        findingId: id,
+        revisionNumber: 1,
+        state: "confirmed",
+        signal,
+        title,
+        conclusion,
+        dimensionIds: generalDimensions,
+        practiceGuideIds: generalPractices,
+        citations: [generalCodeCitation, generalTestCitation],
+        navigationCost: {
+          searches: 2,
+          filesOpened: 4,
+          fileHops: 2,
+          deadEnds: signal === "friction" ? 1 : 0,
+          commands: 3,
+          processedTokens: 1200,
+          elapsedMs: 40000,
+        },
+        provenance: {
+          previousRevisionId: null,
+          amendmentReason: null,
+          actor: base.actor,
+          occurredAt,
+          causedByCitations: [generalCodeCitation, generalTestCitation],
+        },
+      },
+    },
+  });
+}
+
+if (
+  [
+    "general-completed",
+    "general-partial-crash",
+    "general-no-progress",
+    "general-continuation",
+  ].includes(mode)
+) {
+  await new Promise((resolve) => setTimeout(resolve, 25));
+  await postGeneralFinding({
+    id: "fake-general-positive",
+    signal: "positive",
+    title: "The audit runner has a focused owner",
+    conclusion:
+      "The general runner and its tests expose a direct ownership path.",
+    occurredAt: "2026-07-25T15:00:00.000Z",
+  });
+
+  if (mode === "general-partial-crash") {
+    process.stderr.write("simulated general provider crash after a finding");
+    process.exit(7);
+  }
+
+  if (mode === "general-no-progress") {
+    for (let index = 0; index < 6; index += 1) {
+      const item = {
+        id: `general-repeat-${index}`,
+        type: "command_execution",
+        command: "rg --files",
+        status: "in_progress",
+      };
+      emit({ type: "item.started", item });
+      emit({
+        type: "item.completed",
+        item: { ...item, status: "completed", exit_code: 0 },
+      });
+    }
+    setInterval(() => {}, 10_000);
+    await new Promise(() => {});
+  }
+
+  if (
+    mode === "general-continuation" &&
+    !prompt.includes("Continuation state")
+  ) {
+    setInterval(() => {}, 10_000);
+    await new Promise(() => {});
+  }
+
+  if (mode === "general-completed") {
+    await postGeneralFinding({
+      id: "fake-general-friction",
+      signal: "friction",
+      title: "One navigation edge remains indirect",
+      conclusion:
+        "The fixture preserves one cited file hop to exercise mixed evidence.",
+      occurredAt: "2026-07-25T15:01:00.000Z",
+    });
+    for (const [index, dimensionId] of generalDimensions.entries()) {
+      await postCheckpoint({
+        ...generalCheckpointBase(),
+        idempotencyKey: `fake-assessment-${dimensionId}`,
+        type: "general.dimension.assessed",
+        occurredAt: `2026-07-25T15:0${index + 2}:00.000Z`,
+        payload: {
+          dimensionId,
+          score: 80 + index,
+          confidence: 0.9,
+          supportingPositiveFindingIds: ["fake-general-positive"],
+          supportingFrictionFindingIds: ["fake-general-friction"],
+          limitations: ["Controlled fake-provider evidence."],
+        },
+      });
+    }
+    const knownNode = (label) => ({
+      status: "known",
+      label,
+      citations: [generalCodeCitation],
+    });
+    for (let index = 1; index <= 2; index += 1) {
+      await postCheckpoint({
+        ...generalCheckpointBase(),
+        idempotencyKey: `fake-path-${index}`,
+        type: "general.behavior_path.recorded",
+        occurredAt: `2026-07-25T15:1${index}:00.000Z`,
+        payload: {
+          pathId: `fake-path-${index}`,
+          name: `Representative path ${index}`,
+          entryPoint: knownNode("entry"),
+          owner: knownNode("owner"),
+          dependencies: [knownNode("dependency")],
+          consumers: [knownNode("consumer")],
+          tests: [
+            {
+              status: "known",
+              label: "test",
+              citations: [generalTestCitation],
+            },
+          ],
+        },
+      });
+    }
+    await postCheckpoint({
+      ...generalCheckpointBase(),
+      idempotencyKey: "fake-general-synthesis",
+      type: "general.synthesis.completed",
+      occurredAt: "2026-07-25T15:20:00.000Z",
+      payload: {
+        outcome: "completed",
+        summary: "All required dimensions have adequate cited evidence.",
+        limitations: ["Controlled fake-provider evidence."],
+      },
+    });
+  } else {
+    await postCheckpoint({
+      ...generalCheckpointBase(),
+      idempotencyKey: "fake-general-continuation-synthesis",
+      type: "general.synthesis.completed",
+      occurredAt: "2026-07-25T15:20:00.000Z",
+      payload: {
+        outcome: "partial",
+        summary: "Acknowledged evidence survived provider continuation.",
+        limitations: ["Several dimensions remain unassessed."],
+      },
+    });
+  }
+
+  emit({
+    type: "turn.completed",
+    usage: {
+      input_tokens: mode === "general-completed" ? 120000 : 1200,
+      cached_input_tokens: 100,
+      output_tokens: mode === "general-completed" ? 80000 : 300,
+    },
+  });
+  process.exit(0);
+}
+
 if (
   ["checkpoint-crash", "checkpoint-crash-duplicate"].includes(mode)
 ) {
@@ -248,7 +472,7 @@ if (
   }
   const generalMode = prompt.includes("Audit mode: general");
   const generalPracticeIds = ["01", "02", "03", "04", "05", "06", "07"];
-  const generalDimensions = [
+  const benchmarkGeneralDimensions = [
     "discoveryEfficiency",
     "dependencyClarity",
     "discoveryEfficiency",
@@ -259,7 +483,7 @@ if (
   ];
   const generalFindings = generalPracticeIds.map((practiceId, index) => ({
     kind: "navigation_fact",
-    dimension: generalDimensions[index],
+    dimension: benchmarkGeneralDimensions[index],
     subject: `general practice ${practiceId}`,
     assertion: `The controlled fixture exposes cited evidence for Practice Guide ${practiceId}.`,
     friction: `The fixture retains one bounded navigation gap for practice ${practiceId}.`,
@@ -287,7 +511,7 @@ if (
       ],
       claimIds: [suppliedClaimIds[index]],
       practiceIds: [practiceId],
-      affectedDimensions: [generalDimensions[index]],
+      affectedDimensions: [benchmarkGeneralDimensions[index]],
       tokenMechanism:
         "A direct repository signal replaces repeated bounded searches.",
       validationChecks: [

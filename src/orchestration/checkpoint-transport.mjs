@@ -319,6 +319,10 @@ export async function startGeneralCheckpointTransport({
       providerSessionId = normalized;
       return providerSessionId;
     },
+    rotateProviderSession(sessionId) {
+      providerSessionId = requiredString(sessionId, "providerSessionId");
+      return providerSessionId;
+    },
     persist,
     async close() {
       if (closed) return;

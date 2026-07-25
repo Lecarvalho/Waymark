@@ -33,6 +33,7 @@ export interface GeneralCheckpointTransport {
   endpoint: string;
   authorization: string;
   bindProviderSession(providerSessionId: string): string;
+  rotateProviderSession(providerSessionId: string): string;
   persist(input: GeneralCheckpointEnvelope): CheckpointAcknowledgement;
   close(): Promise<void>;
 }

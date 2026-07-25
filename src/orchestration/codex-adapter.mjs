@@ -358,7 +358,9 @@ export function createCodexProcessAdapter({
       const outputSchema =
         assignment.role === "orchestrator"
           ? orchestrationOutputSchemaPath
-          : outputSchemaPath;
+          : assignment.role === "auditor"
+            ? null
+            : outputSchemaPath;
       return {
         command: launcher.command,
         arguments: [
@@ -383,8 +385,9 @@ export function createCodexProcessAdapter({
           assignment.target.path,
           "--model",
           assignment.participant.model,
-          "--output-schema",
-          outputSchema,
+          ...(outputSchema === null
+            ? []
+            : ["--output-schema", outputSchema]),
           "-",
         ],
         cwd: assignment.target.path,
@@ -400,7 +403,9 @@ export function createCodexProcessAdapter({
       const outputSchema =
         assignment.role === "orchestrator"
           ? orchestrationOutputSchemaPath
-          : outputSchemaPath;
+          : assignment.role === "auditor"
+            ? null
+            : outputSchemaPath;
       return {
         command: launcher.command,
         arguments: [
@@ -422,8 +427,9 @@ export function createCodexProcessAdapter({
           "--json",
           "--model",
           assignment.participant.model,
-          "--output-schema",
-          outputSchema,
+          ...(outputSchema === null
+            ? []
+            : ["--output-schema", outputSchema]),
           providerSessionId,
           "-",
         ],

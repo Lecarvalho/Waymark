@@ -1115,6 +1115,13 @@ export class AuditStore {
     });
   }
 
+  recordGeneralContinuation(input) {
+    return this.appendGeneralCheckpoint({
+      ...input,
+      type: "general.continuation.recorded",
+    });
+  }
+
   completeGeneralSynthesis(input) {
     return this.appendGeneralCheckpoint({
       ...input,

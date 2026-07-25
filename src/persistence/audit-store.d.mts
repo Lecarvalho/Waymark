@@ -67,6 +67,7 @@ export class AuditStore {
   recordGeneralDimensionProgress(input: GeneralCheckpointInput): AuditEvent;
   assessGeneralDimension(input: GeneralCheckpointInput): AuditEvent;
   recordGeneralRecommendation(input: GeneralCheckpointInput): AuditEvent;
+  recordGeneralContinuation(input: GeneralCheckpointInput): AuditEvent;
   completeGeneralSynthesis(input: GeneralCheckpointInput): AuditEvent;
   interruptGeneralAudit(input: GeneralCheckpointInput): AuditEvent;
   appendReportPracticeProfile(

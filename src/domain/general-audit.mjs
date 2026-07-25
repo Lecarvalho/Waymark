@@ -7,6 +7,7 @@ export const GENERAL_AUDIT_EVENT_TYPES = Object.freeze([
   "general.dimension.progress",
   "general.dimension.assessed",
   "general.recommendation.recorded",
+  "general.continuation.recorded",
   "general.synthesis.completed",
   "general.audit.interrupted",
 ]);
@@ -172,6 +173,7 @@ function initialState() {
       ]),
     ),
     recommendations: [],
+    continuations: [],
     assessedWeight: 0,
     weightedPoints: 0,
     auditorAssessedResult: null,
@@ -951,6 +953,66 @@ function applyRecommendationRecorded(state, event) {
   });
 }
 
+function applyContinuationRecorded(state, event) {
+  const payload = event.payload;
+  validateIdentifier(payload.continuationId, "continuationId", event.id);
+  validateIdentifier(payload.providerSessionId, "providerSessionId", event.id);
+  validateIdentifier(payload.reason, "continuation reason", event.id);
+  if (
+    !Array.isArray(payload.inspectedSurfaces) ||
+    payload.inspectedSurfaces.some((surface) => !SURFACE_SET.has(surface))
+  ) {
+    fail(
+      "invalid_continuation_surfaces",
+      "Continuation inspectedSurfaces contains an unknown surface.",
+      event.id,
+    );
+  }
+  if (
+    !Array.isArray(payload.remainingDimensionIds) ||
+    payload.remainingDimensionIds.some(
+      (dimensionId) => !DIMENSION_ID_SET.has(dimensionId),
+    )
+  ) {
+    fail(
+      "invalid_continuation_dimensions",
+      "Continuation remainingDimensionIds contains an unknown dimension.",
+      event.id,
+    );
+  }
+  if (!Array.isArray(payload.openQuestions)) {
+    fail(
+      "invalid_continuation_questions",
+      "Continuation openQuestions must be an array.",
+      event.id,
+    );
+  }
+  for (const question of payload.openQuestions) {
+    validateIdentifier(question, "continuation open question", event.id);
+  }
+  if (
+    state.continuations.some(
+      ({ continuationId }) => continuationId === payload.continuationId,
+    )
+  ) {
+    fail(
+      "duplicate_continuation",
+      `Continuation ${payload.continuationId} is already recorded.`,
+      event.id,
+    );
+  }
+  state.continuations.push({
+    continuationId: payload.continuationId,
+    providerSessionId: payload.providerSessionId,
+    reason: payload.reason,
+    inspectedSurfaces: [...new Set(payload.inspectedSurfaces)],
+    openQuestions: [...payload.openQuestions],
+    remainingDimensionIds: [...new Set(payload.remainingDimensionIds)],
+    recordedAt: event.occurredAt,
+    actor: event.actor,
+  });
+}
+
 function applySynthesisCompleted(state, event) {
   if (!["completed", "partial"].includes(event.payload.outcome)) {
     fail(
@@ -1045,6 +1107,7 @@ const EVENT_APPLIERS = {
   "general.dimension.assessed": (state, event) =>
     applyDimensionProgress(state, event, true),
   "general.recommendation.recorded": applyRecommendationRecorded,
+  "general.continuation.recorded": applyContinuationRecorded,
   "general.synthesis.completed": applySynthesisCompleted,
   "general.audit.interrupted": applyAuditInterrupted,
 };

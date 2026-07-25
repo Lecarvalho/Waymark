@@ -531,6 +531,8 @@ the journal and project into a usable partial ledger.
 
 **Dependencies:** GA-04 and GA-05.
 
+**Status:** Completed.
+
 ### Context
 
 General requests now select one top-tier auditor and use an incremental

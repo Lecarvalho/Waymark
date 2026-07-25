@@ -53,18 +53,18 @@ selection. Usage is recorded in the separate `general_research` phase.
 `softUsageNoticeTokens`, when present, informs the operator but never stops the
 auditor or determines report validity.
 
-Create the run with the provider-neutral command, then start its semantic
-ledger:
+Create the run with the provider-neutral command, then launch the single
+auditor runner:
 
 ```powershell
 node bin/waymark.mjs --db <journal> run create --input-file <general-run.json>
-node bin/waymark.mjs --db <journal> general start --input-file <general-start.json>
+node bin/waymark.mjs --db <journal> general audit --run <run-id>
 ```
 
-Use the persisted auditor participant ID as the `actor` in
-`general-start.json` and every later general checkpoint. Do not pass a general
-request to `investigation run`, `score calculate`, or another benchmark-only
-command.
+The runner starts the semantic ledger, launches exactly the persisted auditor,
+and gives that process the authenticated checkpoint channel. Do not start the
+ledger manually before invoking the runner. Do not pass a general request to
+`investigation run`, `score calculate`, or another benchmark-only command.
 
 ### Benchmark run contract
 
@@ -132,9 +132,10 @@ efforts, token budgets, service URL, expected journal, mode, or probe text.
 
 The general auditor runs in one fresh, assignment-only provider process against
 the read-only target. The controlling conversation is not audit context. A
-provider-context continuation may resume the same auditor when necessary, but
-it must receive the projected finding ledger and remaining coverage rather than
-unrecorded controlling-session history.
+provider-context continuation launches a fresh process for the same persisted
+auditor role when necessary. It receives the projected finding ledger,
+inspected surfaces, open questions, and remaining coverage rather than raw
+provider history or unrecorded controlling-session context.
 
 Research must cover these repository surfaces:
 
@@ -225,6 +226,14 @@ preserve current checkpoints and request synthesis or a clean partial outcome.
 User cancellation and provider failure retain acknowledged evidence. If
 coverage or synthesis remains incomplete but usable cited evidence exists,
 finish `partial`, not `failed`.
+
+The runner records a semantic `general.continuation.recorded` checkpoint before
+each context continuation. Replayed checkpoints are idempotent. Repeated
+identical searches, repeated command failures, or sustained tool activity
+without new semantic evidence trigger the no-progress circuit breaker. With
+usable cited evidence the outcome is `partial`; without usable report evidence
+the ledger invariant requires `failed`. Neither outcome discards acknowledged
+findings.
 
 ## Benchmark isolated role execution
 

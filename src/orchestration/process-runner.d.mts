@@ -6,6 +6,7 @@ import type {
   RunParticipantInput,
 } from "../domain/audit";
 import type { AuditAssignment } from "./types";
+import type { GeneralAuditorAssignment } from "./general-auditor-template.mjs";
 
 export interface ProcessLaunchSpec {
   command: string;
@@ -23,6 +24,13 @@ export interface ProviderUsage {
   totalTokens: number;
 }
 
+export interface ProviderRolloutUsage {
+  cumulative: ProviderUsage;
+  context: ProviderUsage;
+  contextWindowTokens?: number;
+  contextPercent?: number | null;
+}
+
 export interface NormalizedProviderEvent {
   type: string;
   payload: JsonObject;
@@ -34,7 +42,7 @@ export interface ProcessProviderAdapter {
   usageEnforcement?: "live" | "post_completion";
   supports(participant: RunParticipantInput): boolean;
   createLaunchSpec(
-    assignment: AuditAssignment,
+    assignment: AuditAssignment | GeneralAuditorAssignment,
     prompt: string,
   ): ProcessLaunchSpec;
   createResumeLaunchSpec?(
@@ -54,6 +62,10 @@ export interface ProcessProviderAdapter {
   extractUsage(event: unknown): ProviderUsage | null | undefined;
   extractFinalOutput(event: unknown): JsonValue | undefined;
   normalizeEvent(event: unknown): NormalizedProviderEvent | null | undefined;
+  startUsageMonitor?(input: {
+    providerSessionId: string;
+    onUsage(usage: ProviderRolloutUsage): void;
+  }): () => void;
 }
 
 export class OrchestrationError extends Error {

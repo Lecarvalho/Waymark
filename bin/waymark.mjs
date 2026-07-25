@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import process from "node:process";
 
 import { createCodexProcessAdapter } from "../src/orchestration/codex-adapter.mjs";
+import { runGeneralAudit } from "../src/orchestration/general-audit-runner.mjs";
 import {
   finalizeDraftRecommendations,
   runInvestigationPhase,
@@ -22,6 +23,8 @@ const COMMANDS = {
   "run finish": "Append a terminal event and finish a run",
   "investigation run":
     "Run fresh candidate, independent, and orchestrator provider processes",
+  "general audit":
+    "Run one general auditor with semantic checkpoints and coverage-driven completion",
   "event append": "Append an ordered audit event",
   "event read": "Read ordered events",
   "general start": "Start the semantic ledger for a general audit",
@@ -32,6 +35,7 @@ const COMMANDS = {
   "general progress": "Record progress for a general-audit dimension",
   "general assess": "Record an assessed general-audit dimension",
   "general recommend": "Record a general-audit recommendation",
+  "general continue": "Record a provider-context continuation checkpoint",
   "general synthesize": "Record completed or partial general-audit synthesis",
   "general interrupt": "Record a general-audit interruption",
   "claim submit": "Submit an evidence claim",
@@ -396,6 +400,37 @@ async function execute(store, positionals, options) {
             : {}),
         }),
       };
+    case "general audit":
+      return {
+        command,
+        data: await runGeneralAudit({
+          store,
+          runId: required(options, "run"),
+          adapters: [
+            createCodexProcessAdapter({
+              ...(options["codex-entry"]
+                ? { entryPath: String(options["codex-entry"]) }
+                : {}),
+            }),
+          ],
+          ...(options["soft-usage-notice-tokens"] === undefined
+            ? {}
+            : {
+                softUsageNoticeTokens: optionalNumber(
+                  options,
+                  "soft-usage-notice-tokens",
+                ),
+              }),
+          ...(options["context-continuation-percent"] === undefined
+            ? {}
+            : {
+                contextContinuationPercent: optionalNumber(
+                  options,
+                  "context-continuation-percent",
+                ),
+              }),
+        }),
+      };
     case "general start":
       return {
         command,
@@ -441,6 +476,13 @@ async function execute(store, positionals, options) {
       return {
         command,
         data: store.recordGeneralRecommendation(
+          generalCheckpointInput(options),
+        ),
+      };
+    case "general continue":
+      return {
+        command,
+        data: store.recordGeneralContinuation(
           generalCheckpointInput(options),
         ),
       };

@@ -23,6 +23,7 @@ import {
   normalizeCodexEvent,
 } from "../src/orchestration/codex-adapter.mjs";
 import { startGeneralCheckpointTransport } from "../src/orchestration/checkpoint-transport.mjs";
+import { runGeneralAudit } from "../src/orchestration/general-audit-runner.mjs";
 import {
   finalizeDraftRecommendations,
   runInvestigationPhase,
@@ -58,6 +59,47 @@ function createGeneralTransportRun(store, id = "checkpoint-general") {
     runConditions: { auditMode: "general" },
     protocolVersion: "2.0.0",
     rubricVersion: "general-audit/1.0.0",
+  });
+}
+
+function createGeneralRunnerRun(store, id = "runner-general") {
+  return store.createRun({
+    id,
+    targetRepositoryPath: repositoryRoot,
+    repositoryIdentity: "waymark-general-runner-fixture",
+    commitSha: "fedcba9876543210",
+    task: "Assess broad repository navigability.",
+    participants: [
+      {
+        id: `${id}-auditor`,
+        role: "auditor",
+        provider: "codex",
+        model: "fake-general-auditor",
+      },
+    ],
+    toolPolicy: {
+      target: "read-only",
+      allowed: ["read files"],
+      forbidden: ["editing target files"],
+    },
+    runConditions: {
+      auditMode: "general",
+      auditorReasoningEffort: "high",
+      tokenPolicy: "unbounded_by_waymark",
+      softUsageNoticeTokens: 100_000,
+    },
+    protocolVersion: "general-audit-contract/1.0.0",
+    rubricVersion: "waymark-navigability/1.0.0",
+  });
+}
+
+function generalFakeAdapter(mode) {
+  return createCodexProcessAdapter({
+    entryPath: fakeProviderPath,
+    environment: {
+      WAYMARK_FAKE_MODE: mode,
+      WAYMARK_FAKE_ROLE: "auditor",
+    },
   });
 }
 
@@ -313,6 +355,215 @@ test("provider output schemas stay within the strict structured-output subset", 
       }
     };
     inspect(schema);
+  }
+});
+
+test("the general runner launches one auditor, streams findings, and completes from coverage", async (t) => {
+  const directory = mkdtempSync(join(tmpdir(), "waymark-general-runner-"));
+  const store = new AuditStore({ databasePath: join(directory, "audit.sqlite") });
+  t.after(() => store.close());
+  const run = createGeneralRunnerRun(store);
+
+  const result = await runGeneralAudit({
+    store,
+    runId: run.id,
+    adapters: [generalFakeAdapter("general-completed")],
+  });
+
+  assert.equal(result.status, "completed");
+  assert.equal(result.attempts.length, 1);
+  const report = store.readReport(run.id);
+  assert.equal(report.run.status, "completed");
+  assert.equal(report.generalAudit.auditorAssessedResult !== null, true);
+  assert.equal(report.generalAudit.behaviorPathOrder.length, 2);
+  assert.equal(report.aggregates.tokensByPhase.general_research, 200_000);
+  assert.equal(
+    report.events.some(({ type }) => type === "usage.soft_notice"),
+    true,
+  );
+  assert.equal(
+    report.events.some(({ type }) => type.startsWith("budget.")),
+    false,
+  );
+  assert.deepEqual(
+    report.run.participants.map(({ role }) => role),
+    ["auditor"],
+  );
+});
+
+test("general provider failure preserves cited findings as a partial report", async (t) => {
+  const directory = mkdtempSync(join(tmpdir(), "waymark-general-partial-"));
+  const store = new AuditStore({ databasePath: join(directory, "audit.sqlite") });
+  t.after(() => store.close());
+  const run = createGeneralRunnerRun(store, "runner-general-partial");
+
+  const result = await runGeneralAudit({
+    store,
+    runId: run.id,
+    adapters: [generalFakeAdapter("general-partial-crash")],
+  });
+
+  assert.equal(result.status, "partial");
+  const report = store.readReport(run.id);
+  assert.equal(report.generalAudit.partialReport.available, true);
+  assert.equal(report.generalAudit.findingOrder.length, 1);
+  assert.match(report.generalAudit.interruption.reason, /exit 7/);
+});
+
+test("general provider failure before usable evidence is failed", async (t) => {
+  const directory = mkdtempSync(join(tmpdir(), "waymark-general-failed-"));
+  const store = new AuditStore({ databasePath: join(directory, "audit.sqlite") });
+  t.after(() => store.close());
+  const run = createGeneralRunnerRun(store, "runner-general-failed");
+
+  const result = await runGeneralAudit({
+    store,
+    runId: run.id,
+    adapters: [generalFakeAdapter("failure")],
+  });
+
+  assert.equal(result.status, "failed");
+  assert.equal(store.readReport(run.id).generalAudit.partialReport.available, false);
+});
+
+test("general cancellation preserves the ledger and uses cancelled", async (t) => {
+  const directory = mkdtempSync(join(tmpdir(), "waymark-general-cancelled-"));
+  const store = new AuditStore({ databasePath: join(directory, "audit.sqlite") });
+  t.after(() => store.close());
+  const run = createGeneralRunnerRun(store, "runner-general-cancelled");
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 100);
+  t.after(() => clearTimeout(timer));
+
+  const result = await runGeneralAudit({
+    store,
+    runId: run.id,
+    adapters: [generalFakeAdapter("await-interrupt")],
+    signal: controller.signal,
+    killGraceMs: 50,
+  });
+
+  assert.equal(result.status, "cancelled");
+  assert.equal(store.readRun(run.id).status, "cancelled");
+});
+
+test("general context continuation keeps one auditor identity and projected ledger", async (t) => {
+  const directory = mkdtempSync(join(tmpdir(), "waymark-general-continuation-"));
+  const store = new AuditStore({ databasePath: join(directory, "audit.sqlite") });
+  t.after(() => store.close());
+  const run = createGeneralRunnerRun(store, "runner-general-continuation");
+  const adapter = generalFakeAdapter("general-continuation");
+  adapter.startUsageMonitor = ({ onUsage }) => {
+    onUsage({
+      cumulative: { totalTokens: 2_000 },
+      context: { totalTokens: 900 },
+      contextWindowTokens: 1_000,
+      contextPercent: 90,
+    });
+    return () => {};
+  };
+
+  const result = await runGeneralAudit({
+    store,
+    runId: run.id,
+    adapters: [adapter],
+    contextContinuationPercent: 85,
+    maxContinuations: 1,
+    killGraceMs: 50,
+  });
+
+  assert.equal(result.status, "partial");
+  assert.equal(result.attempts.length, 2);
+  const report = store.readReport(run.id);
+  assert.equal(report.generalAudit.continuations.length, 1);
+  assert.deepEqual(
+    report.run.participants.map(({ id }) => id),
+    [run.participants[0].id],
+  );
+  assert.equal(report.generalAudit.findingOrder.length, 1);
+});
+
+test("general no-progress protection returns a partial report without discarding findings", async (t) => {
+  const directory = mkdtempSync(join(tmpdir(), "waymark-general-no-progress-"));
+  const store = new AuditStore({ databasePath: join(directory, "audit.sqlite") });
+  t.after(() => store.close());
+  const run = createGeneralRunnerRun(store, "runner-general-no-progress");
+
+  const result = await runGeneralAudit({
+    store,
+    runId: run.id,
+    adapters: [generalFakeAdapter("general-no-progress")],
+    noProgressPolicy: {
+      identicalSearchLimit: 3,
+      repeatedFailureLimit: 3,
+      toolEventsWithoutEvidenceLimit: 50,
+    },
+    killGraceMs: 50,
+  });
+
+  assert.equal(result.status, "partial");
+  const report = store.readReport(run.id);
+  assert.equal(report.generalAudit.findingOrder.length, 1);
+  assert.match(
+    report.generalAudit.interruption.reason,
+    /repeated_identical_searches/,
+  );
+});
+
+test("the CLI routes a general run only through the single-auditor runner", () => {
+  const directory = mkdtempSync(join(tmpdir(), "waymark-cli-general-"));
+  const databasePath = join(directory, "audit.sqlite");
+  const store = new AuditStore({ databasePath });
+  const run = createGeneralRunnerRun(store, "cli-general-run");
+  store.close();
+
+  const cli = spawnSync(
+    process.execPath,
+    [
+      "bin/waymark.mjs",
+      "--db",
+      databasePath,
+      "general",
+      "audit",
+      "--run",
+      run.id,
+      "--codex-entry",
+      fakeProviderPath,
+    ],
+    {
+      cwd: repositoryRoot,
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        WAYMARK_FAKE_MODE: "general-completed",
+        WAYMARK_FAKE_ROLE: "auditor",
+      },
+    },
+  );
+
+  assert.equal(cli.status, 0, `${cli.stderr}\n${cli.stdout}`);
+  const output = JSON.parse(cli.stdout);
+  assert.equal(output.ok, true);
+  assert.equal(output.command, "general audit");
+  assert.equal(output.data.status, "completed");
+  const reopened = new AuditStore({ databasePath });
+  try {
+    const report = reopened.readReport(run.id);
+    assert.equal(report.run.status, "completed");
+    assert.deepEqual(
+      report.run.participants.map(({ role }) => role),
+      ["auditor"],
+    );
+    assert.equal(
+      report.events.some(({ type }) => type === "investigation.started"),
+      false,
+    );
+    assert.equal(
+      report.events.some(({ type }) => type === "orchestration.started"),
+      false,
+    );
+  } finally {
+    reopened.close();
   }
 });
 

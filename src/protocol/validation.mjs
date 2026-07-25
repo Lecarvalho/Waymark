@@ -580,6 +580,42 @@ function validateGeneralPayload(type, value, dependencies) {
         ),
       };
     }
+    case "general.continuation.recorded": {
+      const payload = strictObject(value, path, [
+        "continuationId",
+        "providerSessionId",
+        "reason",
+        "inspectedSurfaces",
+        "openQuestions",
+        "remainingDimensionIds",
+      ]);
+      return {
+        continuationId: string(
+          payload.continuationId,
+          `${path}.continuationId`,
+        ),
+        providerSessionId: string(
+          payload.providerSessionId,
+          `${path}.providerSessionId`,
+        ),
+        reason: string(payload.reason, `${path}.reason`),
+        inspectedSurfaces: exactStringArray(
+          payload.inspectedSurfaces,
+          `${path}.inspectedSurfaces`,
+          GENERAL_SURFACES,
+        ),
+        openQuestions: stringArray(
+          payload.openQuestions,
+          `${path}.openQuestions`,
+          { maximum: 100 },
+        ),
+        remainingDimensionIds: exactStringArray(
+          payload.remainingDimensionIds,
+          `${path}.remainingDimensionIds`,
+          GENERAL_DIMENSIONS,
+        ),
+      };
+    }
     case "general.synthesis.completed": {
       const payload = strictObject(value, path, [
         "outcome",

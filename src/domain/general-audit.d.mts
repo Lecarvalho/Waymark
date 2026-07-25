@@ -7,6 +7,7 @@ export const GENERAL_AUDIT_EVENT_TYPES: readonly [
   "general.dimension.progress",
   "general.dimension.assessed",
   "general.recommendation.recorded",
+  "general.continuation.recorded",
   "general.synthesis.completed",
   "general.audit.interrupted",
 ];
@@ -216,6 +217,17 @@ export interface GeneralSurfaceInspection {
   actor: string;
 }
 
+export interface GeneralContinuation {
+  continuationId: string;
+  providerSessionId: string;
+  reason: string;
+  inspectedSurfaces: readonly GeneralAuditSurface[];
+  openQuestions: readonly string[];
+  remainingDimensionIds: readonly WaymarkDimensionId[];
+  recordedAt: string;
+  actor: string;
+}
+
 export interface GeneralAuditEventBase<
   TType extends GeneralAuditEventType,
   TPayload,
@@ -285,6 +297,11 @@ export type GeneralRecommendationRecordedEvent = GeneralAuditEventBase<
   Omit<GeneralRecommendation, "recordedAt" | "actor">
 >;
 
+export type GeneralContinuationRecordedEvent = GeneralAuditEventBase<
+  "general.continuation.recorded",
+  Omit<GeneralContinuation, "recordedAt" | "actor">
+>;
+
 export type GeneralSynthesisCompletedEvent = GeneralAuditEventBase<
   "general.synthesis.completed",
   {
@@ -311,6 +328,7 @@ export type GeneralAuditEvent =
   | GeneralDimensionProgressEvent
   | GeneralDimensionAssessedEvent
   | GeneralRecommendationRecordedEvent
+  | GeneralContinuationRecordedEvent
   | GeneralSynthesisCompletedEvent
   | GeneralAuditInterruptedEvent;
 
@@ -331,6 +349,7 @@ export interface GeneralAuditReadModel {
   dimensions: Record<WaymarkDimensionId, GeneralDimensionAssessment>;
   evidenceCoverage: Record<WaymarkDimensionId, DimensionEvidenceCoverage>;
   recommendations: readonly GeneralRecommendation[];
+  continuations: readonly GeneralContinuation[];
   assessedWeight: number;
   weightedPoints: number;
   auditorAssessedResult: number | null;
