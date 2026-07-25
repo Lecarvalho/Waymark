@@ -1,0 +1,210 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "summary",
+    "findings",
+    "practiceAssessments",
+    "probeResult",
+    "deadEnds",
+    "instructions",
+    "verificationWorkflows"
+  ],
+  "properties": {
+    "summary": {
+      "type": "string"
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "dimension",
+          "subject",
+          "assertion",
+          "friction",
+          "confidence",
+          "criticality",
+          "citations",
+          "practiceIds"
+        ],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": ["navigation_fact"],
+            "description": "An atomic, cited assertion about repository navigability at the target commit. Probe-feature behavior belongs only in probeResult."
+          },
+          "dimension": {
+            "type": "string",
+            "enum": [
+              "discoveryEfficiency",
+              "ownershipClarity",
+              "dependencyClarity",
+              "changeSurfaceRecall",
+              "verificationDiscoverability",
+              "instructionQuality"
+            ],
+            "description": "The Waymark navigability dimension directly evidenced by this finding."
+          },
+          "subject": {
+            "type": "string"
+          },
+          "assertion": {
+            "type": "string",
+            "description": "One atomic fact about discoverability, ownership clarity, dependency clarity, change-surface visibility, verification discoverability, or instruction quality."
+          },
+          "friction": {
+            "type": "string",
+            "description": "The concrete extra navigation work caused by this repository condition, such as searches, file hops, ambiguity, or an undiscoverable verification path."
+          },
+          "confidence": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "criticality": {
+            "type": "string",
+            "enum": ["critical", "high", "medium", "low"]
+          },
+          "citations": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["path", "startLine", "endLine", "symbol"],
+              "properties": {
+                "path": {
+                  "type": "string"
+                },
+                "startLine": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "endLine": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "symbol": {
+                  "type": ["string", "null"]
+                }
+              }
+            }
+          },
+          "practiceIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": ["01", "02", "03", "04", "05", "06", "07"]
+            },
+            "description": "Practice Guide principles directly evidenced by this finding. Required by the general-audit contract and optional in focused modes."
+          }
+        }
+      }
+    },
+    "practiceAssessments": {
+      "type": "array",
+      "description": "Exactly seven ordered assessments in general mode; an empty array in task-specific and system-explanation modes.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "practiceId",
+          "status",
+          "summary",
+          "findingIndexes",
+          "limitations"
+        ],
+        "properties": {
+          "practiceId": {
+            "type": "string",
+            "enum": ["01", "02", "03", "04", "05", "06", "07"]
+          },
+          "status": {
+            "type": "string",
+            "enum": ["strong", "mixed", "weak", "not_assessed"]
+          },
+          "summary": {
+            "type": "string"
+          },
+          "findingIndexes": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "description": "Zero-based indexes into findings that support this assessment."
+          },
+          "limitations": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "probeResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "summary", "citations"],
+      "description": "Validator-only evidence that the navigation probe was understood. This must not become recommendation evidence.",
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": ["adequate", "partial", "inadequate"]
+        },
+        "summary": {
+          "type": "string",
+          "description": "A concise task-understanding result for validation, not implementation advice."
+        },
+        "citations": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["path", "startLine", "endLine", "symbol"],
+            "properties": {
+              "path": {
+                "type": "string"
+              },
+              "startLine": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "endLine": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "symbol": {
+                "type": ["string", "null"]
+              }
+            }
+          }
+        }
+      }
+    },
+    "deadEnds": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "instructions": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "verificationWorkflows": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  }
+}

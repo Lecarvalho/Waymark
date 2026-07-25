@@ -10,7 +10,37 @@ export type WaymarkRunSnapshot = {
     path: string;
     commit: string;
   };
+  name?: string;
   task: string;
+  auditMode?: "general" | "task_specific" | "system_explanation";
+  calibration: {
+    eligible: boolean;
+    status:
+      | "eligible"
+      | "eligible_with_resource_overrun"
+      | "eligible_with_partial_budget_report"
+      | "diagnostic_only";
+    issues: Array<{
+      type: "policy_violation" | "evidence_degraded";
+      actor: string | null;
+      reason: string;
+      phase: string | null;
+      observedTokens: null;
+      hardLimitTokens: null;
+      observedCommands: number | null;
+      declaredLimit: number | null;
+    }>;
+    resourceSignals: Array<{
+      type: "hard_token_limit_exceeded" | "partial_budget_report";
+      actor: string | null;
+      reason: string;
+      phase: string | null;
+      observedTokens: number | null;
+      hardLimitTokens: number | null;
+      observedCommands: number | null;
+      declaredLimit: number | null;
+    }>;
+  };
   phase: string;
   progress: number;
   startedAt: string;
@@ -30,6 +60,7 @@ export type WaymarkRunSnapshot = {
     tokenSource:
       | "provider_reported"
       | "measured"
+      | "measured_live"
       | "estimated"
       | "mixed"
       | null;
@@ -47,12 +78,83 @@ export type WaymarkRunSnapshot = {
       disposition: string | null;
     } | null;
   }>;
+  practiceFindings: Array<{
+    dimensionKey: string;
+    dimensionLabel: string;
+    score: number;
+    weight: number;
+    practices: Array<{
+      id: string;
+      title: string;
+    }>;
+    measured: string;
+    issue: string;
+    action: string;
+    tokenMechanism: string;
+    maximumScoreHeadroom: number;
+    headroomStatus: "maximum_not_projection";
+  }>;
+  practiceProfile?: {
+    available: boolean;
+    schemaVersion: string | null;
+    suite: {
+      id?: string;
+      version?: string;
+      name?: string;
+    } | null;
+    assessedCount: number;
+    totalCount: number;
+    items: Array<{
+      practiceId: string;
+      title: string;
+      status: "strong" | "mixed" | "weak" | "not_assessed";
+      assessment: string;
+      tokenImpact: string;
+      limitations: string[];
+      evidence: Array<{
+        assertion: string;
+        path: string;
+        startLine: number | null;
+        endLine: number | null;
+        verdict: string;
+        method: string;
+      }>;
+      recommendations: Array<{
+        id: string;
+        priority: string;
+        title: string;
+      }>;
+    }>;
+    reason: string | null;
+  };
   recommendations: Array<{
+    id: string;
     priority: string;
     title: string;
     description: string;
-    gain: string;
-    cost: string;
+    problem: string | null;
+    change: string | null;
+    repositoryChanges: string[];
+    practiceIds: string[];
+    affectedDimensions: string[];
+    tokenMechanism: string | null;
+    validationChecks: string[];
+    limitations: string[];
+    evidence: Array<{
+      claimId: string;
+      assertion: string;
+      path: string;
+      startLine: number | null;
+      endLine: number | null;
+      verdict: string;
+      method: string;
+    }>;
+    projectedPoints: number | null;
+    projectionStatus: "modeled" | "unavailable";
+    projectionReason: string;
+    effort: string | null;
+    effortReason: string | null;
+    source: "evidence_linked_addendum" | "legacy_event";
   }>;
   tokenUsage: {
     overall: TokenBreakdown;
@@ -74,6 +176,25 @@ export type WaymarkRunSnapshot = {
       hardLimitExceeded: boolean | null;
       efficiencyScore: number | null;
       eligible: boolean | null;
+      scoreFormula: string;
+      targetBasis: "run_declared" | "rubric_default" | "unavailable";
+      measurementScope: string;
+      measurementMethod: string | null;
+      isForecast: false;
+    };
+    candidateSession: {
+      completedInSingleSession: boolean;
+      maximumContextTokens: number | null;
+      effectiveContextTokens: number | null;
+      effectiveContextPercent: number | null;
+      currentContextTokens: number | null;
+      currentContextPercent: number | null;
+      peakContextTokens: number | null;
+      peakContextSource: "provider_session_log" | "unavailable";
+      processedTokens: number | null;
+      processedSessionEquivalents: number | null;
+      capabilitySource: string;
+      telemetryReason: string;
     };
     monetaryCost: {
       status: "unavailable";
@@ -98,11 +219,16 @@ export type WaymarkRunSnapshot = {
     candidateTokenSource:
       | "provider_reported"
       | "measured"
+      | "measured_live"
       | "estimated"
       | "mixed"
       | null;
     claimsChallenged: number;
     totalClaims: number;
+    verifiedClaims: number;
+    contradictedClaims: number;
+    unverifiedClaims: number;
+    adjudicatedClaims: number;
     openChallenges: number;
     candidateConfidence: number;
     verifiedAccuracy: number;

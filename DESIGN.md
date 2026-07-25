@@ -58,10 +58,29 @@ borders, spacing, and type—not stacked shadows.
 - Tables and evidence lists: aligned columns and row dividers
 - Status: plain text or compact 4 px labels; reserve pills for true filters
 - Progress: linear and labeled; avoid decorative circular meters
+- Audit execution is mode-aware. Benchmark modes use one consolidated stage
+  list for candidate research, independent research, orchestration,
+  deterministic verification, and scoring. General mode shows one auditor
+  moving through repository survey, behavior-path tracing, dimension
+  assessment, and synthesis. Do not display benchmark roles or stages in a
+  general audit.
 - Buttons: visible hover and keyboard focus, restrained transitions
 - Report sections: tabs expose Progress, Evidence, and Recommendations one at a
   time
+- Audit request preparation: a focused modal with progressive disclosure,
+  dependent provider/model/reasoning selects, a read-only prompt preview, and
+  one explicit copy action
 - Practice comparisons: accordion rows expose one principle at a time
+- General-audit reports: show an incremental finding ledger, at least two
+  representative behavior paths when the repository contains them, a
+  seven-row Practice Guide profile, and six fixed-weight dimension
+  assessments using the weights in the product contract. Expanded views expose
+  source/test citations, navigation cost, revision history, linked
+  improvements, and coverage limitations.
+- General result status: label a complete weighted result
+  `Auditor-assessed`. Until all six dimensions have adequate evidence, show
+  assessed weight and `not_assessed` dimensions without normalizing the partial
+  result or drawing missing scores as zero.
 - Large code comparisons: switch between alternatives instead of rendering both
   simultaneously
 
@@ -76,13 +95,35 @@ Do:
 - Lead with the active task, current audit phase, evidence, and reliability.
 - Keep token usage, model identity, verification coverage, and mock/live status
   visible.
-- Show processed, cached-input, uncached-input, and output tokens separately;
-  show budget overruns beside the candidate measurement, not in secondary copy.
+- Show processed, cached-input, uncached-input, and output tokens separately.
+  In benchmark modes, show budget overruns beside the candidate measurement.
+  In general mode, show measured auditor usage and soft notices without a hard
+  limit or token-efficiency score.
 - Never infer currency cost without a versioned provider pricing snapshot.
 - Use lime, amber, red, and blue only for their defined meanings.
 - Prefer dividers and alignment over extra containers.
 - Make every state readable without depending on color alone.
 - Use progressive disclosure for secondary evidence and reference material.
+- Keep “Prepare audit request” visually secondary to the active audit. Opening
+  it must not obscure whether an existing run is active.
+- Use a keyboard-accessible modal with an explicit title, close action, initial
+  focus, validation messages, and focus restoration.
+- Present general findings while research is active and label provisional,
+  confirmed, reframed, contradicted, retracted, and unresolved states in text,
+  not color alone. Preserve earlier revisions in the visible history.
+- Distinguish `partial`, `failed`, and `cancelled`. A partial or cancelled
+  general run keeps usable cited findings visible; a failed run says that no
+  usable report evidence was recovered.
+- Separate favorable evidence, navigation friction, evidence coverage,
+  auditor confidence, report completeness, and token usage.
+- Make source or test support visible for code-structure, ownership,
+  dependency, behavior-organization, naming, and test-mirroring conclusions.
+  Documentation-only coverage must remain visibly insufficient.
+- Treat soft usage notices, no-progress protection, user cancellation, and
+  provider-context continuation as calm operational state, not benchmark
+  failure or urgency.
+- Label the final action “Copy audit request”; never imply that copying started
+  or created an audit.
 
 Don’t:
 
@@ -92,4 +133,15 @@ Don’t:
 - Repeat tiny uppercase section labels.
 - Use oversized full-sentence headlines inside operational views.
 - Show every report section or every guide example at the same time.
-- Add prompt inputs or a start-audit action to the observer interface.
+- Present a task-specific probe result as though it assessed the whole
+  repository against the Practice Guide.
+- Present a general audit as candidate performance, deterministic scoring, or a
+  versioned benchmark task suite.
+- Hide an incomplete general report because final synthesis did not complete.
+- Show an overall general result when any required dimension is
+  `not_assessed`.
+- Add chat controls, model invocation, or a start-audit action to the observer
+  interface.
+- Hardcode model names or reasoning efforts in the modal.
+- Put the full generated prompt into the history table or active-audit
+  hierarchy.

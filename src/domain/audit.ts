@@ -75,6 +75,7 @@ export interface CreateRunInput {
   targetRepositoryPath: string;
   repositoryIdentity: string;
   commitSha: string;
+  name?: string | null;
   task: string;
   participants: RunParticipantInput[];
   toolPolicy: JsonObject;
@@ -89,6 +90,7 @@ export interface AuditRun {
   targetRepositoryPath: string;
   repositoryIdentity: string;
   commitSha: string;
+  name: string | null;
   task: string;
   toolPolicy: JsonObject;
   runConditions: JsonObject;

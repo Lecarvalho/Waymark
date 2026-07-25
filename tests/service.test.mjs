@@ -15,35 +15,35 @@ test("snapshot explains authoritative dimensions and qualified claims", () => {
   const scoreInput = {
     observations: {
       discovery: {
-        relevantLocationsFound: 1,
-        relevantLocationsExpected: 1,
-        filesOpened: 1,
-        deadEnds: 0,
+        relevantLocationsFound: 4,
+        relevantLocationsExpected: 5,
+        filesOpened: 6,
+        deadEnds: 1,
       },
       ownership: {
-        correctAnswers: 1,
-        totalAnswers: 1,
+        correctAnswers: 2,
+        totalAnswers: 3,
         ambiguousBoundaries: 0,
       },
       dependencies: {
-        requiredEdgesFound: 1,
-        requiredEdgesExpected: 1,
-        hiddenEdgesEncountered: 0,
+        requiredEdgesFound: 3,
+        requiredEdgesExpected: 4,
+        hiddenEdgesEncountered: 1,
       },
       changeSurface: {
-        requiredConsumersFound: 1,
-        requiredConsumersExpected: 1,
+        requiredConsumersFound: 3,
+        requiredConsumersExpected: 4,
         falsePositiveConsumers: 0,
       },
       verification: {
         workflowsFound: 1,
-        workflowsExpected: 1,
+        workflowsExpected: 2,
         successfulProbes: 1,
         attemptedProbes: 1,
       },
       instructions: {
         applicableRulesFound: 1,
-        applicableRulesExpected: 1,
+        applicableRulesExpected: 2,
         conflictsEncountered: 0,
       },
     },
@@ -133,6 +133,46 @@ test("snapshot explains authoritative dimensions and qualified claims", () => {
         type: "run.finished",
         payload: { status: "completed", summary: {} },
       },
+      {
+        sequence: 6,
+        actor: "waymark:reporter",
+        type: "report.recommendations",
+        payload: {
+          schemaVersion:
+            "waymark-navigation-recommendations/1.0.0",
+          scope: "repository_navigation",
+          method: "post_run_evidence_review",
+          recommendations: [
+            {
+              id: "recommendation-verified",
+              priority: "P0",
+              title: "Expose the upload ownership path",
+              problem:
+                "The probe required repeated searches across layers.",
+              change:
+                "Add a feature map beside the owning application command.",
+              repositoryChanges: [
+                "Link the entry point, owner, consumers, and focused tests.",
+                "Link paths cited by claim 397ac7cd-0764-4657-9cb6-090f055cae3c.",
+              ],
+              claimIds: ["claim-1"],
+              practiceIds: ["01", "02"],
+              affectedDimensions: [
+                "ownershipClarity",
+                "dependencyClarity",
+              ],
+              tokenMechanism:
+                "One owner removes repeated cross-layer searches.",
+              validationChecks: [
+                "A fresh agent finds the owner without a global search.",
+                "Resolve verification 4b96299d-acde-425b-b796-10676911b2c2.",
+              ],
+              limitations: ["Point impact is not modeled."],
+              effort: null,
+            },
+          ],
+        },
+      },
     ],
     claims: [
       {
@@ -146,6 +186,7 @@ test("snapshot explains authoritative dimensions and qualified claims", () => {
       {
         claimId: "claim-1",
         verdict: "verified",
+        method: "executable_probe",
       },
     ],
     tokens: [
@@ -178,10 +219,78 @@ test("snapshot explains authoritative dimensions and qualified claims", () => {
   );
   assert.equal(
     snapshot.recommendations[0].description,
-    "Link ingress, hashing, cleanup, and charging.",
+    "The probe required repeated searches across layers.",
+  );
+  assert.equal(snapshot.recommendations[0].source, "evidence_linked_addendum");
+  assert.equal(
+    snapshot.recommendations[0].change,
+    "Add a feature map beside the owning application command.",
+  );
+  assert.deepEqual(snapshot.recommendations[0].repositoryChanges, [
+    "Link the entry point, owner, consumers, and focused tests.",
+  ]);
+  assert.deepEqual(snapshot.recommendations[0].validationChecks, [
+    "A fresh agent finds the owner without a global search.",
+  ]);
+  assert.equal(snapshot.recommendations[0].evidence.length, 1);
+  assert.deepEqual(snapshot.recommendations[0].evidence[0], {
+    claimId: "claim-1",
+    assertion: "The upload path retains a whole-file array.",
+    path: "src/Upload.cs",
+    startLine: 12,
+    endLine: null,
+    verdict: "verified",
+    method: "executable_probe",
+  });
+  assert.equal(snapshot.recommendations[0].projectedPoints, null);
+  assert.equal(snapshot.recommendations[0].projectionStatus, "unavailable");
+  assert.match(
+    snapshot.recommendations[0].projectionReason,
+    /versioned deterministic impact model/,
+  );
+  assert.equal(snapshot.recommendations[0].effort, null);
+  assert.deepEqual(
+    {
+      verifiedClaims: snapshot.metrics.verifiedClaims,
+      contradictedClaims: snapshot.metrics.contradictedClaims,
+      unverifiedClaims: snapshot.metrics.unverifiedClaims,
+      adjudicatedClaims: snapshot.metrics.adjudicatedClaims,
+    },
+    {
+      verifiedClaims: 1,
+      contradictedClaims: 0,
+      unverifiedClaims: 0,
+      adjudicatedClaims: 1,
+    },
+  );
+  assert.equal(snapshot.practiceFindings.length, 6);
+  assert.ok(
+    snapshot.practiceFindings.some(
+      (finding) =>
+        finding.dimensionKey === "discoveryEfficiency" &&
+        finding.measured ===
+          "4/5 relevant locations found; 6 files opened; 1 dead end." &&
+        finding.practices.some(
+          (practice) =>
+            practice.id === "03" &&
+            practice.title === "Name files for the concept they own",
+        ),
+    ),
+  );
+  assert.ok(
+    snapshot.practiceFindings.every(
+      (finding) =>
+        finding.maximumScoreHeadroom > 0 &&
+        finding.headroomStatus === "maximum_not_projection",
+    ),
   );
   assert.equal(snapshot.tokenUsage.overall.cachedInputTokens, null);
   assert.equal(snapshot.tokenUsage.overall.uncachedInputTokens, null);
+  assert.equal(
+    snapshot.tokenUsage.candidateBudget.scoreFormula,
+    "min(100, targetTokens / max(observedTokens, targetTokens) × 100)",
+  );
+  assert.equal(snapshot.tokenUsage.candidateBudget.isForecast, false);
 });
 
 test("local service exposes a normalized latest-run snapshot", async (t) => {
@@ -192,6 +301,7 @@ test("local service exposes a normalized latest-run snapshot", async (t) => {
     targetRepositoryPath: "C:/repos/example",
     repositoryIdentity: "example",
     commitSha: "1234567890abcdef",
+    name: "Partial refund change surface",
     task: "Add partial refunds",
     participants: [
       { role: "candidate", provider: "openai", model: "candidate-model" },
@@ -249,6 +359,7 @@ test("local service exposes a normalized latest-run snapshot", async (t) => {
   assert.equal(snapshot.id, run.id);
   assert.equal(snapshot.repository.name, "example");
   assert.equal(snapshot.repository.commit, "1234567890ab");
+  assert.equal(snapshot.name, "Partial refund change surface");
   assert.equal(snapshot.phase, "Cross-examination");
   assert.equal(snapshot.progress, 68);
   assert.equal(snapshot.latestEvent, "phase.changed");
@@ -281,6 +392,12 @@ test("local service exposes a normalized latest-run snapshot", async (t) => {
     hardLimitExceeded: true,
     efficiencyScore: null,
     eligible: null,
+    scoreFormula:
+      "min(100, targetTokens / max(observedTokens, targetTokens) × 100)",
+    targetBasis: "run_declared",
+    measurementScope: "Candidate-navigation phase records only",
+    measurementMethod: "Provider-reported usage",
+    isForecast: false,
   });
   assert.equal(
     snapshot.tokenUsage.byPhase.find(
@@ -378,6 +495,82 @@ test("local service projects failed and interrupted participant states", async (
   assert.equal(
     snapshot.participants.find(({ role }) => role === "orchestrator").status,
     "Not run",
+  );
+});
+
+test("terminal unverified verdicts count as adjudicated and complete verifier work", () => {
+  const directory = mkdtempSync(join(tmpdir(), "waymark-adjudicated-"));
+  const databasePath = join(directory, "waymark.sqlite");
+  const store = new AuditStore({ databasePath });
+  const run = store.createRun({
+    targetRepositoryPath: "C:/repos/example",
+    repositoryIdentity: "example",
+    commitSha: "1234567890abcdef",
+    task: "Trace a bounded upload",
+    participants: [
+      { role: "candidate", provider: "openai", model: "candidate-model" },
+      { role: "verifier", provider: "openai", model: "verifier-model" },
+      { role: "orchestrator", provider: "openai", model: "orchestrator-model" },
+    ],
+    toolPolicy: { target: "read-only" },
+    runConditions: { agentHost: "Codex" },
+    protocolVersion: "1.0.0",
+    rubricVersion: "waymark-navigability/1.0.0",
+  });
+  for (const [index, assertion] of [
+    "The upload command is owned by src/upload.ts.",
+    "The retry limit is configured in src/config.ts.",
+  ].entries()) {
+    const claim = store.submitClaim({
+      id: `claim-${index + 1}`,
+      runId: run.id,
+      subject: `fact ${index + 1}`,
+      assertion,
+      claimant: "candidate",
+      citations: [
+        {
+          path: index === 0 ? "src/upload.ts" : "src/config.ts",
+          startLine: 1,
+          endLine: 2,
+        },
+      ],
+      confidence: 0.8,
+      criticality: "high",
+    });
+    store.recordVerification({
+      id: `verification-${index + 1}`,
+      runId: run.id,
+      claimId: claim.id,
+      verifier: "verifier",
+      method: index === 0 ? "static_inspection" : "none",
+      verdict: index === 0 ? "verified" : "unverified",
+      evidence: {
+        citationStatus: "valid",
+        independentAssessment: "not_checked",
+      },
+    });
+  }
+  store.appendEvent({
+    runId: run.id,
+    actor: "verifier",
+    type: "policy.violation",
+    payload: { reason: "later_report_failure" },
+  });
+  store.finishRun(run.id, {
+    status: "failed",
+    summary: { reason: "report_finalization_failed" },
+  });
+
+  const snapshot = toRunSnapshot(store.readReport(run.id), 1);
+  store.close();
+
+  assert.equal(snapshot.progress, 85);
+  assert.equal(snapshot.metrics.verifiedClaims, 1);
+  assert.equal(snapshot.metrics.unverifiedClaims, 1);
+  assert.equal(snapshot.metrics.adjudicatedClaims, 2);
+  assert.equal(
+    snapshot.participants.find(({ role }) => role === "verifier").status,
+    "Complete",
   );
 });
 

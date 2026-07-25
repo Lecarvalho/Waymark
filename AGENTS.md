@@ -16,10 +16,17 @@ coding agents navigate a target repository.
     suite and does not require a user-supplied feature request.
   - A task-specific audit uses a realistic engineering feature request supplied
     for that repository.
+- A task-specific feature request is only a navigation probe. The report must
+  not advise the user how to implement that feature.
 - A general repository audit aggregates navigability evidence from its task
   suite; it is not a general code-quality assessment.
+- Report repository-specific changes that improve agent navigability,
+  discoverability, ownership clarity, dependency clarity, verification
+  discoverability, and token efficiency.
 - Waymark observes progress, presents evidence, and preserves reports.
-- Do not add prompt inputs, chat controls, or a "start audit" action to the UI.
+- Waymark may provide a preparation-only modal that generates a copyable audit
+  request from user selections. It must not invoke a model, create a run, write
+  to the audit journal, or masquerade as a "start audit" action.
 - Waymark measures AI coding navigability only. It does not score security,
   correctness, maintainability, accessibility, or general software quality.
 
@@ -129,6 +136,8 @@ React observer interface
 - UI components and the local service must not invoke models or calculate
   authoritative scores.
 - Agent-provider details belong behind adapters.
+- Expose provider, model, and reasoning-effort choices through read-only adapter
+  capability declarations. Do not hardcode them in React components.
 - Persist normalized domain records, not provider-specific response objects.
 - Scoring formulas must be versioned, reproducible, and independent from
   report prose.
@@ -162,9 +171,12 @@ must remain explainable from stored run data.
   red means contradicted or failed; blue identifies candidate measurements.
 - Keep the first viewport focused on the active audit, not generic dashboard
   navigation.
-- The dashboard is observer-only. Browsing history, pausing a visual stream,
-  and inspecting evidence are acceptable; initiating or prompting an audit is
-  not.
+- The dashboard remains observer-only. Browsing history, pausing a visual
+  stream, inspecting evidence, and preparing a copyable audit request are
+  acceptable. Creating a run or invoking an audited role from the UI is not.
+- Keep “Prepare audit request” secondary to the active audit and implement it
+  as an accessible modal. Its output must be self-contained, visibly
+  preparation-only, and copied only after an explicit user action.
 - Keep model identity, token usage, reliability, verification coverage, and
   mock/live status visible.
 - Preserve keyboard-accessible native controls and responsive behavior.

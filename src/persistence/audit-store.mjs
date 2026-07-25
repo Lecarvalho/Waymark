@@ -10,11 +10,12 @@ import {
   validateCreateRun,
   validateFinishRun,
   validateRecordVerification,
+  validateReportRecommendations,
   validateSubmitClaim,
   validateTokenMeasurement,
 } from "../protocol/validation.mjs";
 
-export const SCHEMA_VERSION = 4;
+export const SCHEMA_VERSION = 5;
 export const DEFAULT_DATABASE_PATH = ".waymark/waymark.sqlite";
 
 const RESERVED_ACTOR_PATTERN = /^waymark(?::|$)/;
@@ -64,6 +65,7 @@ function mapRun(row, participants) {
     targetRepositoryPath: row.target_repository_path,
     repositoryIdentity: row.repository_identity,
     commitSha: row.commit_sha,
+    name: row.name ?? null,
     task: row.task,
     toolPolicy: parseJson(row.tool_policy_json),
     runConditions: parseJson(row.run_conditions_json),
@@ -158,6 +160,7 @@ export function bootstrapDatabase(database) {
       target_repository_path TEXT NOT NULL,
       repository_identity TEXT NOT NULL,
       commit_sha TEXT NOT NULL,
+      name TEXT,
       task TEXT NOT NULL,
       tool_policy_json TEXT NOT NULL,
       run_conditions_json TEXT NOT NULL,
@@ -476,6 +479,10 @@ export function bootstrapDatabase(database) {
     }
   }
 
+  if (previousVersion > 0 && previousVersion < 5) {
+    database.exec("ALTER TABLE audit_runs ADD COLUMN name TEXT");
+  }
+
   database.exec(`
     CREATE INDEX IF NOT EXISTS token_measurements_run
       ON token_measurements (run_id, measured_at, id);
@@ -540,16 +547,17 @@ export class AuditStore {
       this.#database
         .prepare(`
           INSERT INTO audit_runs (
-            id, target_repository_path, repository_identity, commit_sha, task,
+            id, target_repository_path, repository_identity, commit_sha, name, task,
             tool_policy_json, run_conditions_json, protocol_version,
             rubric_version, status, created_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?)
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?)
         `)
         .run(
           run.id,
           run.targetRepositoryPath,
           run.repositoryIdentity,
           run.commitSha,
+          run.name,
           run.task,
           json(run.toolPolicy),
           json(run.runConditions),
@@ -601,6 +609,57 @@ export class AuditStore {
             .all(status, limit);
 
     return rows.map((row) => this.#mapRunWithParticipants(row));
+  }
+
+  readCompletedTokenAverages({ auditMode } = {}) {
+    this.#assertOpen();
+    if (
+      auditMode !== undefined &&
+      (typeof auditMode !== "string" || auditMode.trim() === "")
+    ) {
+      throw new TypeError("auditMode must be a non-empty string");
+    }
+    const rows = this.#database
+      .prepare(`
+        SELECT
+          phase,
+          COUNT(*) AS sample_count,
+          AVG(run_tokens) AS average_tokens
+        FROM (
+          SELECT
+            token_measurements.run_id,
+            token_measurements.phase,
+            SUM(token_measurements.total_tokens) AS run_tokens
+          FROM token_measurements
+          INNER JOIN audit_runs
+            ON audit_runs.id = token_measurements.run_id
+          WHERE audit_runs.status = 'completed'
+            AND (
+              ? IS NULL
+              OR COALESCE(
+                json_extract(audit_runs.run_conditions_json, '$.auditMode'),
+                'task_specific'
+              ) = ?
+            )
+          GROUP BY token_measurements.run_id, token_measurements.phase
+        )
+        GROUP BY phase
+      `)
+      .all(auditMode ?? null, auditMode ?? null);
+    const byPhase = new Map(rows.map((row) => [row.phase, row]));
+
+    return Object.fromEntries(
+      TOKEN_PHASES.map((phase) => {
+        const row = byPhase.get(phase);
+        return [
+          phase,
+          {
+            averageTokens: row ? Math.round(row.average_tokens) : null,
+            sampleSize: row ? Number(row.sample_count) : 0,
+          },
+        ];
+      }),
+    );
   }
 
   readRun(runId) {
@@ -656,6 +715,114 @@ export class AuditStore {
         });
       }
       return { ...event, sequence, tokenMeasurement: undefined };
+    });
+  }
+
+  appendReportRecommendations(runId, input) {
+    this.#assertOpen();
+    const normalizedRunId = this.#requiredString(runId, "runId");
+    const reportRecommendations = validateReportRecommendations(
+      input,
+      this.#dependencies(),
+    );
+
+    return this.#transaction(() => {
+      const run = this.readRun(normalizedRunId);
+      if (!["active", "completed"].includes(run.status)) {
+        throw new AuditStoreError(
+          "RUN_NOT_REPORTABLE",
+          `Run ${normalizedRunId} is ${run.status}; report recommendations require an active or completed run`,
+        );
+      }
+
+      const report = this.readReport(normalizedRunId);
+      const claims = new Map(report.claims.map((claim) => [claim.id, claim]));
+      for (const recommendation of reportRecommendations.recommendations) {
+        for (const claimId of recommendation.claimIds) {
+          if (!claims.has(claimId)) {
+            throw new AuditStoreError(
+              "RECOMMENDATION_CLAIM_NOT_FOUND",
+              `Recommendation ${recommendation.id} references unknown claim ${claimId}`,
+            );
+          }
+          const deterministicVerification = report.verifications
+            .filter(
+              (verification) =>
+                verification.claimId === claimId &&
+                ["static_inspection", "executable_probe"].includes(
+                  verification.method,
+                ),
+            )
+            .sort(
+              (left, right) =>
+                (left.sequence ?? 0) - (right.sequence ?? 0),
+            )
+            .at(-1);
+          if (deterministicVerification?.verdict !== "verified") {
+            throw new AuditStoreError(
+              "RECOMMENDATION_CLAIM_NOT_VERIFIED",
+              `Recommendation ${recommendation.id} requires a deterministically verified claim: ${claimId}`,
+            );
+          }
+        }
+      }
+
+      return this.#appendReservedEvent({
+        runId: normalizedRunId,
+        actor: "waymark:reporter",
+        type: "report.recommendations",
+        payload: {
+          schemaVersion: reportRecommendations.schemaVersion,
+          scope: reportRecommendations.scope,
+          method: reportRecommendations.method,
+          recommendations: reportRecommendations.recommendations,
+        },
+        occurredAt: reportRecommendations.createdAt,
+      });
+    });
+  }
+
+  appendReportPracticeProfile(runId, input) {
+    this.#assertOpen();
+    const normalizedRunId = this.#requiredString(runId, "runId");
+    if (
+      input === null ||
+      typeof input !== "object" ||
+      Array.isArray(input) ||
+      input.scope !== "general_repository" ||
+      typeof input.schemaVersion !== "string" ||
+      input.schemaVersion.trim() === "" ||
+      !Array.isArray(input.items) ||
+      input.items.length !== 7
+    ) {
+      throw new ProtocolValidationError(
+        "practiceProfile: must contain a schema version, general_repository scope, and exactly seven items",
+      );
+    }
+
+    return this.#transaction(() => {
+      const run = this.readRun(normalizedRunId);
+      if (!["active", "completed"].includes(run.status)) {
+        throw new AuditStoreError(
+          "RUN_NOT_REPORTABLE",
+          `Run ${normalizedRunId} is ${run.status}; a practice profile requires an active or completed run`,
+        );
+      }
+      return this.#appendReservedEvent({
+        runId: normalizedRunId,
+        actor: "waymark:reporter",
+        type: "report.practice_profile",
+        payload: {
+          schemaVersion: input.schemaVersion,
+          scope: input.scope,
+          suite: input.suite ?? null,
+          items: input.items,
+        },
+        occurredAt:
+          typeof input.createdAt === "string"
+            ? input.createdAt
+            : this.#now(),
+      });
     });
   }
 

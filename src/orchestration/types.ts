@@ -26,7 +26,7 @@ export interface RepositoryTarget {
 
 export interface AuditExecutionPolicy {
   isolation: "fresh_process";
-  sessionPersistence: "ephemeral";
+  sessionPersistence: "local_telemetry_log";
   contextPolicy: "assignment_only";
   measurementScope: "role_process_only";
 }
@@ -44,23 +44,42 @@ export interface AuditTokenBudgets {
   report_generation: TokenBudget;
 }
 
+export type AuditMode =
+  | "general"
+  | "task_specific"
+  | "system_explanation";
+
 export interface AuditAssignment {
   runId: string;
-  role: "candidate" | "independent";
+  role: "candidate" | "independent" | "orchestrator";
   participant: RunParticipantInput;
+  reasoningEffort?: "low" | "medium" | "high" | "xhigh" | "max" | "ultra";
   target: RepositoryTarget;
+  auditMode: AuditMode;
   task: string;
   executionPolicy: AuditExecutionPolicy;
   tokenBudget: TokenBudget;
+  shellCommandBudget?: number;
   constraints: readonly string[];
   expectedEvidence: readonly string[];
+  context?: JsonObject;
 }
 
 export interface InvestigationFinding {
+  kind: "navigation_fact";
+  dimension:
+    | "discoveryEfficiency"
+    | "ownershipClarity"
+    | "dependencyClarity"
+    | "changeSurfaceRecall"
+    | "verificationDiscoverability"
+    | "instructionQuality";
   subject: string;
   assertion: string;
+  friction: string;
   confidence: number;
   criticality: ClaimCriticality;
+  practiceIds?: readonly ("01" | "02" | "03" | "04" | "05" | "06" | "07")[];
   citations: readonly {
     path: string;
     startLine?: number;

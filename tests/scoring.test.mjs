@@ -179,6 +179,13 @@ test("persisted criticalities and evidence map into canonical scorer input", asy
     run: {
       id: "run-persisted",
       rubricVersion: RUBRIC_VERSION,
+      runConditions: {
+        tokenBudgets: {
+          candidate_navigation: {
+            targetTokens: 9000,
+          },
+        },
+      },
     },
     claims,
     verifications,
@@ -215,6 +222,7 @@ test("persisted criticalities and evidence map into canonical scorer input", asy
     "deterministic verification must outrank later model agreement",
   );
   assert.equal(built.tokens.candidateNavigation.count, 7100);
+  assert.equal(built.tokens.candidateNavigation.target, 9000);
   assert.equal(built.tokens.validation.count, 2400);
   assert.equal(built.tokens.reportGeneration.count, 900);
   assert.equal(built.claims[0].citationStatus, "invalid");

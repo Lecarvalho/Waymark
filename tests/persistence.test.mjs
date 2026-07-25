@@ -32,6 +32,7 @@ function createRun(store, overrides = {}) {
     targetRepositoryPath: "C:\\repos\\payments",
     repositoryIdentity: "git@example.test:team/payments.git",
     commitSha: "0123456789abcdef",
+    name: "Partial refund change surface",
     task: "Add partial refunds without changing authorization behavior.",
     participants: [
       {
@@ -69,6 +70,7 @@ test("audit journal, evidence, verdicts, and tokens survive reopen", () => {
   const run = createRun(store, { authoritativeScore: 99 });
   assert.equal(store.schemaVersion, SCHEMA_VERSION);
   assert.equal(run.status, "active");
+  assert.equal(run.name, "Partial refund change surface");
   assert.equal(run.participants.length, 3);
   assert.equal("authoritativeScore" in run, false);
 
@@ -192,6 +194,31 @@ test("audit journal, evidence, verdicts, and tokens survive reopen", () => {
   store = new AuditStore({ databasePath });
   const report = store.readReport(run.id);
   assert.equal(report.run.status, "completed");
+  assert.deepEqual(store.readCompletedTokenAverages(), {
+    candidate_navigation: { averageTokens: 150, sampleSize: 1 },
+    independent_validation: { averageTokens: 90, sampleSize: 1 },
+    orchestration: { averageTokens: 40, sampleSize: 1 },
+    deterministic_verification: { averageTokens: null, sampleSize: 0 },
+    report_generation: { averageTokens: null, sampleSize: 0 },
+  });
+  assert.deepEqual(store.readCompletedTokenAverages({
+    auditMode: "task_specific",
+  }), {
+    candidate_navigation: { averageTokens: 150, sampleSize: 1 },
+    independent_validation: { averageTokens: 90, sampleSize: 1 },
+    orchestration: { averageTokens: 40, sampleSize: 1 },
+    deterministic_verification: { averageTokens: null, sampleSize: 0 },
+    report_generation: { averageTokens: null, sampleSize: 0 },
+  });
+  assert.deepEqual(store.readCompletedTokenAverages({
+    auditMode: "system_explanation",
+  }), {
+    candidate_navigation: { averageTokens: null, sampleSize: 0 },
+    independent_validation: { averageTokens: null, sampleSize: 0 },
+    orchestration: { averageTokens: null, sampleSize: 0 },
+    deterministic_verification: { averageTokens: null, sampleSize: 0 },
+    report_generation: { averageTokens: null, sampleSize: 0 },
+  });
   assert.deepEqual(
     report.events.map(({ sequence }) => sequence),
     [1, 2, 3, 4],
@@ -213,6 +240,81 @@ test("audit journal, evidence, verdicts, and tokens survive reopen", () => {
     null,
   );
   assert.equal("scores" in report, false);
+  assert.throws(
+    () =>
+      store.appendReportRecommendations(run.id, {
+        scope: "feature_implementation",
+        recommendations: [],
+      }),
+    /repository_navigation/,
+  );
+  assert.throws(
+    () =>
+      store.appendReportRecommendations(run.id, {
+        scope: "repository_navigation",
+        recommendations: [
+          {
+            id: "missing-evidence",
+            priority: "P1",
+            title: "Name the owner",
+            problem: "Ownership is unclear.",
+            change: "Create one owning module.",
+            repositoryChanges: ["Add the module index."],
+            claimIds: ["missing-claim"],
+            practiceIds: ["01"],
+            affectedDimensions: ["ownershipClarity"],
+            tokenMechanism: "Agents search fewer neighboring layers.",
+            validationChecks: [
+              "The owner is discoverable by file name.",
+            ],
+          },
+        ],
+      }),
+    (error) =>
+      error instanceof AuditStoreError &&
+      error.code === "RECOMMENDATION_CLAIM_NOT_FOUND",
+  );
+  const recommendationEvent = store.appendReportRecommendations(run.id, {
+    createdAt: "2026-07-23T12:06:00.000Z",
+    scope: "repository_navigation",
+    recommendations: [
+      {
+        id: "recommendation-1",
+        priority: "P1",
+        title: "Expose refund ownership",
+        problem: "The owning path is not obvious from the repository root.",
+        change: "Add a refund feature index beside the owning service.",
+        repositoryChanges: [
+          "Document the entry point, service, repository, and focused tests.",
+        ],
+        claimIds: ["claim-1"],
+        practiceIds: ["01", "03"],
+        affectedDimensions: [
+          "ownershipClarity",
+          "discoveryEfficiency",
+        ],
+        tokenMechanism:
+          "One feature index replaces repeated global ownership searches.",
+        validationChecks: [
+          "A fresh agent finds the owning service from the feature index.",
+        ],
+        limitations: ["No point gain is projected."],
+        effort: null,
+      },
+    ],
+  });
+  assert.equal(recommendationEvent.sequence, 5);
+  assert.equal(recommendationEvent.actor, "waymark:reporter");
+  assert.equal(recommendationEvent.type, "report.recommendations");
+  assert.equal(
+    recommendationEvent.payload.scope,
+    "repository_navigation",
+  );
+  assert.equal(
+    store.readReport(run.id).events.at(-1).payload.recommendations[0]
+      .claimIds[0],
+    "claim-1",
+  );
   assert.throws(
     () =>
       store.appendEvent({
@@ -424,7 +526,8 @@ test("schema v1 verification rows migrate to monotonic per-run sequence", () => 
   legacy.close();
 
   const store = new AuditStore({ databasePath });
-  assert.equal(store.schemaVersion, 4);
+  assert.equal(store.schemaVersion, SCHEMA_VERSION);
+  assert.equal(store.readRun("legacy-run").name, null);
   assert.deepEqual(
     store
       .readSnapshot("legacy-run")

@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
+import { PrepareAuditDialog } from "./prepare-audit-dialog";
 import { useWaymarkLive } from "./use-waymark-live";
 
 type Phase = {
@@ -12,27 +13,27 @@ type Phase = {
 const phases: Phase[] = [
   {
     label: "Candidate run",
-    detail: "The candidate maps the requested change",
+    detail: "Maps repository navigation evidence",
     status: "complete",
   },
   {
     label: "Blind research",
-    detail: "Independent agents trace the same task",
+    detail: "Independently traces the same audit scope",
     status: "complete",
   },
   {
     label: "Cross-examination",
-    detail: "Claims and assumptions are challenged",
+    detail: "Challenges claims and drafts recommendations",
     status: "active",
   },
   {
     label: "Verification",
-    detail: "Evidence is checked against the repository",
+    detail: "Deterministically checks repository evidence",
     status: "queued",
   },
   {
     label: "Scoring",
-    detail: "The locked evidence produces the final score",
+    detail: "Calculates the score from locked evidence",
     status: "queued",
   },
 ];
@@ -45,13 +46,29 @@ function participantPhaseStatus(status: string | undefined): Phase["status"] {
   return "queued";
 }
 
-const activePhaseByRole: Record<string, string> = {
-  candidate: "Candidate run",
-  independent: "Blind research",
-  orchestrator: "Cross-examination",
-  verifier: "Verification",
-  reporter: "Scoring",
-};
+function RunningSignal({
+  label,
+  compact = false,
+}: {
+  label: string;
+  compact?: boolean;
+}) {
+  return (
+    <span
+      className={`running-signal ${compact ? "is-compact" : ""}`}
+      role={compact ? undefined : "status"}
+      aria-live={compact ? undefined : "polite"}
+    >
+      <span className="running-spinner" aria-hidden="true" />
+      <span>{label}</span>
+      <span className="running-dots" aria-hidden="true">
+        <i />
+        <i />
+        <i />
+      </span>
+    </span>
+  );
+}
 
 const practicePairs = [
   {
@@ -208,27 +225,60 @@ function formatTokenSource(
   source:
     | "provider_reported"
     | "measured"
+    | "measured_live"
     | "estimated"
     | "mixed"
     | null,
 ) {
   if (source === "provider_reported") return "Provider-reported";
   if (source === "measured") return "Measured by the agent host";
+  if (source === "measured_live") return "Live session telemetry";
   if (source === "estimated") return "Explicitly estimated";
   if (source === "mixed") return "Mixed measurement sources";
   return "Usage unavailable";
 }
 
+function displayRunName(name: string | undefined, task: string) {
+  if (name?.trim()) return name;
+
+  const normalized = task.replace(/\s+/g, " ").trim();
+  const sentenceEnd = normalized.search(/[.!?](?:\s|$)/);
+  const firstThought =
+    sentenceEnd >= 0 ? normalized.slice(0, sentenceEnd) : normalized;
+  if (firstThought.length <= 72) return firstThought;
+
+  const clipped = firstThought.slice(0, 73);
+  const lastSpace = clipped.lastIndexOf(" ");
+  return `${clipped.slice(0, lastSpace > 40 ? lastSpace : 69).trimEnd()}…`;
+}
+
 export default function Home() {
   const [view, setView] = useState<"live" | "history" | "guide">("live");
-  const [reportSection, setReportSection] = useState<
-    "progress" | "evidence" | "recommendations"
-  >("progress");
+  const [selectedReportId, setSelectedReportId] = useState<string | null>(null);
   const [openPractice, setOpenPractice] = useState("01");
   const [structureView, setStructureView] = useState<
     "recommended" | "hostile"
   >("recommended");
-  const { snapshot, history, connection } = useWaymarkLive();
+  const {
+    snapshot: liveSnapshot,
+    history,
+    connection,
+  } = useWaymarkLive();
+  const evidenceDialog = useRef<HTMLDialogElement>(null);
+  const selectedReport =
+    history.find((run) => run.id === selectedReportId) ?? null;
+  const snapshot = selectedReport ?? liveSnapshot;
+  const isHistoricalReport = selectedReport !== null;
+
+  const showLatestAudit = () => {
+    setSelectedReportId(null);
+    setView("live");
+  };
+
+  const showSavedReport = (runId: string) => {
+    setSelectedReportId(runId);
+    setView("live");
+  };
 
   const repositoryName = snapshot?.repository.name ?? "No audit selected";
   const repositoryCommit = snapshot?.repository.commit ?? "—";
@@ -239,11 +289,20 @@ export default function Home() {
   const auditProgress = snapshot?.progress ?? 0;
   const navigability = snapshot?.metrics.navigability ?? null;
   const reliability = snapshot?.metrics.reliability ?? null;
-  const candidateTokens = snapshot?.metrics.candidateTokens ?? null;
+  const candidateParticipant = snapshot?.participants.find(
+    ({ role }) => role === "candidate",
+  );
+  const candidateTokens =
+    snapshot?.metrics.candidateTokens ??
+    snapshot?.tokenUsage.candidateBudget.usedTokens ??
+    candidateParticipant?.tokens ??
+    null;
   const candidateTokenSource =
-    snapshot?.metrics.candidateTokenSource ?? null;
+    snapshot?.metrics.candidateTokenSource ??
+    candidateParticipant?.tokenSource ??
+    null;
   const totalClaims = snapshot?.metrics.totalClaims ?? 0;
-  const claimsChallenged = snapshot?.metrics.claimsChallenged ?? 0;
+  const adjudicatedClaims = snapshot?.metrics.adjudicatedClaims ?? 0;
   const openChallenges = snapshot?.metrics.openChallenges ?? 0;
   const displayedEvent = snapshot?.latestEvent ?? "";
   const phaseParticipantRoles = [
@@ -275,52 +334,96 @@ export default function Home() {
       status: participantPhaseStatus(participant?.status),
     };
   });
-  const displayedAgents = snapshot
-    ? snapshot.participants
-        .filter((participant) =>
-          ["candidate", "orchestrator", "independent"].includes(
-            participant.role,
-          ),
-        )
-        .map((participant, index) => ({
-          role: participant.role
-            .split("_")
-            .map((word) => word[0].toUpperCase() + word.slice(1))
-            .join(" "),
-          model: participant.model,
-          status: participant.status,
-          accent:
-            participant.status === "Failed"
-              ? "red"
-              : participant.status === "Interrupted"
-                ? "amber"
-                : (["blue", "lime", "amber"][index] ?? "blue"),
-          tokens:
-            participant.tokens === null
-              ? "Unavailable"
-              : formatTokenCount(participant.tokens),
-          note: `${participant.provider} · ${
-            participant.tokenSource === "provider_reported"
-              ? "provider-reported"
-              : participant.tokenSource === "measured"
-                ? "host-measured"
-                : participant.tokenSource === "estimated"
-                  ? "estimated"
-                  : participant.tokenSource === "mixed"
-                    ? "mixed sources"
-                    : "usage unavailable"
-          } · ${
-            participant.status === "Active"
-              ? (activePhaseByRole[participant.role] ?? snapshot.phase)
-              : participant.status
-          }`,
-        }))
-    : [];
   const displayedEvidence = snapshot?.evidence ?? [];
   const displayedRecommendations = snapshot?.recommendations ?? [];
+  const isGeneralAudit =
+    snapshot?.auditMode === "general" ||
+    snapshot?.task.includes("waymark-general-navigation@") === true;
+  const probeSummary = isGeneralAudit
+    ? "Seven-principle agent-readiness suite"
+    : displayRunName(undefined, auditTask);
+  const practiceProfile = snapshot?.practiceProfile ?? null;
+  const practiceStatusCounts = practiceProfile
+    ? practiceProfile.items.reduce(
+        (counts, item) => {
+          counts[item.status] += 1;
+          return counts;
+        },
+        { strong: 0, mixed: 0, weak: 0, not_assessed: 0 },
+      )
+    : { strong: 0, mixed: 0, weak: 0, not_assessed: 0 };
+  const verifiedClaims =
+    snapshot?.metrics.verifiedClaims ??
+    displayedEvidence.filter((row) => row.status.startsWith("Verified")).length;
+  const contradictedClaims =
+    snapshot?.metrics.contradictedClaims ??
+    displayedEvidence.filter((row) => row.status === "Contradicted").length;
   const tokenUsage = snapshot?.tokenUsage ?? null;
-  const totalAuditTokens = tokenUsage?.overall.totalTokens ?? null;
+  const finalizedAuditTokens = tokenUsage?.overall.totalTokens ?? null;
+  const liveParticipantTokens =
+    snapshot?.participants.reduce(
+      (total, participant) =>
+        participant.tokenSource === "measured_live" &&
+        participant.tokens !== null
+          ? total + participant.tokens
+          : total,
+      0,
+    ) ?? 0;
+  const hasLiveParticipantTokens =
+    snapshot?.participants.some(
+      (participant) =>
+        participant.tokenSource === "measured_live" &&
+        participant.tokens !== null,
+    ) ?? false;
+  const totalAuditTokens =
+    finalizedAuditTokens === null && !hasLiveParticipantTokens
+      ? null
+      : (finalizedAuditTokens ?? 0) + liveParticipantTokens;
   const candidateBudget = tokenUsage?.candidateBudget ?? null;
+  const candidateSession = tokenUsage?.candidateSession ?? null;
+  const candidateTokenBreakdown =
+    tokenUsage?.byPhase.find(
+      (phase) => phase.phase === "candidate_navigation",
+    ) ?? null;
+  const executionTokenPhases = [
+    "candidate_navigation",
+    "independent_validation",
+    "orchestration",
+    "deterministic_verification",
+    "report_generation",
+  ] as const;
+  const executionStages = displayedPhases.map((phase, index) => {
+    const participantRole = phaseParticipantRoles[index];
+    const participant = participantRole
+      ? snapshot?.participants.find(({ role }) => role === participantRole)
+      : null;
+    const usage = tokenUsage?.byPhase.find(
+      ({ phase: phaseName }) => phaseName === executionTokenPhases[index],
+    );
+    const phaseTokens = usage?.totalTokens ?? participant?.tokens ?? null;
+    const isLiveTokenMeasurement =
+      usage?.totalTokens === null &&
+      participant?.tokenSource === "measured_live" &&
+      participant.tokens !== null;
+    const owner =
+      index === 4
+        ? "Waymark · deterministic scorer"
+        : participant
+          ? `${participant.role
+              .split("_")
+              .map((word) => word[0].toUpperCase() + word.slice(1))
+              .join(" ")} · ${participant.model}`
+          : index === 3
+            ? "Verifier · deterministic"
+            : "Owner pending";
+    return {
+      ...phase,
+      owner,
+      tokens: formatTokenCount(phaseTokens),
+      tokenSource: usage?.source ?? participant?.tokenSource ?? null,
+      isLiveTokenMeasurement,
+    };
+  });
   const cachedInputShare =
     tokenUsage?.overall.inputTokens &&
     tokenUsage.overall.cachedInputTokens !== null
@@ -330,7 +433,7 @@ export default function Home() {
             1000,
         ) / 10
       : null;
-  const tokenCompositionTotal = totalAuditTokens ?? 0;
+  const tokenCompositionTotal = finalizedAuditTokens ?? 0;
   const compositionWidth = (value: number | null) =>
     tokenCompositionTotal > 0 && value !== null
       ? `${(value / tokenCompositionTotal) * 100}%`
@@ -346,15 +449,47 @@ export default function Home() {
     (row) =>
       row.status.startsWith("Verified") || row.status === "Contradicted",
   );
+  const showCalibrationWarning =
+    !hasResolvedEvidence || confidenceGap > 5 || contradictedClaims > 0;
   const scoreDimensions = snapshot?.scoreBreakdown?.dimensions ?? [];
   const scoredHistory = history.filter(
     (run) => run.metrics.navigability !== null,
   );
-  const historyChange =
-    scoredHistory.length > 1
-      ? (scoredHistory[0].metrics.navigability ?? 0) -
-        (scoredHistory.at(-1)?.metrics.navigability ?? 0)
-      : null;
+  const projectHistory = Array.from(
+    history.reduce((projects, run) => {
+      const projectKey = run.repository.path || run.repository.name;
+      const project = projects.get(projectKey) ?? {
+        key: projectKey,
+        name: run.repository.name,
+        path: run.repository.path,
+        runs: [],
+      };
+      project.runs.push(run);
+      projects.set(projectKey, project);
+      return projects;
+    }, new Map<string, {
+      key: string;
+      name: string;
+      path: string;
+      runs: typeof history;
+    }>()),
+  ).map(([, project]) => {
+    const runs = [...project.runs].sort(
+      (left, right) =>
+        new Date(right.startedAt).getTime() -
+        new Date(left.startedAt).getTime(),
+    );
+    const scoredRuns = runs.filter(
+      (run) => run.metrics.navigability !== null,
+    );
+    const scoreChange =
+      scoredRuns.length > 1
+        ? (scoredRuns[0].metrics.navigability ?? 0) -
+          (scoredRuns.at(-1)?.metrics.navigability ?? 0)
+        : null;
+
+    return { ...project, runs, scoreChange };
+  });
   const modelScores = Array.from(
     scoredHistory.reduce((models, run) => {
       const model = run.models.candidate;
@@ -383,7 +518,7 @@ export default function Home() {
         <nav aria-label="Primary navigation">
           <button
             className={`nav-item ${view === "live" ? "active" : ""}`}
-            onClick={() => setView("live")}
+            onClick={showLatestAudit}
             type="button"
           >
             <span className="nav-symbol">◎</span>
@@ -405,30 +540,15 @@ export default function Home() {
             <span className="nav-symbol">§</span>
             Practice guide
           </button>
-          <button className="nav-item" disabled type="button">
-            <span className="nav-symbol">◇</span>
-            Benchmarks
-            <span className="soon">Soon</span>
-          </button>
         </nav>
 
-          <div className="sidebar-foot">
-            <div className="archive-status">
+        <div className="sidebar-foot">
+          <div className="archive-status">
             <span className="database-icon" aria-hidden="true" />
             <div>
               <strong>Local archive</strong>
               <span>{history.length} reports in SQLite</span>
             </div>
-          </div>
-          <div className="prototype-note">
-            <span>
-              {connection === "live" ? "Local service" : "Service status"}
-            </span>
-            {connection === "live"
-              ? "Showing SQLite data only"
-              : connection === "connecting"
-                ? "Connecting to SQLite"
-                : "Local service offline"}
           </div>
         </div>
       </aside>
@@ -441,6 +561,7 @@ export default function Home() {
             <code>{repositoryCommit}</code>
           </div>
           <div className="topbar-actions">
+            <PrepareAuditDialog />
             <span className="local-pill">
               <i
                 className={connection === "live" ? "" : "is-offline"}
@@ -449,23 +570,45 @@ export default function Home() {
               {connection === "live"
                 ? "Local service"
                 : connection === "connecting"
-                  ? "Connecting"
+                  ? "Connecting to SQLite"
                   : "Service offline"}
             </span>
             <div
               className="pairing-status"
-              title="Audit input comes from the paired coding agent"
+              title={
+                isHistoricalReport
+                  ? "Report loaded from the local SQLite archive"
+                  : "Audit input comes from the paired coding agent"
+              }
             >
               <span className="pairing-mark" aria-hidden="true">
-                CX
+                {isHistoricalReport ? "DB" : "CX"}
               </span>
               <span className="pairing-agent">
-                <small>{snapshot ? "Paired session" : "Coding agent"}</small>
-                <strong>{snapshot?.agentHost ?? "Awaiting audit"}</strong>
+                <small>
+                  {isHistoricalReport
+                    ? "Saved report"
+                    : snapshot
+                      ? "Paired session"
+                      : "Coding agent"}
+                </small>
+                <strong>
+                  {isHistoricalReport
+                    ? new Date(snapshot.startedAt).toLocaleDateString()
+                    : (snapshot?.agentHost ?? "Awaiting audit")}
+                </strong>
               </span>
               <i
-                className={`pairing-state ${snapshot ? "" : "is-idle"}`}
-                aria-label={snapshot ? "Audit connected" : "No active audit"}
+                className={`pairing-state ${
+                  snapshot && !isHistoricalReport ? "" : "is-idle"
+                }`}
+                aria-label={
+                  isHistoricalReport
+                    ? "Saved audit report"
+                    : snapshot
+                      ? "Audit connected"
+                      : "No active audit"
+                }
               />
             </div>
           </div>
@@ -473,53 +616,107 @@ export default function Home() {
 
         {view === "live" ? (
           snapshot ? (
-          <div className="page-content">
-            <section className="audit-hero">
+          <div
+            className={`page-content ${
+              snapshot.status === "completed" ? "completed-report" : ""
+            }`}
+          >
+            {isHistoricalReport ? (
+              <section className="historical-report-banner" aria-label="Saved report">
+                <div>
+                  <span>Viewing saved report</span>
+                  <strong>
+                    {new Date(snapshot.startedAt).toLocaleString()} ·{" "}
+                    {snapshot.repository.commit}
+                  </strong>
+                </div>
+                <div>
+                  <button type="button" onClick={() => setView("history")}>
+                    Back to run history
+                  </button>
+                  <button type="button" onClick={showLatestAudit}>
+                    Return to latest
+                  </button>
+                </div>
+              </section>
+            ) : null}
+            <section
+              className={`audit-hero ${
+                snapshot.status === "completed" ? "is-complete" : ""
+              }`}
+            >
               <div className="hero-copy">
                 <div className="audit-context">
-                  <span>Live audit</span>
+                  <span>
+                    {snapshot.status === "running"
+                      ? "Live audit"
+                      : "Audit report"}
+                  </span>
                   <span aria-hidden="true">/</span>
                   <strong>{auditStatusLabel}</strong>
                 </div>
-                <h1>How hard is this change to understand?</h1>
-                <p>
-                  Simulating: “{auditTask}”
-                </p>
+                <h1>
+                  {snapshot.status === "running"
+                    ? "How hard is this repository to navigate?"
+                    : isGeneralAudit
+                      ? "Repository agent-readiness report"
+                      : "Repository navigation report"}
+                </h1>
+                <details className="probe-details">
+                  <summary>
+                    <span>
+                      {isGeneralAudit
+                        ? "General repository audit"
+                        : "Navigation probe"}
+                    </span>
+                    <strong>{probeSummary}</strong>
+                    <span className="probe-details-toggle">Scope</span>
+                  </summary>
+                  <div className="probe-details-content">
+                    <span>Full probe</span>
+                    <p>{auditTask}</p>
+                  </div>
+                </details>
+              </div>
                 <div className="hero-meta">
                   <span>
                     Started {new Date(snapshot.startedAt).toLocaleString()}
                   </span>
                   <span>Read-only target</span>
-                  <span>{snapshot.activeAgentCount} active agents</span>
+                  <span>
+                    {snapshot.calibration.status ===
+                    "eligible_with_resource_overrun"
+                      ? "Benchmark valid · resource reference exceeded"
+                      : snapshot.calibration.status ===
+                          "eligible_with_partial_budget_report"
+                        ? "Benchmark valid · partial budget report"
+                      : snapshot.calibration.eligible
+                        ? "Calibration eligible"
+                        : "Diagnostic only · protocol issue"}
+                  </span>
+                  {snapshot.status === "running" ? (
+                    <span>{snapshot.activeAgentCount} active agents</span>
+                  ) : null}
                 </div>
-                <div className="agent-source-note">
-                  <span aria-hidden="true">↳</span>
-                  <p>
-                    <strong>Controlled from your coding agent.</strong> Prompts
-                    stay in Codex, Claude Code, or another paired session;
-                    Waymark observes progress and preserves the report.
-                  </p>
+              {snapshot.status !== "completed" ? (
+                <div
+                  className="audit-completion"
+                  aria-label={`Audit ${auditProgress} percent complete`}
+                >
+                  <div className="completion-value">
+                    <span>Audit completion</span>
+                    <strong>{auditProgress}%</strong>
+                  </div>
+                  <div className="completion-track" aria-hidden="true">
+                    <span style={{ width: `${auditProgress}%` }} />
+                  </div>
+                  {snapshot.status === "running" ? (
+                  <RunningSignal label={`${auditPhase} in progress`} />
+                  ) : (
+                    <small>Audit failed</small>
+                  )}
                 </div>
-              </div>
-              <div
-                className="audit-completion"
-                aria-label={`Audit ${auditProgress} percent complete`}
-              >
-                <div className="completion-value">
-                  <span>Audit completion</span>
-                  <strong>{auditProgress}%</strong>
-                </div>
-                <div className="completion-track" aria-hidden="true">
-                  <span style={{ width: `${auditProgress}%` }} />
-                </div>
-                <small>
-                  {snapshot.status === "completed"
-                    ? "Audit complete"
-                    : snapshot.status === "failed"
-                      ? "Audit failed"
-                      : `${auditPhase} in progress`}
-                </small>
-              </div>
+              ) : null}
             </section>
 
             <section className="metric-grid" aria-label="Audit metrics">
@@ -531,7 +728,9 @@ export default function Home() {
                 </div>
                 <div className="metric-foot">
                   {navigability === null
-                    ? "Authoritative score appears after verification"
+                    ? snapshot.status === "failed"
+                      ? "Unavailable — audit failed before scoring"
+                      : "Authoritative score appears after verification"
                     : "Authoritative deterministic score"}
                 </div>
               </article>
@@ -546,7 +745,9 @@ export default function Home() {
                 </div>
                 <div className="metric-foot">
                   {reliability === null
-                    ? "Pending deterministic verification"
+                    ? snapshot.status === "failed"
+                      ? "Unavailable — audit failed before scoring"
+                      : "Pending deterministic verification"
                     : reliability >= 80
                       ? "Strong evidence coverage"
                       : reliability >= 60
@@ -556,7 +757,7 @@ export default function Home() {
               </article>
               <article className="metric-card">
                 <div className="metric-label">
-                  Candidate navigation tokens
+                  Candidate processed tokens
                 </div>
                 <div className="metric-value">
                   {candidateTokens === null
@@ -565,7 +766,12 @@ export default function Home() {
                   {candidateTokens === null ? null : <span>k</span>}
                 </div>
                 <div className="metric-foot token-metric-foot">
-                  <span>{formatTokenSource(candidateTokenSource)}</span>
+                  <span>
+                    {formatTokenSource(candidateTokenSource)}
+                    {candidateBudget?.isForecast === false
+                      ? " · observed run"
+                      : ""}
+                  </span>
                   {candidateBudget?.efficiencyScore !== null &&
                   candidateBudget?.efficiencyScore !== undefined ? (
                     <strong
@@ -579,64 +785,51 @@ export default function Home() {
                 </div>
               </article>
               <article className="metric-card">
-                <div className="metric-label">Claims challenged</div>
+                <div className="metric-label">Verified claims</div>
                 <div className="metric-value">
-                  {claimsChallenged}
+                  {verifiedClaims}
                   <span>/{totalClaims}</span>
                 </div>
                 <div className="metric-foot">
-                  <span className="trend warn">{openChallenges} open</span>
-                  {Math.max(0, claimsChallenged - openChallenges)} resolved
+                  {openChallenges > 0 ? (
+                    <span className="trend warn">
+                      {openChallenges} open{" "}
+                      {openChallenges === 1 ? "challenge" : "challenges"}
+                    </span>
+                  ) : contradictedClaims > 0 ? (
+                    <span className="trend down">
+                      {contradictedClaims} contradicted
+                    </span>
+                  ) : (
+                    `${adjudicatedClaims}/${totalClaims} claims adjudicated`
+                  )}
                 </div>
               </article>
             </section>
 
-            <nav className="report-tabs" aria-label="Audit report sections">
-              <button
-                className={reportSection === "progress" ? "active" : ""}
-                onClick={() => setReportSection("progress")}
-                type="button"
+            {
+              <section
+                className={`live-grid is-consolidated ${
+                  snapshot.status === "completed" ? "is-details" : ""
+                }`}
               >
-                Progress
-                <span>{snapshot.activeAgentCount} active</span>
-              </button>
-              <button
-                className={reportSection === "evidence" ? "active" : ""}
-                onClick={() => setReportSection("evidence")}
-                type="button"
-              >
-                Evidence
-                <span>{totalClaims} claims</span>
-              </button>
-              <button
-                className={reportSection === "recommendations" ? "active" : ""}
-                onClick={() => setReportSection("recommendations")}
-                type="button"
-              >
-                Recommendations
-                <span>{displayedRecommendations.length} findings</span>
-              </button>
-            </nav>
-
-            {reportSection === "progress" && (
-              <section className="live-grid">
-              <article className="panel phase-panel">
+                <article className="panel phase-panel execution-panel">
                 <div className="panel-heading">
                   <div>
-                    <span className="section-kicker">Pipeline</span>
-                    <h2>Audit progress</h2>
+                    <span className="section-kicker">Execution</span>
+                    <h2>Audit stages and owners</h2>
                   </div>
-                  <span className="running-badge">
-                    {snapshot.status === "running"
-                      ? "Live updates"
-                      : snapshot.status === "failed"
-                        ? "Failed"
-                        : "Saved"}
-                  </span>
+                  {snapshot.status === "running" ? (
+                    <RunningSignal compact label="Running" />
+                  ) : (
+                    <span className="running-badge">
+                      {snapshot.status === "failed" ? "Failed" : "Saved"}
+                    </span>
+                  )}
                 </div>
 
                 <ol className="phase-list">
-                  {displayedPhases.map((phase, index) => {
+                  {executionStages.map((phase, index) => {
                     const phaseStatus = phase.status;
                     return (
                     <li className={`phase ${phaseStatus}`} key={phase.label}>
@@ -652,8 +845,20 @@ export default function Home() {
                       <div className="phase-copy">
                         <strong>{phase.label}</strong>
                         <span>{phase.detail}</span>
+                        <code>{phase.owner}</code>
                       </div>
-                      <span className="phase-state">{phaseStatus}</span>
+                      <div className="phase-result">
+                        <span className="phase-state">{phaseStatus}</span>
+                        <strong
+                          className={
+                            phase.isLiveTokenMeasurement ? "is-live" : ""
+                          }
+                          title={formatTokenSource(phase.tokenSource)}
+                        >
+                          {phase.tokens}
+                          {phase.isLiveTokenMeasurement ? <small>live</small> : null}
+                        </strong>
+                      </div>
                     </li>
                     );
                   })}
@@ -669,52 +874,52 @@ export default function Home() {
                     <small>Latest observable event</small>
                     <strong>{displayedEvent}</strong>
                   </div>
-                  <time>now</time>
+                  <time>
+                    {snapshot.status === "running" ? "Listening" : "Latest"}
+                  </time>
                 </div>
-              </article>
 
-              <article className="panel agent-panel">
-                <div className="panel-heading">
-                  <div>
-                    <span className="section-kicker">Research team</span>
-                    <h2>Agent activity</h2>
+                {tokenUsage || hasLiveParticipantTokens ? (
+                  <div className="token-plain-language">
+                    <strong>
+                      {formatTokenCount(totalAuditTokens)} processed
+                      {hasLiveParticipantTokens ? " · live" : ""}
+                    </strong>
+                    {hasLiveParticipantTokens ? (
+                      <span>
+                        {formatTokenCount(finalizedAuditTokens)} finalized ·{" "}
+                        {formatTokenCount(liveParticipantTokens)} active participant
+                      </span>
+                    ) : tokenUsage ? (
+                      <span>
+                        {formatTokenCount(tokenUsage.overall.cachedInputTokens)} cached
+                        input ·{" "}
+                        {formatTokenCount(tokenUsage.overall.uncachedInputTokens)} new
+                        input ·{" "}
+                        {formatTokenCount(tokenUsage.overall.outputTokens)} output
+                      </span>
+                    ) : null}
+                    <small>
+                      {hasLiveParticipantTokens
+                        ? "Live total combines finalized phases with current participant session telemetry. The detailed composition settles when the active phase finishes."
+                        : "Processed totals accumulate across model/tool turns. Cached input is included once; this is not the active context size or a full-price token estimate."}
+                    </small>
                   </div>
-                  <span className="running-badge">
-                    {snapshot.activeAgentCount} active
-                  </span>
-                </div>
+                ) : null}
 
-                <div className="agent-list">
-                  {displayedAgents.map((agent) => (
-                    <div className="agent-row" key={agent.role}>
-                      <div className={`agent-avatar ${agent.accent}`}>
-                        {agent.role
-                          .split(" ")
-                          .map((word) => word[0])
-                          .join("")}
-                      </div>
-                      <div className="agent-copy">
-                        <div>
-                          <strong>{agent.role}</strong>
-                          <span className={`agent-status ${agent.accent}`}>
-                            {agent.status}
-                          </span>
-                        </div>
-                        <code>{agent.model}</code>
-                        <p>{agent.note}</p>
-                      </div>
-                      <div className="agent-tokens">
-                        <strong>{agent.tokens}</strong>
-                        <span>tokens</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-
-                <div className="token-stack">
-                  <div className="token-stack-head">
-                    <span>Total processed tokens</span>
+                <details className="run-methodology">
+                  <summary>
+                    <span>Token accounting and methodology</span>
                     <strong>{formatTokenCount(totalAuditTokens)}</strong>
+                  </summary>
+                  <div className="token-stack">
+                  <div className="token-stack-head">
+                    <span>
+                      {hasLiveParticipantTokens
+                        ? "Finalized token composition"
+                        : "Total processed tokens"}
+                    </span>
+                    <strong>{formatTokenCount(finalizedAuditTokens)}</strong>
                   </div>
                   {tokenUsage ? (
                     <>
@@ -788,11 +993,6 @@ export default function Home() {
                           </strong>
                           <small>Model-generated tokens</small>
                         </div>
-                        <div>
-                          <span>Currency cost</span>
-                          <strong>Unavailable</strong>
-                          <small>No pricing snapshot</small>
-                        </div>
                       </div>
 
                       <div
@@ -838,6 +1038,189 @@ export default function Home() {
                         </div>
                       </div>
 
+                      <div className="token-budget-callout is-within">
+                        <div>
+                          <span>Fresh-session capability</span>
+                          <strong>
+                            {candidateSession?.completedInSingleSession
+                              ? "Completed in one session"
+                              : snapshot.status === "failed"
+                                ? "Did not complete"
+                                : "In progress"}
+                          </strong>
+                        </div>
+                        <div>
+                          <strong>
+                            {formatTokenCount(
+                              candidateSession?.effectiveContextTokens ?? null,
+                            )}{" "}
+                            effective context
+                          </strong>
+                          <span>
+                            {candidateSession?.processedSessionEquivalents ===
+                              null ||
+                            candidateSession?.processedSessionEquivalents ===
+                              undefined
+                              ? "Processed-session equivalent pending"
+                              : `${candidateSession.processedSessionEquivalents.toFixed(
+                                  2,
+                                )}× capacity processed cumulatively`}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="token-methodology">
+                        <div className="token-methodology-heading">
+                          <div>
+                            <span className="section-kicker">
+                              Candidate efficiency calculation
+                            </span>
+                            <strong>
+                              {candidateBudget?.efficiencyScore === null ||
+                              candidateBudget?.efficiencyScore === undefined
+                                ? "Not eligible for scoring"
+                                : `${candidateBudget.efficiencyScore}/100`}
+                            </strong>
+                          </div>
+                          <span className="methodology-state">
+                            Observed, not forecast
+                          </span>
+                        </div>
+                        <code className="token-equation">
+                          {candidateBudget?.usedTokens === null ||
+                          candidateBudget?.usedTokens === undefined ||
+                          candidateBudget?.targetTokens === null ||
+                          candidateBudget?.targetTokens === undefined
+                            ? candidateBudget?.scoreFormula ??
+                              "Token formula unavailable"
+                            : `min(100, ${candidateBudget.targetTokens.toLocaleString()} ÷ max(${candidateBudget.usedTokens.toLocaleString()}, ${candidateBudget.targetTokens.toLocaleString()}) × 100) = ${
+                                candidateBudget.efficiencyScore ?? "ineligible"
+                              }`}
+                        </code>
+                        <div className="candidate-token-grid">
+                          <div>
+                            <span>Processed</span>
+                            <strong>
+                              {formatTokenCount(
+                                candidateTokenBreakdown?.totalTokens ?? null,
+                              )}
+                            </strong>
+                          </div>
+                          <div>
+                            <span>Input</span>
+                            <strong>
+                              {formatTokenCount(
+                                candidateTokenBreakdown?.inputTokens ?? null,
+                              )}
+                            </strong>
+                          </div>
+                          <div>
+                            <span>Cached subset</span>
+                            <strong>
+                              {formatTokenCount(
+                                candidateTokenBreakdown?.cachedInputTokens ??
+                                  null,
+                              )}
+                            </strong>
+                          </div>
+                          <div>
+                            <span>Uncached input</span>
+                            <strong>
+                              {formatTokenCount(
+                                candidateTokenBreakdown?.uncachedInputTokens ??
+                                  null,
+                              )}
+                            </strong>
+                          </div>
+                          <div>
+                            <span>Output</span>
+                            <strong>
+                              {formatTokenCount(
+                                candidateTokenBreakdown?.outputTokens ?? null,
+                              )}
+                            </strong>
+                          </div>
+                        </div>
+                        <dl className="token-methodology-notes">
+                          <div>
+                            <dt>Target basis</dt>
+                            <dd>
+                              {candidateBudget?.targetBasis === "run_declared"
+                                ? "Declared policy target for this run"
+                                : candidateBudget?.targetBasis ===
+                                    "rubric_default"
+                                  ? "Default target from the scored rubric"
+                                  : "Unavailable"}
+                            </dd>
+                          </div>
+                          <div>
+                            <dt>Measurement</dt>
+                            <dd>
+                              {candidateBudget?.measurementMethod ??
+                                "Unavailable"}
+                            </dd>
+                          </div>
+                          <div>
+                            <dt>Scope</dt>
+                            <dd>
+                              {candidateBudget?.measurementScope ??
+                                "Unavailable"}
+                              </dd>
+                          </div>
+                          <div>
+                            <dt>Current context occupancy</dt>
+                            <dd>
+                              {candidateSession?.currentContextTokens ===
+                                null ||
+                              candidateSession?.currentContextTokens ===
+                                undefined
+                                ? "Waiting for provider session telemetry"
+                                : `${formatTokenCount(
+                                    candidateSession.currentContextTokens,
+                                  )}${
+                                    candidateSession.currentContextPercent ===
+                                      null ||
+                                    candidateSession.currentContextPercent ===
+                                      undefined
+                                      ? ""
+                                      : ` · ${candidateSession.currentContextPercent.toFixed(
+                                          1,
+                                        )}%`
+                                  }`}
+                            </dd>
+                          </div>
+                          <div>
+                            <dt>Peak context occupancy</dt>
+                            <dd>
+                              {candidateSession?.peakContextTokens === null ||
+                              candidateSession?.peakContextTokens === undefined
+                                ? `Unavailable · ${
+                                    candidateSession?.telemetryReason ??
+                                    "not recorded"
+                                  }`
+                                : `${formatTokenCount(
+                                    candidateSession.peakContextTokens,
+                                  )} · provider session log`}
+                            </dd>
+                          </div>
+                          <div>
+                            <dt>Context capability source</dt>
+                            <dd>
+                              {candidateSession?.capabilitySource ??
+                                "Unavailable"}
+                            </dd>
+                          </div>
+                        </dl>
+                        <p>
+                          Processed tokens equal input plus output. Cached input
+                          is already included in input and is not added again.
+                          Cumulative processed tokens are work/cost, not peak
+                          context occupancy. Single-session completion proves
+                          capability; context pressure comes from normalized
+                          local provider-session snapshots when available.
+                        </p>
+                      </div>
+
                       <div className="token-phase-list">
                         <div className="token-phase-heading">
                           <span>Audit phase</span>
@@ -854,24 +1237,51 @@ export default function Home() {
                       </div>
                     </>
                   ) : null}
-                  <p className="live-token-note">
-                    Cached input is included in processed tokens, but is shown
-                    separately because its provider price can differ. Dollar
-                    cost remains unavailable without a versioned pricing
-                    snapshot.
-                  </p>
-                </div>
+                  </div>
+                </details>
               </article>
               </section>
-            )}
+            }
 
-            {reportSection === "evidence" && (
+            <dialog
+              className="evidence-dialog"
+              onClick={(event) => {
+                if (event.target === event.currentTarget) {
+                  evidenceDialog.current?.close();
+                }
+              }}
+              ref={evidenceDialog}
+            >
+              <div className="evidence-dialog-frame">
+                <div className="evidence-dialog-heading">
+                  <div>
+                    <span className="section-kicker">Audit validation</span>
+                    <h2>Evidence behind the score</h2>
+                    <p>
+                      These navigation claims let validators reproduce and
+                      challenge the score. Probe-feature findings stay in the
+                      validator record and are not recommendation evidence.
+                    </p>
+                  </div>
+                  <button
+                    aria-label="Close audit evidence"
+                    className="evidence-dialog-close"
+                    onClick={() => evidenceDialog.current?.close()}
+                    type="button"
+                  >
+                    ×
+                  </button>
+                </div>
               <section className="evidence-grid">
               <article className="panel evidence-panel">
                 <div className="panel-heading">
                   <div>
                     <span className="section-kicker">Truth ledger</span>
-                    <h2>Evidence under review</h2>
+                    <h2>
+                      {snapshot.status === "completed"
+                        ? "Verified evidence"
+                        : "Evidence under review"}
+                    </h2>
                   </div>
                   <span className="muted-action">
                     {totalClaims} total claims
@@ -894,13 +1304,20 @@ export default function Home() {
                         <div className="evidence-claim" role="cell">
                           <strong>{row.claim}</strong>
                           {row.challenge ? (
-                            <small>
-                              {row.challenge.status === "resolved"
-                                ? (row.challenge.resolution ??
-                                  "Challenge resolved.")
-                                : (row.challenge.issue ??
-                                  "Challenge remains open.")}
-                            </small>
+                            <details className="evidence-challenge">
+                              <summary>
+                                {row.challenge.status === "resolved"
+                                  ? "Qualification"
+                                  : "Open challenge"}
+                              </summary>
+                              <p>
+                                {row.challenge.status === "resolved"
+                                  ? (row.challenge.resolution ??
+                                    "Challenge resolved.")
+                                  : (row.challenge.issue ??
+                                    "Challenge remains open.")}
+                              </p>
+                            </details>
                           ) : null}
                         </div>
                         <code role="cell">{row.source}</code>
@@ -919,10 +1336,16 @@ export default function Home() {
               <article className="panel confidence-panel">
                 <div className="panel-heading">
                   <div>
-                    <span className="section-kicker">Calibration</span>
-                    <h2>Confidence vs. truth</h2>
+                    <span className="section-kicker">Score basis</span>
+                    <h2>Why {navigability}/100</h2>
+                  </div>
+                  <div className="calibration-summary">
+                    <span>Confidence {candidateConfidence}%</span>
+                    <span>Verified {verifiedAccuracy}%</span>
                   </div>
                 </div>
+                {showCalibrationWarning ? (
+                  <>
                 <div className="confidence-visual">
                   <div className="confidence-row">
                     <span>Agent confidence</span>
@@ -946,7 +1369,13 @@ export default function Home() {
                   </div>
                 </div>
                 <div className="calibration-callout">
-                  <span>{hasResolvedEvidence ? `${confidenceGap > 0 ? "−" : "+"}${Math.abs(confidenceGap)} pts` : "Pending"}</span>
+                  <span>
+                    {hasResolvedEvidence
+                      ? `${confidenceGap > 0 ? "−" : "+"}${Math.abs(
+                          confidenceGap,
+                        )} pts`
+                      : "Pending"}
+                  </span>
                   <p>
                     {hasResolvedEvidence
                       ? confidenceGap > 0
@@ -955,13 +1384,15 @@ export default function Home() {
                       : "No claim has a deterministic verdict yet, so calibration cannot be measured."}
                   </p>
                 </div>
+                  </>
+                ) : null}
 
                 {scoreDimensions.length > 0 ? (
                   <div className="score-breakdown">
                     <div className="score-breakdown-heading">
                       <div>
-                        <span className="section-kicker">Score basis</span>
-                        <h3>Why {navigability}/100</h3>
+                        <span className="section-kicker">Dimensions</span>
+                        <h3>Weighted breakdown</h3>
                       </div>
                       <span>
                         {snapshot.scoreBreakdown.adequacyPassed
@@ -985,57 +1416,268 @@ export default function Home() {
                     </div>
                     <p>
                       Navigability scores path-finding quality. The separate
-                      candidate token-efficiency score is{" "}
-                      {candidateBudget?.efficiencyScore ?? "unavailable"}/100.
+                      observed candidate token-efficiency score is{" "}
+                      {candidateBudget?.efficiencyScore ?? "unavailable"}/100;
+                      it compares this isolated run with its declared target,
+                      not with a forecast.
                     </p>
                   </div>
                 ) : null}
               </article>
               </section>
-            )}
+              </div>
+            </dialog>
 
-            {reportSection === "recommendations" && (
+              {isGeneralAudit ? (
+                <section className="panel general-practice-panel">
+                  <div className="panel-heading">
+                    <div>
+                      <span className="section-kicker">
+                        General repository audit
+                      </span>
+                      <h2>Seven-principle agent-readiness profile</h2>
+                    </div>
+                    <span className="muted-action">
+                      {practiceProfile?.available
+                        ? `${practiceProfile.assessedCount}/${practiceProfile.totalCount} assessed`
+                        : "Profile unavailable"}
+                    </span>
+                  </div>
+
+                  {practiceProfile?.available ? (
+                    <>
+                      <div
+                        className="practice-profile-summary"
+                        aria-label="Practice profile summary"
+                      >
+                        <span className="status-strong">
+                          <strong>{practiceStatusCounts.strong}</strong> strong
+                        </span>
+                        <span className="status-mixed">
+                          <strong>{practiceStatusCounts.mixed}</strong> mixed
+                        </span>
+                        <span className="status-weak">
+                          <strong>{practiceStatusCounts.weak}</strong> weak
+                        </span>
+                        <span className="status-not_assessed">
+                          <strong>{practiceStatusCounts.not_assessed}</strong>{" "}
+                          not assessed
+                        </span>
+                      </div>
+
+                      <div className="practice-profile-list">
+                        {practiceProfile.items.map((item) => (
+                          <details
+                            className={`practice-profile-item status-${item.status}`}
+                            key={item.practiceId}
+                          >
+                            <summary>
+                              <span className="practice-profile-number">
+                                {item.practiceId}
+                              </span>
+                              <span className="practice-profile-copy">
+                                <strong>{item.title}</strong>
+                                <small>{item.assessment}</small>
+                              </span>
+                              <span className="practice-profile-status">
+                                {item.status === "not_assessed"
+                                  ? "Not assessed"
+                                  : item.status}
+                              </span>
+                              <span aria-hidden="true">+</span>
+                            </summary>
+                            <div className="practice-profile-detail">
+                              <section>
+                                <h3>Navigation-token effect</h3>
+                                <p>{item.tokenImpact}</p>
+                              </section>
+
+                              <section>
+                                <h3>Verified repository evidence</h3>
+                                {item.evidence.length > 0 ? (
+                                  <ul className="practice-profile-evidence">
+                                    {item.evidence.map((evidence, index) => (
+                                      <li
+                                        key={`${evidence.path}-${evidence.startLine}-${index}`}
+                                      >
+                                        <code>
+                                          {evidence.path}
+                                          {evidence.startLine
+                                            ? `:${evidence.startLine}`
+                                            : ""}
+                                        </code>
+                                        <span>{evidence.assertion}</span>
+                                      </li>
+                                    ))}
+                                  </ul>
+                                ) : (
+                                  <p>No verified evidence was available.</p>
+                                )}
+                              </section>
+
+                              {item.recommendations.length > 0 ? (
+                                <section>
+                                  <h3>Linked improvements</h3>
+                                  <ul className="practice-profile-links">
+                                    {item.recommendations.map(
+                                      (recommendation) => (
+                                        <li key={recommendation.id}>
+                                          <a
+                                            href={`#recommendation-${recommendation.id}`}
+                                          >
+                                            <span>
+                                              {recommendation.priority}
+                                            </span>
+                                            {recommendation.title}
+                                          </a>
+                                        </li>
+                                      ),
+                                    )}
+                                  </ul>
+                                </section>
+                              ) : null}
+
+                              {item.limitations.length > 0 ? (
+                                <section>
+                                  <h3>Coverage limits</h3>
+                                  <ul>
+                                    {item.limitations.map((limitation) => (
+                                      <li key={limitation}>{limitation}</li>
+                                    ))}
+                                  </ul>
+                                </section>
+                              ) : null}
+                            </div>
+                          </details>
+                        ))}
+                      </div>
+                    </>
+                  ) : (
+                    <div className="practice-profile-legacy">
+                      <strong>This saved report uses the earlier general probe.</strong>
+                      <p>
+                        {practiceProfile?.reason ??
+                          "This report predates the seven-principle general-audit profile. Run a new General repository audit to assess every Practice Guide principle."}
+                      </p>
+                    </div>
+                  )}
+                </section>
+              ) : null}
+
               <section className="panel recommendation-panel">
               <div className="panel-heading">
                 <div>
                   <span className="section-kicker">
-                    {snapshot.status === "completed"
-                      ? "Verified findings"
-                      : "Early signal"}
+                    {isGeneralAudit ? "Improvement backlog" : "Primary outcome"}
                   </span>
-                  <h2>Likely highest-impact improvements</h2>
+                  <h2>
+                    {isGeneralAudit
+                      ? "Prioritized repository improvements"
+                      : "How to improve token efficiency"}
+                  </h2>
                 </div>
-                <span className="muted-action">
-                  {snapshot.status === "completed"
-                    ? "Scored report"
-                    : "Final after scoring"}
-                </span>
+                <div className="recommendation-header-actions">
+                  <span className="muted-action">
+                    {displayedRecommendations.length} prioritized
+                  </span>
+                  <button
+                    className="evidence-button"
+                    onClick={() => evidenceDialog.current?.showModal()}
+                    type="button"
+                  >
+                    Audit evidence
+                    <span>{totalClaims}</span>
+                  </button>
+                </div>
               </div>
               <div className="recommendation-list">
                 {displayedRecommendations.length === 0 ? (
                   <div className="empty-report-state">
-                    Recommendations will appear after the reporter converts
-                    verified findings into repository changes.
+                    Navigability recommendations will appear after the reporter
+                    converts verified navigation friction into repository
+                    changes.
                   </div>
                 ) : (
                   displayedRecommendations.map((item) => (
-                    <article className="recommendation" key={item.title}>
-                      <span className="priority">{item.priority}</span>
-                      <div className="recommendation-copy">
-                        <h3>{item.title}</h3>
-                        <p>{item.description}</p>
+                    <details
+                      className="recommendation-detail"
+                      id={`recommendation-${item.id}`}
+                      key={item.id}
+                    >
+                      <summary>
+                        <span className="priority">{item.priority}</span>
+                        <div className="recommendation-copy">
+                          <h3>{item.title}</h3>
+                          <p>{item.problem ?? item.description}</p>
+                          {item.change ? (
+                            <p className="recommendation-action-preview">
+                              <strong>Improve:</strong> {item.change}
+                            </p>
+                          ) : null}
+                        </div>
+                        <div className="recommendation-summary-meta">
+                          <strong>
+                            {item.evidence.length > 0
+                              ? "Evidence linked"
+                              : "Evidence pending"}
+                          </strong>
+                          {item.effort ? <span>{item.effort}</span> : null}
+                        </div>
+                        <span
+                          className="recommendation-toggle"
+                          aria-hidden="true"
+                        >
+                          +
+                        </span>
+                      </summary>
+
+                      <div className="recommendation-detail-body">
+                        {item.tokenMechanism ? (
+                          <section className="recommendation-token-effect">
+                            <h4>Why this should reduce navigation tokens</h4>
+                            <p>{item.tokenMechanism}</p>
+                          </section>
+                        ) : null}
+
+                        {item.repositoryChanges.length > 0 ? (
+                          <section className="recommendation-steps">
+                            <h4>What to change in the repository</h4>
+                            <ol>
+                              {item.repositoryChanges.map((step) => (
+                                <li key={step}>{step}</li>
+                              ))}
+                            </ol>
+                          </section>
+                        ) : null}
+
+                        {item.validationChecks.length > 0 ? (
+                          <section className="recommendation-checks">
+                            <h4>How to verify navigation improved</h4>
+                            <ul>
+                              {item.validationChecks.map((check) => (
+                                <li key={check}>{check}</li>
+                              ))}
+                            </ul>
+                          </section>
+                        ) : null}
+
+                        {item.limitations.length > 0 ? (
+                          <section className="recommendation-limitations">
+                            <h4>Known limitations</h4>
+                            <ul>
+                              {item.limitations.map((limitation) => (
+                                <li key={limitation}>{limitation}</li>
+                              ))}
+                            </ul>
+                          </section>
+                        ) : null}
+
                       </div>
-                      <div className="recommendation-impact">
-                        <strong>{item.gain}</strong>
-                        <span>projected pts</span>
-                      </div>
-                      <span className="cost-pill">{item.cost}</span>
-                    </article>
+                    </details>
                   ))
                 )}
               </div>
               </section>
-            )}
           </div>
           ) : (
             <div className="page-content empty-audit-view">
@@ -1075,16 +1717,10 @@ export default function Home() {
                 </p>
               </div>
               <div className="improvement-stat">
-                <span>Archive change</span>
-                <strong>
-                  {historyChange === null
-                    ? "—"
-                    : `${historyChange >= 0 ? "+" : ""}${historyChange}`}
-                </strong>
+                <span>Codebases</span>
+                <strong>{projectHistory.length}</strong>
                 <small>
-                  {historyChange === null
-                    ? "Needs two scored runs"
-                    : "newest versus oldest"}
+                  {history.length} {history.length === 1 ? "report" : "reports"}
                 </small>
               </div>
             </section>
@@ -1093,10 +1729,11 @@ export default function Home() {
               <div className="panel-heading">
                 <div>
                   <span className="section-kicker">Saved reports</span>
-                  <h2>Recent audit runs</h2>
+                  <h2>Reports by codebase</h2>
                 </div>
                 <span className="muted-action">
-                  {history.length} local records
+                  {projectHistory.length}{" "}
+                  {projectHistory.length === 1 ? "project" : "projects"}
                 </span>
               </div>
               {history.length === 0 ? (
@@ -1104,65 +1741,115 @@ export default function Home() {
                   No audit runs are stored in SQLite yet.
                 </div>
               ) : (
-                <div className="history-table" role="table">
-                  <div className="history-row history-head" role="row">
-                    <span>Date</span>
-                    <span>Commit</span>
-                    <span>Task</span>
-                    <span>Candidate</span>
-                    <span>Score</span>
-                    <span>Reliability</span>
-                    <span>Tokens</span>
-                  </div>
-                  {history.map((run) => {
-                    const tokens = run.tokenUsage.overall.totalTokens;
-                    return (
-                      <div className="history-row" role="row" key={run.id}>
-                        <span>
-                          {new Date(run.startedAt).toLocaleDateString(
-                            undefined,
-                            { month: "short", day: "numeric" },
-                          )}
-                        </span>
-                        <code>{run.repository.commit}</code>
-                        <strong>{run.task}</strong>
-                        <code>{run.models.candidate}</code>
-                        <span className="history-score">
-                          {run.metrics.navigability ?? "—"}
-                        </span>
-                        <span>
-                          {run.metrics.reliability === null
-                            ? "—"
-                            : `${run.metrics.reliability}%`}
-                        </span>
-                        <span>{formatTokenCount(tokens)}</span>
+                <div className="project-history-list">
+                  {projectHistory.map((project) => (
+                    <section
+                      className="project-history-group"
+                      key={project.key}
+                      aria-labelledby={`project-${project.runs[0].id}`}
+                    >
+                      <header className="project-history-heading">
+                        <div>
+                          <h3 id={`project-${project.runs[0].id}`}>
+                            {project.name}
+                          </h3>
+                          <code>{project.path}</code>
+                        </div>
+                        <div className="project-history-meta">
+                          <span>
+                            {project.runs.length}{" "}
+                            {project.runs.length === 1 ? "report" : "reports"}
+                          </span>
+                          <strong
+                            className={
+                              project.scoreChange !== null &&
+                              project.scoreChange < 0
+                                ? "is-negative"
+                                : ""
+                            }
+                          >
+                            {project.scoreChange === null
+                              ? "Change —"
+                              : `Change ${
+                                  project.scoreChange >= 0 ? "+" : ""
+                                }${project.scoreChange}`}
+                          </strong>
+                        </div>
+                      </header>
+                      <div
+                        className="history-table"
+                        aria-label={`${project.name} audit reports`}
+                      >
+                        <div className="history-row history-head">
+                          <span>Date</span>
+                          <span>Commit</span>
+                          <span>Name</span>
+                          <span>Candidate</span>
+                          <span>Score</span>
+                          <span>Reliability</span>
+                          <span>Tokens</span>
+                        </div>
+                        {project.runs.map((run) => {
+                          const tokens = run.tokenUsage.overall.totalTokens;
+                          const runName = displayRunName(run.name, run.task);
+                          return (
+                            <button
+                              className="history-row is-interactive"
+                              key={run.id}
+                              type="button"
+                              onClick={() => showSavedReport(run.id)}
+                              aria-label={`Open ${runName} report for ${project.name} from ${new Date(
+                                run.startedAt,
+                              ).toLocaleDateString()}`}
+                            >
+                              <span>
+                                {new Date(run.startedAt).toLocaleDateString(
+                                  undefined,
+                                  { month: "short", day: "numeric" },
+                                )}
+                              </span>
+                              <code>{run.repository.commit}</code>
+                              <strong>{runName}</strong>
+                              <code>{run.models.candidate}</code>
+                              <span className="history-score">
+                                {run.metrics.navigability ?? "—"}
+                              </span>
+                              <span>
+                                {run.metrics.reliability === null
+                                  ? "—"
+                                  : `${run.metrics.reliability}%`}
+                              </span>
+                              <span>{formatTokenCount(tokens)}</span>
+                            </button>
+                          );
+                        })}
                       </div>
-                    );
-                  })}
+                    </section>
+                  ))}
                 </div>
               )}
             </section>
 
             {modelScores.length > 0 && (
-            <section className="history-summary-grid single-summary">
-              <article className="panel model-compare">
-                <span className="section-kicker">Model frontier</span>
-                <h2>Average navigability by candidate model</h2>
-                {modelScores.map((model) => (
-                  <div className="model-bar-row" key={model.model}>
-                    <code>{model.model}</code>
-                    <div>
-                      <i style={{ width: `${model.score}%` }} />
+              <section className="history-summary-grid single-summary">
+                <article className="panel model-compare">
+                  <span className="section-kicker">Model frontier</span>
+                  <h2>Average navigability by candidate model</h2>
+                  {modelScores.map((model) => (
+                    <div className="model-bar-row" key={model.model}>
+                      <code>{model.model}</code>
+                      <div>
+                        <i style={{ width: `${model.score}%` }} />
+                      </div>
+                      <strong>{model.score}</strong>
                     </div>
-                    <strong>{model.score}</strong>
-                  </div>
-                ))}
-                <p>
-                  Computed only from authoritative scores stored in the local
-                  archive.
-                </p>
-              </article>
-            </section>
+                  ))}
+                  <p>
+                    Computed only from authoritative scores stored across the
+                    local archive.
+                  </p>
+                </article>
+              </section>
             )}
           </div>
         ) : (

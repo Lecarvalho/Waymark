@@ -3,6 +3,11 @@
 import { readFileSync } from "node:fs";
 import process from "node:process";
 
+import { createCodexProcessAdapter } from "../src/orchestration/codex-adapter.mjs";
+import {
+  finalizeDraftRecommendations,
+  runInvestigationPhase,
+} from "../src/orchestration/process-runner.mjs";
 import { AuditStore } from "../src/persistence/index.mjs";
 import {
   buildScoreInput,
@@ -15,12 +20,18 @@ const COMMANDS = {
   "run list": "List recent audit runs",
   "run read": "Read run metadata",
   "run finish": "Append a terminal event and finish a run",
+  "investigation run":
+    "Run fresh candidate, independent, and orchestrator provider processes",
   "event append": "Append an ordered audit event",
   "event read": "Read ordered events",
   "claim submit": "Submit an evidence claim",
   "verification record": "Append a verification verdict",
   "token record": "Append a token measurement",
   "score calculate": "Calculate and persist an authoritative score",
+  "report recommend":
+    "Append supplied evidence-linked recommendations",
+  "report finalize":
+    "Finalize the fresh orchestrator recommendation draft after verification",
   "report read": "Read a complete stored report",
 };
 
@@ -108,6 +119,7 @@ function createRunInput(options) {
       targetRepositoryPath: required(options, "target-repository-path"),
       repositoryIdentity: required(options, "repository-identity"),
       commitSha: required(options, "commit-sha"),
+      ...(options.name ? { name: options.name } : {}),
       task: required(options, "task"),
       participants: parseJson(
         required(options, "participants-json"),
@@ -223,6 +235,18 @@ function finishInput(options) {
   );
 }
 
+function reportRecommendationInput(options) {
+  const input = readInput(options);
+  if (input === undefined) {
+    const error = new Error(
+      "report recommend requires --input-json or --input-file",
+    );
+    error.code = "INVALID_ARGUMENTS";
+    throw error;
+  }
+  return input;
+}
+
 function calculateScore(store, options) {
   const runId = required(options, "run");
   const observationsFile = readInput(options);
@@ -250,6 +274,14 @@ function calculateScore(store, options) {
     throw error;
   }
   const report = store.readReport(runId);
+  const calibrationIssues = report.events.filter(
+    (event) =>
+      event.type === "policy.violation" ||
+      event.type === "investigation.degraded",
+  );
+  const resourceOverruns = report.events.filter(
+    (event) => event.type === "budget.exceeded",
+  );
   const builtInput = buildScoreInput(
     report,
     observationsFile.observations ?? observationsFile,
@@ -267,13 +299,16 @@ function calculateScore(store, options) {
     summary: {
       rubricVersion: RUBRIC_VERSION,
       scoringInputHash: inputHash,
+      calibrationEligible: calibrationIssues.length === 0,
+      calibrationIssueCount: calibrationIssues.length,
+      resourceOverrunCount: resourceOverruns.length,
     },
   });
 
   return { result, inputHash, completion };
 }
 
-function execute(store, positionals, options) {
+async function execute(store, positionals, options) {
   const command = positionals.slice(0, 2).join(" ");
   switch (command) {
     case "run create":
@@ -294,6 +329,31 @@ function execute(store, positionals, options) {
       return {
         command,
         data: store.finishRun(required(options, "run"), finishInput(options)),
+      };
+    case "investigation run":
+      return {
+        command,
+        data: await runInvestigationPhase({
+          store,
+          runId: required(options, "run"),
+          adapters: [
+            createCodexProcessAdapter({
+              ...(options["codex-entry"]
+                ? { entryPath: String(options["codex-entry"]) }
+                : {}),
+              ...(options["output-schema"]
+                ? { outputSchemaPath: String(options["output-schema"]) }
+                : {}),
+              ...(options["orchestration-output-schema"]
+                ? {
+                    orchestrationOutputSchemaPath: String(
+                      options["orchestration-output-schema"],
+                    ),
+                  }
+                : {}),
+            }),
+          ],
+        }),
       };
     case "event append":
       return { command, data: store.appendEvent(appendEventInput(options)) };
@@ -325,6 +385,22 @@ function execute(store, positionals, options) {
       };
     case "score calculate":
       return { command, data: calculateScore(store, options) };
+    case "report recommend":
+      return {
+        command,
+        data: store.appendReportRecommendations(
+          required(options, "run"),
+          reportRecommendationInput(options),
+        ),
+      };
+    case "report finalize":
+      return {
+        command,
+        data: finalizeDraftRecommendations({
+          store,
+          runId: required(options, "run"),
+        }),
+      };
     case "report read":
       return { command, data: store.readReport(required(options, "run")) };
     default: {
@@ -372,7 +448,7 @@ if (
     store = new AuditStore({
       databasePath: parsed.options.db ?? undefined,
     });
-    const result = execute(store, parsed.positionals, parsed.options);
+    const result = await execute(store, parsed.positionals, parsed.options);
     process.stdout.write(
       `${JSON.stringify({ ok: true, command: result.command, data: result.data })}\n`,
     );
