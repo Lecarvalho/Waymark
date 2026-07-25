@@ -4,25 +4,33 @@ import { dirname, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
 import {
+  GENERAL_AUDIT_EVENT_TYPES,
+  GeneralAuditProjectionError,
+  projectGeneralAudit,
+} from "../domain/general-audit.mjs";
+import {
   ProtocolValidationError,
   validateAppendEvent,
   validateAuthoritativeCompletion,
   validateCreateRun,
   validateFinishRun,
+  validateGeneralCheckpoint,
   validateRecordVerification,
   validateReportRecommendations,
   validateSubmitClaim,
   validateTokenMeasurement,
 } from "../protocol/validation.mjs";
 
-export const SCHEMA_VERSION = 5;
+export const SCHEMA_VERSION = 6;
 export const DEFAULT_DATABASE_PATH = ".waymark/waymark.sqlite";
 
 const RESERVED_ACTOR_PATTERN = /^waymark(?::|$)/;
-const RESERVED_EVENT_PREFIXES = ["run.", "score."];
+const RESERVED_EVENT_PREFIXES = ["run.", "score.", "general."];
+const GENERAL_AUDIT_EVENT_TYPE_SET = new Set(GENERAL_AUDIT_EVENT_TYPES);
 
 const TOKEN_PHASES = [
   "candidate_navigation",
+  "general_research",
   "independent_validation",
   "orchestration",
   "deterministic_verification",
@@ -167,7 +175,7 @@ export function bootstrapDatabase(database) {
       protocol_version TEXT NOT NULL,
       rubric_version TEXT NOT NULL,
       status TEXT NOT NULL CHECK (
-        status IN ('active', 'completed', 'failed', 'cancelled')
+        status IN ('active', 'completed', 'partial', 'failed', 'cancelled')
       ),
       created_at TEXT NOT NULL,
       finished_at TEXT
@@ -177,7 +185,14 @@ export function bootstrapDatabase(database) {
       id TEXT PRIMARY KEY,
       run_id TEXT NOT NULL REFERENCES audit_runs(id),
       role TEXT NOT NULL CHECK (
-        role IN ('orchestrator', 'candidate', 'independent', 'verifier', 'reporter')
+        role IN (
+          'orchestrator',
+          'candidate',
+          'independent',
+          'verifier',
+          'reporter',
+          'auditor'
+        )
       ),
       provider TEXT NOT NULL,
       model TEXT NOT NULL,
@@ -193,6 +208,7 @@ export function bootstrapDatabase(database) {
       type TEXT NOT NULL,
       payload_json TEXT NOT NULL,
       occurred_at TEXT NOT NULL,
+      idempotency_key TEXT,
       UNIQUE (run_id, sequence)
     ) STRICT;
 
@@ -233,6 +249,7 @@ export function bootstrapDatabase(database) {
       phase TEXT NOT NULL CHECK (
         phase IN (
           'candidate_navigation',
+          'general_research',
           'independent_validation',
           'orchestration',
           'deterministic_verification',
@@ -483,6 +500,159 @@ export function bootstrapDatabase(database) {
     database.exec("ALTER TABLE audit_runs ADD COLUMN name TEXT");
   }
 
+  if (previousVersion > 0 && previousVersion < 6) {
+    const auditEventsHaveIdempotencyKey = database
+      .prepare("PRAGMA table_info(audit_events)")
+      .all()
+      .some((column) => column.name === "idempotency_key");
+    database.exec("PRAGMA foreign_keys = OFF");
+    database.exec("BEGIN IMMEDIATE");
+    try {
+      database.exec(`
+        DROP TRIGGER IF EXISTS run_participants_no_update;
+        DROP TRIGGER IF EXISTS run_participants_no_delete;
+        DROP TRIGGER IF EXISTS token_measurements_no_update;
+        DROP TRIGGER IF EXISTS token_measurements_no_delete;
+        DROP INDEX IF EXISTS token_measurements_run;
+
+        CREATE TABLE audit_runs_v6 (
+          id TEXT PRIMARY KEY,
+          target_repository_path TEXT NOT NULL,
+          repository_identity TEXT NOT NULL,
+          commit_sha TEXT NOT NULL,
+          name TEXT,
+          task TEXT NOT NULL,
+          tool_policy_json TEXT NOT NULL,
+          run_conditions_json TEXT NOT NULL,
+          protocol_version TEXT NOT NULL,
+          rubric_version TEXT NOT NULL,
+          status TEXT NOT NULL CHECK (
+            status IN ('active', 'completed', 'partial', 'failed', 'cancelled')
+          ),
+          created_at TEXT NOT NULL,
+          finished_at TEXT
+        ) STRICT;
+
+        INSERT INTO audit_runs_v6
+        SELECT
+          id,
+          target_repository_path,
+          repository_identity,
+          commit_sha,
+          name,
+          task,
+          tool_policy_json,
+          run_conditions_json,
+          protocol_version,
+          rubric_version,
+          status,
+          created_at,
+          finished_at
+        FROM audit_runs;
+
+        DROP TABLE audit_runs;
+        ALTER TABLE audit_runs_v6 RENAME TO audit_runs;
+
+        CREATE TABLE run_participants_v6 (
+          id TEXT PRIMARY KEY,
+          run_id TEXT NOT NULL REFERENCES audit_runs(id),
+          role TEXT NOT NULL CHECK (
+            role IN (
+              'orchestrator',
+              'candidate',
+              'independent',
+              'verifier',
+              'reporter',
+              'auditor'
+            )
+          ),
+          provider TEXT NOT NULL,
+          model TEXT NOT NULL,
+          model_version TEXT,
+          UNIQUE (run_id, role)
+        ) STRICT;
+
+        INSERT INTO run_participants_v6
+        SELECT id, run_id, role, provider, model, model_version
+        FROM run_participants;
+
+        DROP TABLE run_participants;
+        ALTER TABLE run_participants_v6 RENAME TO run_participants;
+
+        CREATE TABLE token_measurements_v6 (
+          id TEXT PRIMARY KEY,
+          run_id TEXT NOT NULL REFERENCES audit_runs(id),
+          event_id TEXT REFERENCES audit_events(id),
+          actor TEXT NOT NULL,
+          phase TEXT NOT NULL CHECK (
+            phase IN (
+              'candidate_navigation',
+              'general_research',
+              'independent_validation',
+              'orchestration',
+              'deterministic_verification',
+              'report_generation'
+            )
+          ),
+          source TEXT NOT NULL CHECK (
+            source IN ('provider_reported', 'measured', 'estimated')
+          ),
+          provider TEXT,
+          model TEXT,
+          input_tokens INTEGER CHECK (input_tokens >= 0),
+          output_tokens INTEGER CHECK (output_tokens >= 0),
+          cached_input_tokens INTEGER CHECK (cached_input_tokens >= 0),
+          cache_creation_tokens INTEGER CHECK (cache_creation_tokens >= 0),
+          total_tokens INTEGER NOT NULL CHECK (
+            total_tokens >=
+              COALESCE(input_tokens, 0) + COALESCE(output_tokens, 0)
+          ),
+          measured_at TEXT NOT NULL
+        ) STRICT;
+
+        INSERT INTO token_measurements_v6
+        SELECT
+          id,
+          run_id,
+          event_id,
+          actor,
+          phase,
+          source,
+          provider,
+          model,
+          input_tokens,
+          output_tokens,
+          cached_input_tokens,
+          cache_creation_tokens,
+          total_tokens,
+          measured_at
+        FROM token_measurements;
+
+        DROP TABLE token_measurements;
+        ALTER TABLE token_measurements_v6 RENAME TO token_measurements;
+      `);
+      if (!auditEventsHaveIdempotencyKey) {
+        database.exec(
+          "ALTER TABLE audit_events ADD COLUMN idempotency_key TEXT",
+        );
+      }
+      database.exec("COMMIT");
+    } catch (error) {
+      database.exec("ROLLBACK");
+      throw error;
+    } finally {
+      database.exec("PRAGMA foreign_keys = ON");
+    }
+    const foreignKeyIssue = database.prepare("PRAGMA foreign_key_check").get();
+    if (foreignKeyIssue) {
+      throw new AuditStoreError(
+        "MIGRATION_FOREIGN_KEY_FAILURE",
+        `Schema migration left an invalid foreign key in ${foreignKeyIssue.table}`,
+        foreignKeyIssue,
+      );
+    }
+  }
+
   database.exec(`
     CREATE INDEX IF NOT EXISTS token_measurements_run
       ON token_measurements (run_id, measured_at, id);
@@ -492,6 +662,15 @@ export function bootstrapDatabase(database) {
     CREATE TRIGGER IF NOT EXISTS token_measurements_no_delete
       BEFORE DELETE ON token_measurements
       BEGIN SELECT RAISE(ABORT, 'token_measurements are append-only'); END;
+    CREATE TRIGGER IF NOT EXISTS run_participants_no_update
+      BEFORE UPDATE ON run_participants
+      BEGIN SELECT RAISE(ABORT, 'run_participants are immutable'); END;
+    CREATE TRIGGER IF NOT EXISTS run_participants_no_delete
+      BEFORE DELETE ON run_participants
+      BEGIN SELECT RAISE(ABORT, 'run_participants are immutable'); END;
+    CREATE UNIQUE INDEX IF NOT EXISTS audit_events_run_idempotency
+      ON audit_events (run_id, idempotency_key)
+      WHERE idempotency_key IS NOT NULL;
     CREATE UNIQUE INDEX IF NOT EXISTS verification_records_run_sequence
       ON verification_records (run_id, sequence);
     CREATE TRIGGER IF NOT EXISTS verification_records_no_update
@@ -715,6 +894,186 @@ export class AuditStore {
         });
       }
       return { ...event, sequence, tokenMeasurement: undefined };
+    });
+  }
+
+  appendGeneralCheckpoint(input) {
+    this.#assertOpen();
+    const checkpoint = validateGeneralCheckpoint(input, this.#dependencies());
+    return this.#transaction(() => {
+      const existing = this.#database
+        .prepare(`
+          SELECT * FROM audit_events
+          WHERE run_id = ? AND idempotency_key = ?
+          LIMIT 1
+        `)
+        .get(checkpoint.runId, checkpoint.idempotencyKey);
+      if (existing) {
+        const persisted = mapEvent(existing);
+        if (
+          persisted.actor !== checkpoint.actor ||
+          persisted.type !== checkpoint.type ||
+          json(persisted.payload) !== json(checkpoint.payload)
+        ) {
+          throw new AuditStoreError(
+            "IDEMPOTENCY_CONFLICT",
+            `Idempotency key ${checkpoint.idempotencyKey} is already bound to a different checkpoint`,
+          );
+        }
+        return persisted;
+      }
+
+      this.#assertActiveRun(checkpoint.runId);
+      const run = this.readRun(checkpoint.runId);
+      if (run.runConditions.auditMode !== "general") {
+        throw new AuditStoreError(
+          "GENERAL_CHECKPOINT_MODE_MISMATCH",
+          `Run ${checkpoint.runId} is not a general audit`,
+        );
+      }
+      const auditor = run.participants.find(
+        (participant) => participant.role === "auditor",
+      );
+      if (!auditor || auditor.id !== checkpoint.actor) {
+        throw new AuditStoreError(
+          "GENERAL_AUDITOR_NOT_AUTHORIZED",
+          `Actor ${checkpoint.actor} is not the auditor for run ${checkpoint.runId}`,
+        );
+      }
+      if (
+        checkpoint.type === "general.audit.started" &&
+        (checkpoint.payload.repositoryIdentity !== run.repositoryIdentity ||
+          checkpoint.payload.commitSha !== run.commitSha ||
+          checkpoint.payload.protocolVersion !== run.protocolVersion)
+      ) {
+        throw new AuditStoreError(
+          "GENERAL_START_RUN_MISMATCH",
+          "The general audit start checkpoint must match persisted run provenance",
+        );
+      }
+
+      const sequence = this.#nextSequence(checkpoint.runId);
+      const event = {
+        id: checkpoint.id,
+        runId: checkpoint.runId,
+        sequence,
+        actor: checkpoint.actor,
+        type: checkpoint.type,
+        payload: checkpoint.payload,
+        occurredAt: checkpoint.occurredAt,
+      };
+      const existingGeneralEvents = this.readEvents(checkpoint.runId, {
+        limit: 10_000,
+      }).filter((candidate) =>
+        GENERAL_AUDIT_EVENT_TYPE_SET.has(candidate.type),
+      );
+      try {
+        projectGeneralAudit([...existingGeneralEvents, event]);
+      } catch (error) {
+        if (error instanceof GeneralAuditProjectionError) {
+          throw new AuditStoreError(
+            error.code.toUpperCase(),
+            error.message,
+            { eventId: error.eventId },
+          );
+        }
+        throw error;
+      }
+
+      this.#database
+        .prepare(`
+          INSERT INTO audit_events (
+            id,
+            run_id,
+            sequence,
+            actor,
+            type,
+            payload_json,
+            occurred_at,
+            idempotency_key
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        `)
+        .run(
+          event.id,
+          event.runId,
+          event.sequence,
+          event.actor,
+          event.type,
+          json(event.payload),
+          event.occurredAt,
+          checkpoint.idempotencyKey,
+        );
+      return event;
+    });
+  }
+
+  startGeneralAudit(input) {
+    return this.appendGeneralCheckpoint({
+      ...input,
+      type: "general.audit.started",
+    });
+  }
+
+  recordGeneralSurface(input) {
+    return this.appendGeneralCheckpoint({
+      ...input,
+      type: "general.surface.inspected",
+    });
+  }
+
+  recordGeneralBehaviorPath(input) {
+    return this.appendGeneralCheckpoint({
+      ...input,
+      type: "general.behavior_path.recorded",
+    });
+  }
+
+  recordGeneralFinding(input) {
+    return this.appendGeneralCheckpoint({
+      ...input,
+      type: "general.finding.recorded",
+    });
+  }
+
+  reviseGeneralFinding(input) {
+    return this.appendGeneralCheckpoint({
+      ...input,
+      type: "general.finding.revised",
+    });
+  }
+
+  recordGeneralDimensionProgress(input) {
+    return this.appendGeneralCheckpoint({
+      ...input,
+      type: "general.dimension.progress",
+    });
+  }
+
+  assessGeneralDimension(input) {
+    return this.appendGeneralCheckpoint({
+      ...input,
+      type: "general.dimension.assessed",
+    });
+  }
+
+  recordGeneralRecommendation(input) {
+    return this.appendGeneralCheckpoint({
+      ...input,
+      type: "general.recommendation.recorded",
+    });
+  }
+
+  completeGeneralSynthesis(input) {
+    return this.appendGeneralCheckpoint({
+      ...input,
+      type: "general.synthesis.completed",
+    });
+  }
+
+  interruptGeneralAudit(input) {
+    return this.appendGeneralCheckpoint({
+      ...input,
+      type: "general.audit.interrupted",
     });
   }
 
@@ -982,14 +1341,31 @@ export class AuditStore {
     const finish = validateFinishRun(input, { now: this.#now });
     return this.#transaction(() => {
       this.#assertActiveRun(normalizedRunId);
-      if (
-        finish.status === "completed" &&
-        !this.#hasAuthoritativeScore(normalizedRunId)
-      ) {
-        throw new AuditStoreError(
-          "AUTHORITATIVE_SCORE_REQUIRED",
-          "A run cannot complete before waymark:scorer records score.completed",
-        );
+      const run = this.readRun(normalizedRunId);
+      if (run.runConditions.auditMode === "general") {
+        const projection = this.#projectGeneralAudit(normalizedRunId);
+        if (projection.status !== finish.status) {
+          throw new AuditStoreError(
+            "GENERAL_TERMINAL_STATUS_MISMATCH",
+            `General ledger status ${projection.status} cannot finish the run as ${finish.status}`,
+          );
+        }
+      } else {
+        if (finish.status === "partial") {
+          throw new AuditStoreError(
+            "PARTIAL_STATUS_REQUIRES_GENERAL_AUDIT",
+            "Only a general audit can finish with partial status",
+          );
+        }
+        if (
+          finish.status === "completed" &&
+          !this.#hasAuthoritativeScore(normalizedRunId)
+        ) {
+          throw new AuditStoreError(
+            "AUTHORITATIVE_SCORE_REQUIRED",
+            "A run cannot complete before waymark:scorer records score.completed",
+          );
+        }
       }
       return this.#finishActiveRun(normalizedRunId, finish);
     });
@@ -1003,6 +1379,12 @@ export class AuditStore {
     });
     return this.#transaction(() => {
       this.#assertActiveRun(normalizedRunId);
+      if (this.readRun(normalizedRunId).runConditions.auditMode === "general") {
+        throw new AuditStoreError(
+          "GENERAL_AUDIT_NOT_DETERMINISTICALLY_SCORED",
+          "General audits complete from auditor synthesis, not the benchmark scorer",
+        );
+      }
       if (this.#hasAuthoritativeScore(normalizedRunId)) {
         throw new AuditStoreError(
           "AUTHORITATIVE_SCORE_EXISTS",
@@ -1060,6 +1442,14 @@ export class AuditStore {
 
   readReport(runId) {
     const snapshot = this.readSnapshot(runId);
+    const generalAudit =
+      snapshot.run.runConditions.auditMode === "general"
+        ? projectGeneralAudit(
+            snapshot.events.filter((event) =>
+              GENERAL_AUDIT_EVENT_TYPE_SET.has(event.type),
+            ),
+          )
+        : null;
     const latestVerdictByClaim = new Map();
     for (const verification of snapshot.verifications) {
       latestVerdictByClaim.set(verification.claimId, verification.verdict);
@@ -1090,6 +1480,7 @@ export class AuditStore {
     const claimsWithVerdict = latestVerdictByClaim.size;
     return {
       ...snapshot,
+      generalAudit,
       aggregates: {
         eventCount: snapshot.events.length,
         claimCount: snapshot.claims.length,
@@ -1195,6 +1586,14 @@ export class AuditStore {
           LIMIT 1
         `)
         .get(runId),
+    );
+  }
+
+  #projectGeneralAudit(runId) {
+    return projectGeneralAudit(
+      this.readEvents(runId, { limit: 10_000 }).filter((event) =>
+        GENERAL_AUDIT_EVENT_TYPE_SET.has(event.type),
+      ),
     );
   }
 

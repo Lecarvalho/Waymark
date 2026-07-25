@@ -7,6 +7,7 @@ import type {
   SubmitClaimInput,
   TokenMeasurementInput,
 } from "../domain/audit";
+import type { GeneralAuditEventType } from "../domain/general-audit.mjs";
 
 export class ProtocolValidationError extends Error {
   code: "INVALID_INPUT";
@@ -26,6 +27,18 @@ export function validateAppendEvent(
   value: unknown,
   dependencies: ValidationDependencies,
 ): AppendEventInput;
+export function validateGeneralCheckpoint(
+  value: unknown,
+  dependencies: ValidationDependencies,
+): {
+  id: string;
+  runId: string;
+  actor: string;
+  type: GeneralAuditEventType;
+  payload: Record<string, unknown>;
+  occurredAt: string;
+  idempotencyKey: string;
+};
 export function validateSubmitClaim(
   value: unknown,
   dependencies: ValidationDependencies,

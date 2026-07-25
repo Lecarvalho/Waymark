@@ -15,6 +15,10 @@ import type {
   VerificationRecord,
 } from "../domain/audit";
 import type { TokenPhase } from "../domain/audit";
+import type {
+  GeneralAuditEventType,
+  GeneralAuditReadModel,
+} from "../domain/general-audit.mjs";
 
 export const SCHEMA_VERSION: number;
 export const DEFAULT_DATABASE_PATH: string;
@@ -30,6 +34,16 @@ export interface AuditStoreOptions {
   createId?: () => string;
 }
 
+export interface GeneralCheckpointInput {
+  id?: string;
+  runId: string;
+  actor: string;
+  type?: GeneralAuditEventType;
+  payload: Record<string, unknown>;
+  occurredAt?: string;
+  idempotencyKey: string;
+}
+
 export class AuditStore {
   constructor(options?: AuditStoreOptions);
   readonly databasePath: string;
@@ -43,6 +57,17 @@ export class AuditStore {
   >;
   readRun(runId: string): AuditRun;
   appendEvent(input: AppendEventInput): AuditEvent;
+  appendGeneralCheckpoint(input: GeneralCheckpointInput): AuditEvent;
+  startGeneralAudit(input: GeneralCheckpointInput): AuditEvent;
+  recordGeneralSurface(input: GeneralCheckpointInput): AuditEvent;
+  recordGeneralBehaviorPath(input: GeneralCheckpointInput): AuditEvent;
+  recordGeneralFinding(input: GeneralCheckpointInput): AuditEvent;
+  reviseGeneralFinding(input: GeneralCheckpointInput): AuditEvent;
+  recordGeneralDimensionProgress(input: GeneralCheckpointInput): AuditEvent;
+  assessGeneralDimension(input: GeneralCheckpointInput): AuditEvent;
+  recordGeneralRecommendation(input: GeneralCheckpointInput): AuditEvent;
+  completeGeneralSynthesis(input: GeneralCheckpointInput): AuditEvent;
+  interruptGeneralAudit(input: GeneralCheckpointInput): AuditEvent;
   appendReportPracticeProfile(
     runId: string,
     input: {
@@ -69,7 +94,9 @@ export class AuditStore {
     input: CompleteRunWithAuthoritativeScoreInput,
   ): { run: AuditRun; event: AuditEvent; scoreEvent: AuditEvent };
   readSnapshot(runId: string): AuditSnapshot;
-  readReport(runId: string): AuditReport;
+  readReport(runId: string): AuditReport & {
+    generalAudit: GeneralAuditReadModel | null;
+  };
 }
 
 export function resolveDatabasePath(databasePath?: string): string;

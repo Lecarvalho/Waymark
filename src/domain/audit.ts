@@ -1,6 +1,7 @@
 export const RUN_STATUSES = [
   "active",
   "completed",
+  "partial",
   "failed",
   "cancelled",
 ] as const;
@@ -239,6 +240,7 @@ export interface AuditSnapshot {
 }
 
 export interface AuditReport extends AuditSnapshot {
+  generalAudit: import("./general-audit.mjs").GeneralAuditReadModel | null;
   aggregates: {
     eventCount: number;
     claimCount: number;

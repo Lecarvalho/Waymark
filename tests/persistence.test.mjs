@@ -196,6 +196,7 @@ test("audit journal, evidence, verdicts, and tokens survive reopen", () => {
   assert.equal(report.run.status, "completed");
   assert.deepEqual(store.readCompletedTokenAverages(), {
     candidate_navigation: { averageTokens: 150, sampleSize: 1 },
+    general_research: { averageTokens: null, sampleSize: 0 },
     independent_validation: { averageTokens: 90, sampleSize: 1 },
     orchestration: { averageTokens: 40, sampleSize: 1 },
     deterministic_verification: { averageTokens: null, sampleSize: 0 },
@@ -205,6 +206,7 @@ test("audit journal, evidence, verdicts, and tokens survive reopen", () => {
     auditMode: "task_specific",
   }), {
     candidate_navigation: { averageTokens: 150, sampleSize: 1 },
+    general_research: { averageTokens: null, sampleSize: 0 },
     independent_validation: { averageTokens: 90, sampleSize: 1 },
     orchestration: { averageTokens: 40, sampleSize: 1 },
     deterministic_verification: { averageTokens: null, sampleSize: 0 },
@@ -214,6 +216,7 @@ test("audit journal, evidence, verdicts, and tokens survive reopen", () => {
     auditMode: "system_explanation",
   }), {
     candidate_navigation: { averageTokens: null, sampleSize: 0 },
+    general_research: { averageTokens: null, sampleSize: 0 },
     independent_validation: { averageTokens: null, sampleSize: 0 },
     orchestration: { averageTokens: null, sampleSize: 0 },
     deterministic_verification: { averageTokens: null, sampleSize: 0 },

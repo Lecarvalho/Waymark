@@ -24,6 +24,16 @@ const COMMANDS = {
     "Run fresh candidate, independent, and orchestrator provider processes",
   "event append": "Append an ordered audit event",
   "event read": "Read ordered events",
+  "general start": "Start the semantic ledger for a general audit",
+  "general surface": "Record a general-audit surface inspection",
+  "general path": "Record a representative general-audit behavior path",
+  "general finding": "Record a new general-audit finding",
+  "general revise": "Append a revision to a general-audit finding",
+  "general progress": "Record progress for a general-audit dimension",
+  "general assess": "Record an assessed general-audit dimension",
+  "general recommend": "Record a general-audit recommendation",
+  "general synthesize": "Record completed or partial general-audit synthesis",
+  "general interrupt": "Record a general-audit interruption",
   "claim submit": "Submit an evidence claim",
   "verification record": "Append a verification verdict",
   "token record": "Append a token measurement",
@@ -172,6 +182,21 @@ function appendEventInput(options) {
   }
 
   return input;
+}
+
+function generalCheckpointInput(options) {
+  return (
+    readInput(options) ?? {
+      runId: required(options, "run"),
+      actor: required(options, "actor"),
+      idempotencyKey: required(options, "idempotency-key"),
+      payload: parseJson(options["payload-json"] ?? "{}", "payload-json"),
+      ...(options.id ? { id: options.id } : {}),
+      ...(options["occurred-at"]
+        ? { occurredAt: options["occurred-at"] }
+        : {}),
+    }
+  );
 }
 
 function claimInput(options) {
@@ -370,6 +395,68 @@ async function execute(store, positionals, options) {
             ? { limit: optionalNumber(options, "limit") }
             : {}),
         }),
+      };
+    case "general start":
+      return {
+        command,
+        data: store.startGeneralAudit(generalCheckpointInput(options)),
+      };
+    case "general surface":
+      return {
+        command,
+        data: store.recordGeneralSurface(generalCheckpointInput(options)),
+      };
+    case "general path":
+      return {
+        command,
+        data: store.recordGeneralBehaviorPath(
+          generalCheckpointInput(options),
+        ),
+      };
+    case "general finding":
+      return {
+        command,
+        data: store.recordGeneralFinding(generalCheckpointInput(options)),
+      };
+    case "general revise":
+      return {
+        command,
+        data: store.reviseGeneralFinding(generalCheckpointInput(options)),
+      };
+    case "general progress":
+      return {
+        command,
+        data: store.recordGeneralDimensionProgress(
+          generalCheckpointInput(options),
+        ),
+      };
+    case "general assess":
+      return {
+        command,
+        data: store.assessGeneralDimension(
+          generalCheckpointInput(options),
+        ),
+      };
+    case "general recommend":
+      return {
+        command,
+        data: store.recordGeneralRecommendation(
+          generalCheckpointInput(options),
+        ),
+      };
+    case "general synthesize":
+      return {
+        command,
+        data: store.completeGeneralSynthesis(
+          generalCheckpointInput(options),
+        ),
+      };
+    case "general interrupt":
+      return {
+        command,
+        data: store.interruptGeneralAudit(
+          generalCheckpointInput(options),
+        ),
       };
     case "claim submit":
       return { command, data: store.submitClaim(claimInput(options)) };

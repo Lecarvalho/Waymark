@@ -4,6 +4,7 @@ export {
   validateAuthoritativeCompletion,
   validateCreateRun,
   validateFinishRun,
+  validateGeneralCheckpoint,
   validateRecordVerification,
   validateSubmitClaim,
   validateTokenMeasurement,

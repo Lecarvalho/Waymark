@@ -273,6 +273,8 @@ general-audit read model.
 
 **Dependencies:** GA-02.
 
+**Status:** Completed.
+
 ### Context
 
 General-audit findings and revisions now have provider-neutral domain contracts
