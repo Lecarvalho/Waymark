@@ -79,6 +79,8 @@ export const GENERAL_DIMENSION_WEIGHTS = Object.freeze({
   instructionQuality: 10,
 });
 
+export const GENERAL_STRONG_SCORE_MINIMUM = 80;
+
 export const GENERAL_DIMENSION_EVIDENCE_REQUIREMENTS = Object.freeze({
   discoveryEfficiency: Object.freeze({ requiresCodeOrTestEvidence: false }),
   ownershipClarity: Object.freeze({ requiresCodeOrTestEvidence: true }),
@@ -891,6 +893,26 @@ function applyDimensionProgress(state, event, assessed) {
         event.id,
       );
     }
+    if (
+      payload.score >= GENERAL_STRONG_SCORE_MINIMUM &&
+      support.positiveIds.length === 0
+    ) {
+      fail(
+        "strong_assessment_requires_positive_evidence",
+        `${payload.dimensionId} cannot receive a strong assessment without a current cited positive finding.`,
+        event.id,
+      );
+    }
+    if (
+      payload.score < GENERAL_STRONG_SCORE_MINIMUM &&
+      support.frictionIds.length === 0
+    ) {
+      fail(
+        "non_strong_assessment_requires_friction",
+        `${payload.dimensionId} cannot receive a mixed or weak assessment without a current cited friction finding.`,
+        event.id,
+      );
+    }
   }
   state.dimensions[payload.dimensionId] = {
     dimensionId: payload.dimensionId,
@@ -924,13 +946,27 @@ function applyRecommendationRecorded(state, event) {
   }
   if (
     !Array.isArray(payload.findingIds) ||
+    payload.findingIds.length === 0 ||
     payload.findingIds.some((findingId) => !state.findings[findingId])
   ) {
     fail(
       "unknown_recommendation_finding",
-      "Recommendation findingIds must reference recorded findings.",
+      "Recommendation findingIds must reference at least one recorded finding.",
       event.id,
     );
+  }
+  for (const findingId of payload.findingIds) {
+    const revision = state.findings[findingId].currentRevision;
+    if (
+      INACTIVE_FINDING_STATES.has(revision.state) ||
+      revision.citations.length === 0
+    ) {
+      fail(
+        "unsupported_recommendation_finding",
+        `Recommendation finding ${findingId} must be current and cited.`,
+        event.id,
+      );
+    }
   }
   if (
     !Array.isArray(payload.dimensionIds) ||
@@ -941,6 +977,21 @@ function applyRecommendationRecorded(state, event) {
       "Recommendation dimensionIds contains an unknown dimension.",
       event.id,
     );
+  }
+  for (const dimensionId of payload.dimensionIds) {
+    if (
+      !payload.findingIds.some((findingId) =>
+        state.findings[findingId].currentRevision.dimensionIds.includes(
+          dimensionId,
+        ),
+      )
+    ) {
+      fail(
+        "unsupported_recommendation_dimension",
+        `Recommendation dimension ${dimensionId} is not supported by a referenced current finding.`,
+        event.id,
+      );
+    }
   }
   state.recommendations.push({
     recommendationId: payload.recommendationId,

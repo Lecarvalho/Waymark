@@ -241,6 +241,7 @@ export interface AuditSnapshot {
 
 export interface AuditReport extends AuditSnapshot {
   generalAudit: import("./general-audit.mjs").GeneralAuditReadModel | null;
+  generalReport: import("../reporting/general-audit-report.mjs").GeneralAuditReport | null;
   aggregates: {
     eventCount: number;
     claimCount: number;

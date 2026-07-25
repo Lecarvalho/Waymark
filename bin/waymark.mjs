@@ -295,6 +295,13 @@ function calculateScore(store, options) {
   }
 
   const run = store.readRun(runId);
+  if (run.runConditions.auditMode === "general") {
+    const error = new Error(
+      "General audits use auditor-assessed report arithmetic and cannot run the benchmark scorer",
+    );
+    error.code = "GENERAL_AUDIT_NOT_DETERMINISTICALLY_SCORED";
+    throw error;
+  }
   if (run.rubricVersion !== RUBRIC_VERSION) {
     const error = new Error(
       `Run rubric ${run.rubricVersion} does not match scorer ${RUBRIC_VERSION}`,

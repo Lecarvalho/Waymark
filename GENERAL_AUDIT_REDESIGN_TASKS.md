@@ -634,6 +634,8 @@ and completes according to evidence coverage rather than a token cap.
 
 **Dependencies:** GA-02, GA-03, and GA-06.
 
+**Status:** Completed.
+
 ### Context
 
 The general auditor now persists a semantic finding ledger and dimension

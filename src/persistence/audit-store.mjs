@@ -20,6 +20,7 @@ import {
   validateSubmitClaim,
   validateTokenMeasurement,
 } from "../protocol/validation.mjs";
+import { assembleGeneralAuditReport } from "../reporting/general-audit-report.mjs";
 
 export const SCHEMA_VERSION = 6;
 export const DEFAULT_DATABASE_PATH = ".waymark/waymark.sqlite";
@@ -1509,6 +1510,14 @@ export class AuditStore {
             ),
           )
         : null;
+    const generalReport =
+      generalAudit === null
+        ? null
+        : assembleGeneralAuditReport({
+            run: snapshot.run,
+            ledger: generalAudit,
+            tokens: snapshot.tokens,
+          });
     const latestVerdictByClaim = new Map();
     for (const verification of snapshot.verifications) {
       latestVerdictByClaim.set(verification.claimId, verification.verdict);
@@ -1540,6 +1549,7 @@ export class AuditStore {
     return {
       ...snapshot,
       generalAudit,
+      generalReport,
       aggregates: {
         eventCount: snapshot.events.length,
         claimCount: snapshot.claims.length,

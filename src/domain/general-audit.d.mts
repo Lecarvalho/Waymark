@@ -74,6 +74,8 @@ export const GENERAL_DIMENSION_WEIGHTS: Readonly<
   Record<WaymarkDimensionId, number>
 >;
 
+export const GENERAL_STRONG_SCORE_MINIMUM: 80;
+
 export const GENERAL_DIMENSION_EVIDENCE_REQUIREMENTS: Readonly<
   Record<
     WaymarkDimensionId,
