@@ -2,9 +2,47 @@
 
 import { useEffect, useState } from "react";
 
+import type { GeneralAuditReport } from "../src/reporting/general-audit-report.mjs";
+
+export type GeneralAuditServiceSnapshot = GeneralAuditReport & {
+  status: "running" | "completed" | "partial" | "failed" | "cancelled";
+  auditor: {
+    id: string;
+    role: "auditor";
+    provider: string;
+    model: string;
+    status: string;
+    tokens: number | null;
+    tokenSource:
+      | "provider_reported"
+      | "measured"
+      | "measured_live"
+      | "estimated"
+      | "mixed"
+      | null;
+  } | null;
+  providerSession: {
+    id: string | null;
+    provider: string | null;
+    status:
+      | "starting"
+      | "active"
+      | "idle"
+      | "complete"
+      | "interrupted"
+      | "failed"
+      | "cancelled"
+      | "error";
+    latestActivitySequence: number | null;
+    latestActivityType: string | null;
+  };
+  latestCheckpointSequence: number;
+  reportComplete: boolean;
+};
+
 export type WaymarkRunSnapshot = {
   id: string;
-  status: "running" | "completed" | "failed";
+  status: "running" | "completed" | "partial" | "failed" | "cancelled";
   repository: {
     name: string;
     path: string;
@@ -65,6 +103,7 @@ export type WaymarkRunSnapshot = {
       | "mixed"
       | null;
   }>;
+  generalAudit: GeneralAuditServiceSnapshot | null;
   evidence: Array<{
     claim: string;
     source: string;

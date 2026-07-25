@@ -729,6 +729,8 @@ is adequate.
 
 **Dependencies:** GA-03 and GA-07.
 
+**Status:** Completed.
+
 ### Context
 
 The local REST/SSE service is read-only and currently projects benchmark roles,

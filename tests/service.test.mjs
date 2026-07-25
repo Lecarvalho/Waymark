@@ -11,6 +11,145 @@ import {
 import { AuditStore } from "../src/persistence/index.mjs";
 import { hashScoreInput, scoreAudit } from "../src/scoring/index.mjs";
 
+function generalRunInput(id) {
+  return {
+    id,
+    targetRepositoryPath: "C:/repos/payments",
+    repositoryIdentity: "team/payments",
+    commitSha: "0123456789abcdef",
+    task: "Assess repository navigability.",
+    participants: [
+      {
+        id: `${id}-auditor`,
+        role: "auditor",
+        provider: "codex",
+        model: "gpt-5.6",
+      },
+    ],
+    toolPolicy: { targetRepository: "read-only" },
+    runConditions: { auditMode: "general", agentHost: "Codex" },
+    protocolVersion: "general-audit/2.0.0",
+    rubricVersion: "waymark-navigability/1.0.0",
+  };
+}
+
+function generalCitation(path = "src/refunds/refund-service.ts") {
+  return {
+    path,
+    startLine: 10,
+    endLine: 30,
+    symbol: "RefundService",
+    source: "production_code",
+  };
+}
+
+function generalRevision({
+  actor,
+  occurredAt,
+  revisionNumber = 1,
+  state = "provisional",
+  previousRevisionId = null,
+  navigationCost = {
+    searches: 4,
+    filesOpened: 7,
+    fileHops: 3,
+    deadEnds: 2,
+    commands: 5,
+    processedTokens: 1800,
+    elapsedMs: 92000,
+  },
+}) {
+  const evidence = generalCitation();
+  return {
+    revisionId: `service-revision-${revisionNumber}`,
+    findingId: "service-finding",
+    revisionNumber,
+    state,
+    signal: "friction",
+    title:
+      state === "located_late"
+        ? "Refund owner exists but was located late"
+        : "Refund owner was not initially discoverable",
+    conclusion:
+      state === "located_late"
+        ? "A consumer trace found the owner after four searches."
+        : "The first ownership searches did not locate the owner.",
+    dimensionIds: ["discoveryEfficiency", "ownershipClarity"],
+    practiceGuideIds: ["conceptOwningNames"],
+    citations: [evidence],
+    navigationCost,
+    provenance: {
+      previousRevisionId,
+      amendmentReason:
+        previousRevisionId === null
+          ? null
+          : "A later consumer trace exposed the owning service.",
+      actor,
+      occurredAt,
+      causedByCitations: [evidence],
+    },
+  };
+}
+
+function generalCheckpoint(run, key, payload, occurredAt) {
+  return {
+    runId: run.id,
+    actor: run.participants[0].id,
+    idempotencyKey: key,
+    payload,
+    occurredAt,
+  };
+}
+
+function createSseReader(response) {
+  assert.equal(response.status, 200);
+  assert.ok(response.body);
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffered = "";
+
+  return {
+    async next(eventName) {
+      const timeout = AbortSignal.timeout(8_000);
+      while (!timeout.aborted) {
+        const boundary = buffered.indexOf("\n\n");
+        if (boundary >= 0) {
+          const block = buffered.slice(0, boundary);
+          buffered = buffered.slice(boundary + 2);
+          const name = block
+            .split("\n")
+            .find((line) => line.startsWith("event: "))
+            ?.slice("event: ".length);
+          if (name === eventName) return block;
+          continue;
+        }
+        const read = reader.read();
+        const result = await Promise.race([
+          read,
+          new Promise((_, reject) => {
+            timeout.addEventListener(
+              "abort",
+              () => reject(new Error(`Timed out waiting for SSE ${eventName}`)),
+              { once: true },
+            );
+          }),
+        ]);
+        if (result.done) {
+          throw new Error(`SSE closed before ${eventName}`);
+        }
+        buffered += decoder.decode(result.value, { stream: true }).replaceAll(
+          "\r\n",
+          "\n",
+        );
+      }
+      throw new Error(`Timed out waiting for SSE ${eventName}`);
+    },
+    cancel() {
+      return reader.cancel();
+    },
+  };
+}
+
 test("snapshot explains authoritative dimensions and qualified claims", () => {
   const scoreInput = {
     observations: {
@@ -572,6 +711,323 @@ test("terminal unverified verdicts count as adjudicated and complete verifier wo
     snapshot.participants.find(({ role }) => role === "verifier").status,
     "Complete",
   );
+});
+
+test("general snapshots expose partial evidence and reconstruct identically after restart", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "waymark-general-service-"));
+  const databasePath = join(directory, "waymark.sqlite");
+  const store = new AuditStore({ databasePath });
+  const run = store.createRun(generalRunInput("general-partial-service"));
+  const auditor = run.participants[0].id;
+  store.startGeneralAudit(
+    generalCheckpoint(
+      run,
+      "start",
+      {
+        repositoryIdentity: run.repositoryIdentity,
+        commitSha: run.commitSha,
+        protocolVersion: run.protocolVersion,
+      },
+      "2026-07-25T18:00:00.000Z",
+    ),
+  );
+  store.appendEvent({
+    runId: run.id,
+    actor: auditor,
+    type: "provider.session.started",
+    payload: {
+      provider: "codex",
+      providerSessionId: "provider-session-1",
+    },
+  });
+  store.recordGeneralSurface(
+    generalCheckpoint(
+      run,
+      "surface",
+      {
+        surface: "production_code",
+        summary: "Inspected the refund command and owning service.",
+        citations: [generalCitation()],
+      },
+      "2026-07-25T18:01:00.000Z",
+    ),
+  );
+  const findingAt = "2026-07-25T18:02:00.000Z";
+  store.recordGeneralFinding(
+    generalCheckpoint(
+      run,
+      "finding",
+      {
+        revision: generalRevision({
+          actor: auditor,
+          occurredAt: findingAt,
+        }),
+      },
+      findingAt,
+    ),
+  );
+  store.recordGeneralBehaviorPath(
+    generalCheckpoint(
+      run,
+      "behavior-path",
+      {
+        pathId: "refund-request",
+        name: "Create a partial refund",
+        entryPoint: {
+          status: "known",
+          label: "POST /refunds",
+          citations: [generalCitation("src/refunds/refund-router.ts")],
+        },
+        owner: {
+          status: "known",
+          label: "RefundService",
+          citations: [generalCitation()],
+        },
+        dependencies: [
+          {
+            status: "unknown",
+            label: "payment provider boundary",
+            reason: "The generated provider client was not available.",
+            citations: [],
+          },
+        ],
+        consumers: [],
+        tests: [
+          {
+            status: "unknown",
+            label: "partial refund integration test",
+            reason: "No matching test was located.",
+            citations: [],
+          },
+        ],
+      },
+      "2026-07-25T18:02:15.000Z",
+    ),
+  );
+  store.recordGeneralDimensionProgress(
+    generalCheckpoint(
+      run,
+      "dimension-progress",
+      {
+        dimensionId: "ownershipClarity",
+        confidence: 0.65,
+        supportingPositiveFindingIds: [],
+        supportingFrictionFindingIds: ["service-finding"],
+        limitations: ["Only the refund path has been traced."],
+      },
+      "2026-07-25T18:02:30.000Z",
+    ),
+  );
+  store.recordGeneralRecommendation(
+    generalCheckpoint(
+      run,
+      "recommendation",
+      {
+        recommendationId: "expose-refund-owner",
+        title: "Expose the refund owner",
+        rationale: "Reduce repeated searches from the refund route.",
+        findingIds: ["service-finding"],
+        dimensionIds: ["ownershipClarity"],
+      },
+      "2026-07-25T18:02:45.000Z",
+    ),
+  );
+  store.recordTokenMeasurement({
+    runId: run.id,
+    actor: auditor,
+    phase: "general_research",
+    source: "provider_reported",
+    provider: "codex",
+    model: "gpt-5.6",
+    inputTokens: 2000,
+    outputTokens: 400,
+    totalTokens: 2400,
+  });
+  store.interruptGeneralAudit(
+    generalCheckpoint(
+      run,
+      "interrupted",
+      {
+        outcome: "partial",
+        reason: "Provider exited before dimension synthesis.",
+      },
+      "2026-07-25T18:03:00.000Z",
+    ),
+  );
+  store.finishRun(run.id, {
+    status: "partial",
+    summary: { reason: "provider_exit_after_evidence" },
+    finishedAt: "2026-07-25T18:03:00.000Z",
+  });
+  store.close();
+
+  const firstService = await startWaymarkServer({
+    databasePath,
+    host: "127.0.0.1",
+    port: 0,
+  });
+  const firstResponse = await fetch(`${firstService.url}/api/runs/latest`);
+  const firstSnapshot = await firstResponse.json();
+  await firstService.close();
+
+  assert.equal(firstSnapshot.status, "partial");
+  assert.equal(firstSnapshot.phase, "Partial report");
+  assert.equal(firstSnapshot.auditMode, "general");
+  assert.equal(firstSnapshot.generalAudit.status, "partial");
+  assert.equal(firstSnapshot.generalAudit.auditor.id, auditor);
+  assert.equal(firstSnapshot.generalAudit.auditor.status, "Interrupted");
+  assert.equal(firstSnapshot.generalAudit.auditor.tokens, 2400);
+  assert.equal(
+    firstSnapshot.generalAudit.auditor.tokenSource,
+    "provider_reported",
+  );
+  assert.equal(firstSnapshot.generalAudit.providerSession.id, "provider-session-1");
+  assert.equal(firstSnapshot.generalAudit.providerSession.status, "interrupted");
+  assert.equal(firstSnapshot.generalAudit.tokens.totals.totalTokens, 2400);
+  assert.equal(firstSnapshot.generalAudit.findings.length, 1);
+  assert.equal(firstSnapshot.generalAudit.surfaces.length, 1);
+  assert.equal(firstSnapshot.generalAudit.behaviorPaths.length, 1);
+  assert.equal(
+    firstSnapshot.generalAudit.behaviorPaths[0].dependencies[0].status,
+    "unknown",
+  );
+  assert.equal(firstSnapshot.generalAudit.recommendations.length, 1);
+  assert.equal(firstSnapshot.generalAudit.dimensions.length, 6);
+  assert.equal(
+    firstSnapshot.generalAudit.dimensions.filter(
+      ({ assessmentState }) => assessmentState === "not_assessed",
+    ).length,
+    5,
+  );
+  assert.equal(
+    firstSnapshot.generalAudit.dimensions.find(
+      ({ dimensionId }) => dimensionId === "ownershipClarity",
+    ).assessmentState,
+    "in_progress",
+  );
+  assert.equal(
+    firstSnapshot.generalAudit.evidenceCoverage.ownershipClarity.bySource
+      .production_code,
+    1,
+  );
+  assert.equal(firstSnapshot.generalAudit.completeness.assessedWeight, 0);
+  assert.equal(firstSnapshot.generalAudit.result, null);
+  assert.equal(firstSnapshot.generalAudit.reportComplete, false);
+  assert.equal(firstSnapshot.generalAudit.synthesis, null);
+  assert.ok(firstSnapshot.generalAudit.latestCheckpointSequence > 0);
+
+  const restartedService = await startWaymarkServer({
+    databasePath,
+    host: "127.0.0.1",
+    port: 0,
+  });
+  const restartedResponse = await fetch(
+    `${restartedService.url}/api/runs/latest`,
+  );
+  const restartedSnapshot = await restartedResponse.json();
+  await restartedService.close();
+
+  assert.deepEqual(restartedSnapshot.generalAudit, firstSnapshot.generalAudit);
+});
+
+test("SSE publishes incremental general findings and a later revision", async (t) => {
+  const directory = mkdtempSync(join(tmpdir(), "waymark-general-sse-"));
+  const databasePath = join(directory, "waymark.sqlite");
+  const writer = new AuditStore({ databasePath });
+  const run = writer.createRun(generalRunInput("general-sse-service"));
+  const auditor = run.participants[0].id;
+  const service = await startWaymarkServer({
+    databasePath,
+    host: "127.0.0.1",
+    port: 0,
+  });
+  const streamResponse = await fetch(`${service.url}/api/events`);
+  const stream = createSseReader(streamResponse);
+  t.after(async () => {
+    await stream.cancel();
+    await service.close();
+    writer.close();
+  });
+  await stream.next("ready");
+
+  writer.startGeneralAudit(
+    generalCheckpoint(
+      run,
+      "start",
+      {
+        repositoryIdentity: run.repositoryIdentity,
+        commitSha: run.commitSha,
+        protocolVersion: run.protocolVersion,
+      },
+      "2026-07-25T19:00:00.000Z",
+    ),
+  );
+  await stream.next("changed");
+
+  const findingAt = "2026-07-25T19:01:00.000Z";
+  writer.recordGeneralFinding(
+    generalCheckpoint(
+      run,
+      "finding",
+      {
+        revision: generalRevision({
+          actor: auditor,
+          occurredAt: findingAt,
+        }),
+      },
+      findingAt,
+    ),
+  );
+  await stream.next("changed");
+  const findingSnapshot = await (
+    await fetch(`${service.url}/api/runs/latest`)
+  ).json();
+  assert.equal(findingSnapshot.status, "running");
+  assert.equal(findingSnapshot.phase, "Repository survey");
+  assert.equal(findingSnapshot.generalAudit.findings.length, 1);
+  assert.equal(
+    findingSnapshot.generalAudit.findings[0].currentRevision.state,
+    "provisional",
+  );
+  assert.equal(findingSnapshot.generalAudit.findings[0].revisions.length, 1);
+
+  const revisedAt = "2026-07-25T19:02:00.000Z";
+  writer.reviseGeneralFinding(
+    generalCheckpoint(
+      run,
+      "revision",
+      {
+        revision: generalRevision({
+          actor: auditor,
+          occurredAt: revisedAt,
+          revisionNumber: 2,
+          state: "located_late",
+          previousRevisionId: "service-revision-1",
+          navigationCost: null,
+        }),
+      },
+      revisedAt,
+    ),
+  );
+  await stream.next("changed");
+  const revisedSnapshot = await (
+    await fetch(`${service.url}/api/runs/latest`)
+  ).json();
+
+  assert.equal(
+    revisedSnapshot.generalAudit.findings[0].currentRevision.state,
+    "located_late",
+  );
+  assert.equal(revisedSnapshot.generalAudit.findings[0].revisions.length, 2);
+  assert.equal(
+    revisedSnapshot.generalAudit.findings[0].navigationCostHistory.length,
+    1,
+  );
+  assert.ok(
+    revisedSnapshot.generalAudit.latestCheckpointSequence >
+      findingSnapshot.generalAudit.latestCheckpointSequence,
+  );
+  assert.match(revisedSnapshot.latestEvent, /Revised finding to located_late/);
 });
 
 test("local service remains read-only", async (t) => {

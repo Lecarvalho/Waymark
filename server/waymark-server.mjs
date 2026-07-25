@@ -344,22 +344,43 @@ function phaseLabel(value) {
   return PHASE_LABELS[value] ?? value;
 }
 
-function participantStatus(role, events, runStatus) {
-  const roleEvents = events.filter((event) => event.actor === role);
+function participantStatus(participant, events, runStatus) {
+  const participantActors = new Set(
+    [participant.id, participant.role].filter(
+      (actor) => typeof actor === "string",
+    ),
+  );
+  const roleEvents = events.filter((event) =>
+    participantActors.has(event.actor),
+  );
   const hasType = (...types) =>
     roleEvents.some((event) => types.includes(event.type));
 
   if (
-    hasType("investigation.failed", "orchestration.failed") ||
+    hasType("investigation.failed", "orchestration.failed", "provider.error") ||
     (hasType("budget.exceeded") &&
       !hasType("investigation.completed", "orchestration.completed"))
   ) {
     return "Failed";
   }
-  if (hasType("investigation.interrupted", "orchestration.interrupted")) {
+  const generalInterruption = lastDefinedEvent(
+    roleEvents,
+    (event) => event.type === "general.audit.interrupted",
+  );
+  if (generalInterruption?.payload?.outcome === "failed") return "Failed";
+  if (
+    hasType("investigation.interrupted", "orchestration.interrupted") ||
+    generalInterruption
+  ) {
     return "Interrupted";
   }
-  if (hasType("investigation.completed", "orchestration.completed")) {
+  if (
+    hasType(
+      "investigation.completed",
+      "orchestration.completed",
+      "general.synthesis.completed",
+    )
+  ) {
     return "Complete";
   }
   if (runStatus === "active") {
@@ -369,6 +390,201 @@ function participantStatus(role, events, runStatus) {
     return roleEvents.length > 0 ? "Complete" : "Not run";
   }
   return roleEvents.length > 0 ? "Interrupted" : "Not run";
+}
+
+function generalRunStatus(generalReport, runStatus) {
+  const ledgerStatus = generalReport?.ledgerStatus;
+  if (["completed", "partial", "failed", "cancelled"].includes(ledgerStatus)) {
+    return ledgerStatus;
+  }
+  if (runStatus === "active") return "running";
+  if (["completed", "partial", "failed", "cancelled"].includes(runStatus)) {
+    return runStatus;
+  }
+  return "failed";
+}
+
+function generalAuditProgress(generalReport, status) {
+  if (status === "completed") return 100;
+  if (!generalReport) return 0;
+
+  const inspectedSurfaceCount = new Set(
+    generalReport.surfaces.map(({ surface }) => surface),
+  ).size;
+  const surfaceProgress = Math.min(1, inspectedSurfaceCount / 9);
+  const pathProgress = Math.min(1, generalReport.behaviorPaths.length / 2);
+  const dimensionProgress =
+    generalReport.dimensions.reduce(
+      (total, dimension) =>
+        total +
+        (dimension.assessmentState === "assessed"
+          ? 1
+          : dimension.assessmentState === "in_progress"
+            ? 0.5
+            : 0),
+      0,
+    ) / 6;
+  const synthesisProgress = generalReport.synthesis === null ? 0 : 1;
+
+  return Math.round(
+    Math.max(
+      generalReport.generatedFromSequence > 0 ? 3 : 0,
+      surfaceProgress * 30 +
+        pathProgress * 20 +
+        dimensionProgress * 40 +
+        synthesisProgress * 10,
+    ),
+  );
+}
+
+function generalAuditPhase(generalReport, status) {
+  if (status === "completed") return "Complete";
+  if (status === "partial") return "Partial report";
+  if (status === "failed") return "Failed";
+  if (status === "cancelled") return "Cancelled";
+  if (!generalReport) return "Repository survey";
+  if (
+    generalReport.synthesis !== null ||
+    generalReport.recommendations.length > 0
+  ) {
+    return "Synthesis";
+  }
+  if (
+    generalReport.dimensions.some(
+      ({ assessmentState }) => assessmentState !== "not_assessed",
+    )
+  ) {
+    return "Dimension assessment";
+  }
+  if (generalReport.behaviorPaths.length > 0) {
+    return "Behavior-path tracing";
+  }
+  return "Repository survey";
+}
+
+function generalLatestEventText(events) {
+  const event = lastDefinedEvent(
+    events,
+    ({ type }) => typeof type === "string" && type.startsWith("general."),
+  );
+  if (!event) return "General audit is waiting for its first checkpoint.";
+
+  switch (event.type) {
+    case "general.audit.started":
+      return "General auditor started the repository survey.";
+    case "general.surface.inspected":
+      return `Inspected ${humanizeReason(event.payload?.surface)}.`;
+    case "general.behavior_path.recorded":
+      return `Recorded behavior path: ${event.payload?.name ?? "Untitled path"}.`;
+    case "general.finding.recorded":
+      return `Recorded ${event.payload?.revision?.state ?? "provisional"} finding: ${event.payload?.revision?.title ?? "Untitled finding"}.`;
+    case "general.finding.revised":
+      return `Revised finding to ${event.payload?.revision?.state ?? "a new state"}: ${event.payload?.revision?.title ?? "Untitled finding"}.`;
+    case "general.dimension.progress":
+      return `Updated ${event.payload?.dimensionId ?? "dimension"} evidence coverage.`;
+    case "general.dimension.assessed":
+      return `Assessed ${event.payload?.dimensionId ?? "dimension"}.`;
+    case "general.recommendation.recorded":
+      return `Recorded recommendation: ${event.payload?.title ?? "Untitled recommendation"}.`;
+    case "general.continuation.recorded":
+      return "Saved general-audit continuation state.";
+    case "general.synthesis.completed":
+      return event.payload?.outcome === "completed"
+        ? "General audit synthesis completed."
+        : "Partial general-audit synthesis saved.";
+    case "general.audit.interrupted":
+      return `General audit ${event.payload?.outcome ?? "interrupted"}: ${event.payload?.reason ?? "No reason recorded"}.`;
+    default:
+      return event.type;
+  }
+}
+
+function generalProviderSession(events, status) {
+  const sessionEvent = lastDefinedEvent(
+    events,
+    (event) => event.type === "provider.session.started",
+  );
+  const providerEvents = events.filter(
+    ({ type }) => typeof type === "string" && type.startsWith("provider."),
+  );
+  const latestActivity = providerEvents.at(-1);
+  const latestTurnStarted = lastDefinedEvent(
+    providerEvents,
+    (event) => event.type === "provider.turn.started",
+  );
+  const latestTurnCompleted = lastDefinedEvent(
+    providerEvents,
+    (event) => event.type === "provider.turn.completed",
+  );
+  const latestError = lastDefinedEvent(
+    providerEvents,
+    (event) => event.type === "provider.error",
+  );
+  let sessionStatus;
+  if (status === "completed") sessionStatus = "complete";
+  else if (status === "partial") sessionStatus = "interrupted";
+  else if (status === "failed") sessionStatus = "failed";
+  else if (status === "cancelled") sessionStatus = "cancelled";
+  else if (!sessionEvent) sessionStatus = "starting";
+  else if (
+    latestError &&
+    latestError.sequence > sessionEvent.sequence &&
+    (!latestTurnCompleted || latestError.sequence > latestTurnCompleted.sequence)
+  ) {
+    sessionStatus = "error";
+  } else if (
+    latestTurnStarted &&
+    latestTurnStarted.sequence > sessionEvent.sequence &&
+    (!latestTurnCompleted ||
+      latestTurnStarted.sequence > latestTurnCompleted.sequence)
+  ) {
+    sessionStatus = "active";
+  } else {
+    sessionStatus = "idle";
+  }
+
+  return {
+    id:
+      typeof sessionEvent?.payload?.providerSessionId === "string"
+        ? sessionEvent.payload.providerSessionId
+        : null,
+    provider:
+      typeof sessionEvent?.payload?.provider === "string"
+        ? sessionEvent.payload.provider
+        : null,
+    status: sessionStatus,
+    latestActivitySequence: latestActivity?.sequence ?? null,
+    latestActivityType: latestActivity?.type ?? null,
+  };
+}
+
+function generalAuditSnapshot(report, participantSnapshots, status) {
+  if (!report.generalReport) return null;
+  const auditor = report.run.participants.find(
+    (participant) => participant.role === "auditor",
+  );
+  const auditorSnapshot = participantSnapshots.find(
+    (participant) => participant.role === "auditor",
+  );
+
+  return {
+    ...report.generalReport,
+    status,
+    auditor: auditor
+      ? {
+          id: auditor.id ?? auditor.role,
+          role: "auditor",
+          provider: auditor.provider,
+          model: auditor.model,
+          status: auditorSnapshot?.status ?? "Not run",
+          tokens: auditorSnapshot?.tokens ?? null,
+          tokenSource: auditorSnapshot?.tokenSource ?? null,
+        }
+      : null,
+    providerSession: generalProviderSession(report.events, status),
+    latestCheckpointSequence: report.generalReport.generatedFromSequence,
+    reportComplete: report.generalReport.completeness.reportComplete,
+  };
 }
 
 function commandProgress(event) {
@@ -391,6 +607,7 @@ function humanizeReason(value) {
 
 export function toRunSnapshot(report, runCount) {
   const { run, events, aggregates } = report;
+  const auditMode = run.runConditions?.auditMode ?? "task_specific";
   const authoritativeScoreEvent = lastDefinedEvent(
     events,
     (event) =>
@@ -461,13 +678,8 @@ export function toRunSnapshot(report, runCount) {
   const claimsById = new Map(
     report.claims.map((claim) => [claim.id, claim]),
   );
-  const tokensByActor = new Map();
   const tokenMeasurementsByActor = new Map();
   for (const token of report.tokens) {
-    tokensByActor.set(
-      token.actor,
-      (tokensByActor.get(token.actor) ?? 0) + token.totalTokens,
-    );
     const measurements = tokenMeasurementsByActor.get(token.actor) ?? [];
     measurements.push(token);
     tokenMeasurementsByActor.set(token.actor, measurements);
@@ -526,11 +738,13 @@ export function toRunSnapshot(report, runCount) {
   const repositoryName =
     run.repositoryIdentity || basename(run.targetRepositoryPath);
   const status =
-    run.status === "active"
-      ? "running"
-      : run.status === "completed"
-        ? "completed"
-        : "failed";
+    auditMode === "general"
+      ? generalRunStatus(report.generalReport, run.status)
+      : run.status === "active"
+        ? "running"
+        : run.status === "completed"
+          ? "completed"
+          : "failed";
   const recordedProgress = numberOrNull(progressEvent?.payload?.progress) ?? 0;
   const investigationRoles = run.participants
     .filter(({ role }) => ["candidate", "independent"].includes(role))
@@ -566,7 +780,7 @@ export function toRunSnapshot(report, runCount) {
       event.actor === "waymark:reporter" &&
       event.type === "report.recommendations",
   );
-  const progress =
+  const benchmarkProgress =
     status === "completed"
       ? 100
       : Math.max(
@@ -575,10 +789,16 @@ export function toRunSnapshot(report, runCount) {
           verificationProgress,
           recommendationsFinalized ? 90 : 0,
         );
+  const progress =
+    auditMode === "general"
+      ? generalAuditProgress(report.generalReport, status)
+      : benchmarkProgress;
   const phase =
-    status === "completed"
-      ? "Complete"
-      : (phaseLabel(progressEvent?.payload?.phase) ?? "Discovery");
+    auditMode === "general"
+      ? generalAuditPhase(report.generalReport, status)
+      : status === "completed"
+        ? "Complete"
+        : (phaseLabel(progressEvent?.payload?.phase) ?? "Discovery");
   const overall =
     numberOrNull(score?.overall?.score);
   const reliability =
@@ -763,28 +983,41 @@ export function toRunSnapshot(report, runCount) {
               : null;
   const latestEvent = events.at(-1);
   const latestEventText =
-    typeof latestEvent?.payload?.message === "string"
-      ? latestEvent.payload.message
-      : latestEvent?.type === "report.recommendations"
-        ? "Evidence-linked recommendations added."
-        : latestEvent?.type === "run.finished"
-          ? run.status === "completed"
-            ? calibration.status === "eligible_with_resource_overrun"
-              ? "Audit completed and saved with a resource overrun."
-              : calibration.status === "eligible_with_partial_budget_report"
-                ? "Audit completed and saved with a partial budget report."
-              : calibration.eligible
-                ? "Audit completed and saved."
-                : "Audit completed and saved as diagnostic-only."
-            : `Audit failed: ${humanizeReason(
-                latestEvent.payload?.summary?.reason,
-              )}.`
-          : latestEvent?.type ?? "Run created";
+    auditMode === "general"
+      ? generalLatestEventText(events)
+      : typeof latestEvent?.payload?.message === "string"
+        ? latestEvent.payload.message
+        : latestEvent?.type === "report.recommendations"
+          ? "Evidence-linked recommendations added."
+          : latestEvent?.type === "run.finished"
+            ? run.status === "completed"
+              ? calibration.status === "eligible_with_resource_overrun"
+                ? "Audit completed and saved with a resource overrun."
+                : calibration.status === "eligible_with_partial_budget_report"
+                  ? "Audit completed and saved with a partial budget report."
+                : calibration.eligible
+                  ? "Audit completed and saved."
+                  : "Audit completed and saved as diagnostic-only."
+              : `Audit failed: ${humanizeReason(
+                  latestEvent.payload?.summary?.reason,
+                )}.`
+            : latestEvent?.type ?? "Run created";
   const participantSnapshots = run.participants.map((participant) => {
     const verifierCompleted =
       participant.role === "verifier" &&
       report.verifications.length > 0 &&
       adjudicatedClaims === report.claims.length;
+    const participantActors = [...new Set(
+      [participant.id, participant.role].filter(
+        (actor) => typeof actor === "string",
+      ),
+    )];
+    const participantTokenMeasurements = participantActors.flatMap(
+      (actor) => tokenMeasurementsByActor.get(actor) ?? [],
+    );
+    const participantLiveUsage = participantActors
+      .map((actor) => latestLiveUsageByActor.get(actor))
+      .find((usage) => usage !== undefined);
 
     return {
       role: participant.role,
@@ -792,16 +1025,18 @@ export function toRunSnapshot(report, runCount) {
       model: participant.model,
       status: verifierCompleted
         ? "Complete"
-        : participantStatus(participant.role, events, run.status),
-      tokens: tokensByActor.has(participant.role)
-        ? tokensByActor.get(participant.role)
-        : (numberOrNull(
-            latestLiveUsageByActor.get(participant.role)?.cumulative
-              ?.totalTokens,
-          ) ?? null),
-      tokenSource: tokenSource(
-        tokenMeasurementsByActor.get(participant.role) ?? [],
-      ) ?? (latestLiveUsageByActor.has(participant.role) ? "measured_live" : null),
+        : participantStatus(participant, events, run.status),
+      tokens:
+        participantTokenMeasurements.length > 0
+          ? participantTokenMeasurements.reduce(
+              (total, measurement) => total + measurement.totalTokens,
+              0,
+            )
+          : (numberOrNull(participantLiveUsage?.cumulative?.totalTokens) ??
+            null),
+      tokenSource:
+        tokenSource(participantTokenMeasurements) ??
+        (participantLiveUsage ? "measured_live" : null),
     };
   });
   const structuredRecommendationEvent = lastDefinedEvent(
@@ -859,7 +1094,6 @@ export function toRunSnapshot(report, runCount) {
         source: "evidence_linked_addendum",
       }),
     ) ?? null;
-  const auditMode = run.runConditions?.auditMode ?? "task_specific";
   const practiceProfileEvent = lastDefinedEvent(
     events,
     (event) =>
@@ -928,6 +1162,11 @@ export function toRunSnapshot(report, runCount) {
       challenge: null,
       tone: "warn",
     }));
+  const generalAudit = generalAuditSnapshot(
+    report,
+    participantSnapshots,
+    status,
+  );
 
   return {
     id: run.id,
@@ -960,6 +1199,7 @@ export function toRunSnapshot(report, runCount) {
       orchestrator: orchestrator?.model ?? "unknown",
     },
     participants: participantSnapshots,
+    generalAudit,
     evidence: [...partialBudgetEvidence, ...report.claims.map((claim) => {
       const verification = latestVerificationByClaim.get(claim.id);
       const challenge = challengeByClaim.get(claim.id) ?? null;
