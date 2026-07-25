@@ -147,6 +147,8 @@ depending on it.
 
 **Dependencies:** GA-01.
 
+**Status:** Completed.
+
 ### Context
 
 The product contract now defines `general` as a single-auditor, evidence-led

@@ -11,6 +11,7 @@ export const PARTICIPANT_ROLES = [
   "independent",
   "verifier",
   "reporter",
+  "auditor",
 ] as const;
 
 export const CLAIM_CRITICALITIES = [
@@ -35,6 +36,7 @@ export const VERIFICATION_METHODS = [
 
 export const TOKEN_PHASES = [
   "candidate_navigation",
+  "general_research",
   "independent_validation",
   "orchestration",
   "deterministic_verification",
