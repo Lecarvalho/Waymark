@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import {
   appendFileSync,
   mkdirSync,
@@ -11,6 +11,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import process from "node:process";
+import { createInterface } from "node:readline";
 import test from "node:test";
 
 import {
@@ -21,6 +22,7 @@ import {
   extractCodexUsage,
   normalizeCodexEvent,
 } from "../src/orchestration/codex-adapter.mjs";
+import { startGeneralCheckpointTransport } from "../src/orchestration/checkpoint-transport.mjs";
 import {
   finalizeDraftRecommendations,
   runInvestigationPhase,
@@ -32,6 +34,256 @@ const repositoryRoot = dirname(fileURLToPath(new URL("../package.json", import.m
 const fakeProviderPath = fileURLToPath(
   new URL("../fixtures/providers/fake-jsonl-provider.mjs", import.meta.url),
 );
+
+function createGeneralTransportRun(store, id = "checkpoint-general") {
+  return store.createRun({
+    id,
+    targetRepositoryPath: repositoryRoot,
+    repositoryIdentity: "waymark-checkpoint-fixture",
+    commitSha: "0123456789abcdef",
+    task: "Assess repository navigability.",
+    participants: [
+      {
+        id: `${id}-auditor`,
+        role: "auditor",
+        provider: "codex",
+        model: "fake-auditor",
+      },
+    ],
+    toolPolicy: {
+      target: "read-only",
+      allowed: ["read files"],
+      forbidden: ["editing target files"],
+    },
+    runConditions: { auditMode: "general" },
+    protocolVersion: "2.0.0",
+    rubricVersion: "general-audit/1.0.0",
+  });
+}
+
+async function runCheckpointFakeProvider({
+  store,
+  run,
+  transport,
+  mode,
+}) {
+  const adapter = createCodexProcessAdapter({
+    entryPath: fakeProviderPath,
+    environment: {
+      WAYMARK_FAKE_MODE: mode,
+      WAYMARK_FAKE_ROLE: "auditor",
+      WAYMARK_FAKE_REPOSITORY_IDENTITY: run.repositoryIdentity,
+      WAYMARK_FAKE_COMMIT_SHA: run.commitSha,
+      WAYMARK_FAKE_PROTOCOL_VERSION: run.protocolVersion,
+    },
+  });
+  const launch = adapter.attachCheckpointTransport(
+    adapter.createLaunchSpec(
+      {
+        runId: run.id,
+        role: "auditor",
+        participant: run.participants[0],
+        target: {
+          path: run.targetRepositoryPath,
+          identity: run.repositoryIdentity,
+          commitSha: run.commitSha,
+          readOnly: true,
+        },
+      },
+      "Structured checkpoint transport integration fixture.",
+    ),
+    transport,
+  );
+  const child = spawn(launch.command, launch.arguments, {
+    cwd: launch.cwd,
+    env: { ...process.env, ...launch.environment },
+    shell: false,
+    stdio: ["pipe", "pipe", "pipe"],
+    windowsHide: true,
+  });
+  let stderr = "";
+  child.stderr.setEncoding("utf8");
+  child.stderr.on("data", (chunk) => {
+    stderr += chunk;
+  });
+  const lines = createInterface({ input: child.stdout, crlfDelay: Infinity });
+  lines.on("line", (line) => {
+    const event = JSON.parse(line);
+    const normalized = adapter.normalizeEvent(event);
+    if (normalized === null || normalized === undefined) return;
+    store.appendEvent({
+      runId: run.id,
+      actor: run.participants[0].id,
+      type: normalized.type,
+      payload: normalized.payload,
+    });
+    if (
+      normalized.type === "provider.session.started" &&
+      typeof normalized.payload.providerSessionId === "string"
+    ) {
+      transport.bindProviderSession(normalized.payload.providerSessionId);
+    }
+  });
+  child.stdin.end(launch.stdin ?? "");
+  const result = await new Promise((resolve, reject) => {
+    child.once("error", reject);
+    child.once("close", (exitCode, exitSignal) => {
+      resolve({ exitCode, exitSignal, stderr });
+    });
+  });
+  return result;
+}
+
+test("general checkpoint transport preserves acknowledged findings across a provider crash", async (t) => {
+  const directory = mkdtempSync(join(tmpdir(), "waymark-checkpoint-"));
+  const store = new AuditStore({ databasePath: join(directory, "audit.sqlite") });
+  t.after(() => store.close());
+  const run = createGeneralTransportRun(store);
+  const transport = await startGeneralCheckpointTransport({
+    store,
+    runId: run.id,
+    auditorId: run.participants[0].id,
+    provider: run.participants[0].provider,
+  });
+  t.after(() => transport.close());
+
+  const result = await runCheckpointFakeProvider({
+    store,
+    run,
+    transport,
+    mode: "checkpoint-crash-duplicate",
+  });
+
+  assert.notEqual(
+    result.exitCode,
+    0,
+    "the fake provider must fail before returning final synthesis",
+  );
+  assert.match(result.stderr, /simulated provider crash/);
+  const activeReport = store.readReport(run.id);
+  assert.equal(activeReport.generalAudit.partialReport.available, true);
+  assert.equal(
+    activeReport.generalAudit.findings["fake-refund-owner"].revisions.length,
+    2,
+  );
+  assert.equal(
+    activeReport.generalAudit.findings["fake-refund-owner"].currentRevision
+      .state,
+    "located_late",
+  );
+  assert.equal(
+    activeReport.events.filter(
+      ({ type }) => type === "general.finding.recorded",
+    ).length,
+    1,
+    "duplicate delivery must not append duplicate semantic evidence",
+  );
+  assert.equal(
+    activeReport.events.filter(
+      ({ type }) => type === "provider.checkpoint.acknowledged",
+    ).length,
+    4,
+  );
+  assert.equal(
+    activeReport.events.filter(
+      ({ type }) => type === "provider.session.started",
+    ).length,
+    1,
+    "raw provider telemetry remains separate from semantic checkpoints",
+  );
+
+  transport.persist({
+    runId: run.id,
+    actor: run.participants[0].id,
+    providerSessionId: "fresh-auditor",
+    idempotencyKey: "provider-crash",
+    type: "general.audit.interrupted",
+    occurredAt: "2026-07-25T14:03:00.000Z",
+    payload: {
+      outcome: "partial",
+      reason: "Provider exited after acknowledged semantic checkpoints.",
+    },
+  });
+  store.finishRun(run.id, {
+    status: "partial",
+    summary: { reason: "Recovered acknowledged semantic checkpoints." },
+  });
+  const partialReport = store.readReport(run.id);
+  assert.equal(partialReport.run.status, "partial");
+  assert.equal(partialReport.generalAudit.status, "partial");
+  assert.equal(partialReport.generalAudit.partialReport.available, true);
+});
+
+test("general checkpoint transport rejects unauthorized and malformed callbacks diagnostically", async (t) => {
+  const directory = mkdtempSync(join(tmpdir(), "waymark-checkpoint-reject-"));
+  const store = new AuditStore({ databasePath: join(directory, "audit.sqlite") });
+  t.after(() => store.close());
+  const run = createGeneralTransportRun(store, "checkpoint-rejections");
+  const transport = await startGeneralCheckpointTransport({
+    store,
+    runId: run.id,
+    auditorId: run.participants[0].id,
+    provider: run.participants[0].provider,
+  });
+  t.after(() => transport.close());
+  transport.bindProviderSession("session-authorized");
+
+  let response = await fetch(transport.endpoint, {
+    method: "POST",
+    headers: {
+      authorization: "Bearer wrong-capability",
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({}),
+  });
+  assert.equal(response.status, 401);
+  assert.equal((await response.json()).error.code, "CHECKPOINT_UNAUTHORIZED");
+
+  response = await fetch(transport.endpoint, {
+    method: "POST",
+    headers: {
+      authorization: transport.authorization,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      runId: run.id,
+      actor: "not-the-auditor",
+      providerSessionId: "session-authorized",
+      idempotencyKey: "wrong-actor",
+      type: "general.audit.started",
+      payload: {},
+    }),
+  });
+  assert.equal(response.status, 403);
+  assert.equal(
+    (await response.json()).error.code,
+    "CHECKPOINT_AUDITOR_MISMATCH",
+  );
+
+  const report = store.readReport(run.id);
+  const rejections = report.events.filter(
+    ({ type }) => type === "provider.checkpoint.rejected",
+  );
+  assert.equal(rejections.length, 2);
+  assert.deepEqual(
+    rejections.map(({ payload }) => payload.error.code),
+    ["CHECKPOINT_UNAUTHORIZED", "CHECKPOINT_AUDITOR_MISMATCH"],
+  );
+  assert.equal(
+    report.events.some(({ type }) => type.startsWith("general.")),
+    false,
+  );
+  assert.throws(
+    () =>
+      store.appendEvent({
+        runId: run.id,
+        actor: run.participants[0].id,
+        type: "provider.checkpoint.acknowledged",
+        payload: {},
+      }),
+    (error) => error?.code === "RESERVED_EVENT_TYPE",
+  );
+});
 
 test("provider output schemas stay within the strict structured-output subset", () => {
   const schemaPaths = [

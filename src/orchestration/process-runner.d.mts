@@ -42,6 +42,15 @@ export interface ProcessProviderAdapter {
     prompt: string,
     providerSessionId: string,
   ): ProcessLaunchSpec;
+  attachCheckpointTransport?(
+    launch: ProcessLaunchSpec,
+    transport: {
+      runId: string;
+      auditorId: string;
+      endpoint: string;
+      authorization: string;
+    },
+  ): ProcessLaunchSpec;
   extractUsage(event: unknown): ProviderUsage | null | undefined;
   extractFinalOutput(event: unknown): JsonValue | undefined;
   normalizeEvent(event: unknown): NormalizedProviderEvent | null | undefined;

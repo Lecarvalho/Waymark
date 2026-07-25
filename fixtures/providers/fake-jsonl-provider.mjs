@@ -1,14 +1,16 @@
 import { readFileSync } from "node:fs";
 
 const codexCliMode = process.argv[2] === "exec";
-const mode = codexCliMode ? "success" : (process.argv[2] ?? "success");
-const role = codexCliMode
+const mode =
+  process.env.WAYMARK_FAKE_MODE ??
+  (codexCliMode ? "success" : (process.argv[2] ?? "success"));
+const role = process.env.WAYMARK_FAKE_ROLE ?? (codexCliMode
   ? process.argv.some((argument) =>
       argument.includes("orchestration-output.schema.json"),
     )
     ? "orchestrator"
     : "candidate"
-  : (process.argv[3] ?? "candidate");
+  : (process.argv[3] ?? "candidate"));
 const suppliedClaimId = codexCliMode ? undefined : process.argv[4];
 const prompt = readFileSync(0, "utf8");
 const delayedReportMode = mode === "report-only-delayed";
@@ -24,6 +26,138 @@ function emit(value) {
 
 emit({ type: "thread.started", thread_id: `fresh-${role}` });
 emit({ type: "turn.started" });
+
+async function postCheckpoint(value) {
+  const response = await fetch(process.env.WAYMARK_CHECKPOINT_ENDPOINT, {
+    method: "POST",
+    headers: {
+      authorization: process.env.WAYMARK_CHECKPOINT_AUTHORIZATION,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify(value),
+  });
+  const acknowledgement = await response.json();
+  emit({
+    type: "waymark.checkpoint.response",
+    status: response.status,
+    acknowledgement,
+  });
+  if (!response.ok) {
+    throw new Error(
+      `checkpoint rejected: ${acknowledgement.error?.code ?? response.status}`,
+    );
+  }
+  return acknowledgement;
+}
+
+if (
+  ["checkpoint-crash", "checkpoint-crash-duplicate"].includes(mode)
+) {
+  await new Promise((resolve) => setTimeout(resolve, 25));
+  const runId = process.env.WAYMARK_CHECKPOINT_RUN_ID;
+  const actor = process.env.WAYMARK_CHECKPOINT_ACTOR;
+  const providerSessionId = `fresh-${role}`;
+  const base = {
+    runId,
+    actor,
+    providerSessionId,
+  };
+  await postCheckpoint({
+    ...base,
+    idempotencyKey: "fake-start",
+    type: "general.audit.started",
+    occurredAt: "2026-07-25T14:00:00.000Z",
+    payload: {
+      repositoryIdentity: process.env.WAYMARK_FAKE_REPOSITORY_IDENTITY,
+      commitSha: process.env.WAYMARK_FAKE_COMMIT_SHA,
+      protocolVersion: process.env.WAYMARK_FAKE_PROTOCOL_VERSION,
+    },
+  });
+  const citation = {
+    path: "src/refunds/refund-service.ts",
+    startLine: 10,
+    endLine: 30,
+    symbol: "RefundService",
+    source: "production_code",
+  };
+  const finding = {
+    ...base,
+    idempotencyKey: "fake-finding",
+    type: "general.finding.recorded",
+    occurredAt: "2026-07-25T14:01:00.000Z",
+    payload: {
+      revision: {
+        revisionId: "fake-revision-1",
+        findingId: "fake-refund-owner",
+        revisionNumber: 1,
+        state: "provisional",
+        signal: "friction",
+        title: "Refund owner was not immediately discoverable",
+        conclusion: "Initial ownership searches did not locate the owner.",
+        dimensionIds: ["discoveryEfficiency", "ownershipClarity"],
+        practiceGuideIds: ["conceptOwningNames"],
+        citations: [citation],
+        navigationCost: {
+          searches: 4,
+          filesOpened: 7,
+          fileHops: 3,
+          deadEnds: 2,
+          commands: 5,
+          processedTokens: 1800,
+          elapsedMs: 92000,
+        },
+        provenance: {
+          previousRevisionId: null,
+          amendmentReason: null,
+          actor,
+          occurredAt: "2026-07-25T14:01:00.000Z",
+          causedByCitations: [citation],
+        },
+      },
+    },
+  };
+  await postCheckpoint(finding);
+  if (mode === "checkpoint-crash-duplicate") {
+    await postCheckpoint(finding);
+  }
+  await postCheckpoint({
+    ...base,
+    idempotencyKey: "fake-revision",
+    type: "general.finding.revised",
+    occurredAt: "2026-07-25T14:02:00.000Z",
+    payload: {
+      revision: {
+        revisionId: "fake-revision-2",
+        findingId: "fake-refund-owner",
+        revisionNumber: 2,
+        state: "located_late",
+        signal: "friction",
+        title: "Refund owner exists but was located late",
+        conclusion:
+          "The owner exists, but required four searches and three file hops.",
+        dimensionIds: ["discoveryEfficiency", "ownershipClarity"],
+        practiceGuideIds: ["conceptOwningNames"],
+        citations: [citation],
+        navigationCost: null,
+        provenance: {
+          previousRevisionId: "fake-revision-1",
+          amendmentReason: "A later consumer trace exposed the owner.",
+          actor,
+          occurredAt: "2026-07-25T14:02:00.000Z",
+          causedByCitations: [
+            {
+              ...citation,
+              path: "src/refunds/refund-router.ts",
+            },
+          ],
+        },
+      },
+    },
+  });
+  process.stderr.write("simulated provider crash after acknowledged checkpoints");
+  process.exit(7);
+}
+
 if (
   [
     "early-output-await",

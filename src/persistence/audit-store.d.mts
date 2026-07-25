@@ -58,6 +58,7 @@ export class AuditStore {
   readRun(runId: string): AuditRun;
   appendEvent(input: AppendEventInput): AuditEvent;
   appendGeneralCheckpoint(input: GeneralCheckpointInput): AuditEvent;
+  appendGeneralCheckpointDiagnostic(input: AppendEventInput): AuditEvent;
   startGeneralAudit(input: GeneralCheckpointInput): AuditEvent;
   recordGeneralSurface(input: GeneralCheckpointInput): AuditEvent;
   recordGeneralBehaviorPath(input: GeneralCheckpointInput): AuditEvent;

@@ -25,7 +25,12 @@ export const SCHEMA_VERSION = 6;
 export const DEFAULT_DATABASE_PATH = ".waymark/waymark.sqlite";
 
 const RESERVED_ACTOR_PATTERN = /^waymark(?::|$)/;
-const RESERVED_EVENT_PREFIXES = ["run.", "score.", "general."];
+const RESERVED_EVENT_PREFIXES = [
+  "run.",
+  "score.",
+  "general.",
+  "provider.checkpoint.",
+];
 const GENERAL_AUDIT_EVENT_TYPE_SET = new Set(GENERAL_AUDIT_EVENT_TYPES);
 
 const TOKEN_PHASES = [
@@ -1004,6 +1009,53 @@ export class AuditStore {
           checkpoint.idempotencyKey,
         );
       return event;
+    });
+  }
+
+  appendGeneralCheckpointDiagnostic(input) {
+    this.#assertOpen();
+    const event = validateAppendEvent(input, this.#dependencies());
+    if (
+      event.type !== "provider.checkpoint.acknowledged" &&
+      event.type !== "provider.checkpoint.rejected"
+    ) {
+      throw new AuditStoreError(
+        "GENERAL_CHECKPOINT_DIAGNOSTIC_TYPE_INVALID",
+        `Unsupported checkpoint diagnostic type: ${event.type}`,
+      );
+    }
+    return this.#transaction(() => {
+      this.#assertActiveRun(event.runId);
+      const run = this.readRun(event.runId);
+      const auditor = run.participants.find(
+        (participant) => participant.role === "auditor",
+      );
+      if (
+        run.runConditions.auditMode !== "general" ||
+        auditor?.id !== event.actor
+      ) {
+        throw new AuditStoreError(
+          "GENERAL_AUDITOR_NOT_AUTHORIZED",
+          `Actor ${event.actor} is not the general auditor for run ${event.runId}`,
+        );
+      }
+      const sequence = this.#nextSequence(event.runId);
+      this.#database
+        .prepare(`
+          INSERT INTO audit_events (
+            id, run_id, sequence, actor, type, payload_json, occurred_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        `)
+        .run(
+          event.id,
+          event.runId,
+          sequence,
+          event.actor,
+          event.type,
+          json(event.payload),
+          event.occurredAt,
+        );
+      return { ...event, sequence, tokenMeasurement: undefined };
     });
   }
 

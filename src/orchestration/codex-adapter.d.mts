@@ -21,4 +21,5 @@ export function createCodexProcessAdapter(input?: {
   outputSchemaPath?: string;
   orchestrationOutputSchemaPath?: string;
   environment?: NodeJS.ProcessEnv;
+  usagePollIntervalMs?: number;
 }): ProcessProviderAdapter;

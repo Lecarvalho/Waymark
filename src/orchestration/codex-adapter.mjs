@@ -435,6 +435,18 @@ export function createCodexProcessAdapter({
         ),
       };
     },
+    attachCheckpointTransport(launch, transport) {
+      return {
+        ...launch,
+        environment: {
+          ...launch.environment,
+          WAYMARK_CHECKPOINT_RUN_ID: transport.runId,
+          WAYMARK_CHECKPOINT_ACTOR: transport.auditorId,
+          WAYMARK_CHECKPOINT_ENDPOINT: transport.endpoint,
+          WAYMARK_CHECKPOINT_AUTHORIZATION: transport.authorization,
+        },
+      };
+    },
     extractUsage: extractCodexUsage,
     extractFinalOutput: extractCodexFinalOutput,
     normalizeEvent: normalizeCodexEvent,

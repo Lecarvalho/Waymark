@@ -445,6 +445,8 @@ Do not redesign the active report UI in this task.
 
 **Dependencies:** GA-02 and GA-03.
 
+**Status:** Completed.
+
 ### Context
 
 The existing provider runner waits for one final structured output. Raw tool
