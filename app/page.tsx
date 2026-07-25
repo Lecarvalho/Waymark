@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
+import { GeneralAuditView } from "./general-audit-view";
 import { PrepareAuditDialog } from "./prepare-audit-dialog";
 import { useWaymarkLive } from "./use-waymark-live";
 
@@ -640,6 +641,10 @@ export default function Home() {
                 </div>
               </section>
             ) : null}
+            {isGeneralAudit && snapshot.generalAudit ? (
+              <GeneralAuditView snapshot={snapshot} />
+            ) : (
+              <>
             <section
               className={`audit-hero ${
                 snapshot.status === "completed" ? "is-complete" : ""
@@ -1678,6 +1683,8 @@ export default function Home() {
                 )}
               </div>
               </section>
+              </>
+            )}
           </div>
           ) : (
             <div className="page-content empty-audit-view">

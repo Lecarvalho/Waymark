@@ -812,6 +812,8 @@ snapshots.
 
 **Dependencies:** GA-04 and GA-08.
 
+**Status:** Completed.
+
 ### Context
 
 The dashboard is an observer, not a chat client or audit launcher. Its current
