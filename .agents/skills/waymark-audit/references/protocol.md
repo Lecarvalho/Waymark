@@ -102,6 +102,18 @@ orchestrator processes for an existing active run with:
 node bin/waymark.mjs --db <journal> investigation run --run <run-id>
 ```
 
+In Codex desktop managed sandboxes, run this provider-spawning command with
+`sandbox_permissions: require_escalated` on the first attempt. Its child Codex
+processes require outbound access to the provider API even though their target
+repository sandbox and shell-command network policy remain read-only and
+disabled. Request a reusable approval prefix scoped to
+`node bin/waymark.mjs ... investigation run`; do not first launch it in the
+restricted outer sandbox and consume a single-run authorization with a
+terminal connectivity failure. Local service, journal, verification,
+finalization, and scoring commands remain un-escalated unless they
+independently require broader access. A no-model launcher preflight does not
+prove provider API connectivity.
+
 Use `--codex-entry <path-to-codex.js>` or `WAYMARK_CODEX_ENTRY` when automatic
 launcher discovery is unavailable. Candidate and independent research runs in
 parallel. The runner imports candidate findings, then launches the orchestrator

@@ -86,7 +86,17 @@ audit. Preparing or copying the request did not create a run.
    forked from the controlling conversation or an ad hoc provider command.
    Before paid work, prove the installed Codex JavaScript entry point with a
    no-model preflight; use `--codex-entry <path>` or `WAYMARK_CODEX_ENTRY` when
-   automatic Windows discovery is unavailable.
+   automatic Windows discovery is unavailable. In Codex desktop managed
+   sandboxes, launch this provider-spawning command with
+   `sandbox_permissions: require_escalated` on the first attempt because its
+   child processes require outbound access to the provider API. Request a
+   reusable approval prefix scoped to `node bin/waymark.mjs ... investigation
+   run`; do not first consume the authorized run with a restricted-sandbox
+   attempt. This escalation applies only to the outer provider launcher:
+   preserve the audited roles' read-only target sandbox, disabled shell
+   network, and fixed tool policy. Keep local health, journal, verification,
+   finalization, and scoring commands un-escalated unless they independently
+   require broader access.
 4. Confirm that the runner persisted monotonic stage progress, live tool events,
    completion or failure events, and each role's host-measured tokens in the
    correct phase. Missing telemetry remains unavailable. A blocked command still
@@ -189,7 +199,10 @@ Before the next audit:
    prepared request, stop and report the mismatch. Confirm that the UI shows
    the intended run ID before launching roles, then verify its SSE endpoint.
 3. Confirm the provider launcher, JSONL usage event, output schema, read-only
-   sandbox, and allowed read-command shapes with a cheap preflight.
+   sandbox, and allowed read-command shapes with a cheap preflight. A no-model
+   preflight does not prove provider API connectivity. On a managed Codex host,
+   treat the provider-spawning investigation launcher as requiring outer
+   network escalation by default.
 4. Declare efficiency targets separately from calibrated validity ceilings.
    Targets express desired cost; hard ceilings must be chosen from a prior
    bounded measurement for that host/model/task class and stay fixed for the
