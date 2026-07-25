@@ -13,27 +13,27 @@ type Phase = {
 const phases: Phase[] = [
   {
     label: "Candidate run",
-    detail: "The candidate maps the requested change",
+    detail: "Maps repository navigation evidence",
     status: "complete",
   },
   {
     label: "Blind research",
-    detail: "Independent agents trace the same task",
+    detail: "Independently traces the same audit scope",
     status: "complete",
   },
   {
     label: "Cross-examination",
-    detail: "Claims and assumptions are challenged",
+    detail: "Challenges claims and drafts recommendations",
     status: "active",
   },
   {
     label: "Verification",
-    detail: "Evidence is checked against the repository",
+    detail: "Deterministically checks repository evidence",
     status: "queued",
   },
   {
     label: "Scoring",
-    detail: "The locked evidence produces the final score",
+    detail: "Calculates the score from locked evidence",
     status: "queued",
   },
 ];
@@ -69,14 +69,6 @@ function RunningSignal({
     </span>
   );
 }
-
-const activePhaseByRole: Record<string, string> = {
-  candidate: "Candidate run",
-  independent: "Blind research",
-  orchestrator: "Cross-examination",
-  verifier: "Verification",
-  reporter: "Scoring",
-};
 
 const practicePairs = [
   {
@@ -233,12 +225,14 @@ function formatTokenSource(
   source:
     | "provider_reported"
     | "measured"
+    | "measured_live"
     | "estimated"
     | "mixed"
     | null,
 ) {
   if (source === "provider_reported") return "Provider-reported";
   if (source === "measured") return "Measured by the agent host";
+  if (source === "measured_live") return "Live session telemetry";
   if (source === "estimated") return "Explicitly estimated";
   if (source === "mixed") return "Mixed measurement sources";
   return "Usage unavailable";
@@ -295,9 +289,18 @@ export default function Home() {
   const auditProgress = snapshot?.progress ?? 0;
   const navigability = snapshot?.metrics.navigability ?? null;
   const reliability = snapshot?.metrics.reliability ?? null;
-  const candidateTokens = snapshot?.metrics.candidateTokens ?? null;
+  const candidateParticipant = snapshot?.participants.find(
+    ({ role }) => role === "candidate",
+  );
+  const candidateTokens =
+    snapshot?.metrics.candidateTokens ??
+    snapshot?.tokenUsage.candidateBudget.usedTokens ??
+    candidateParticipant?.tokens ??
+    null;
   const candidateTokenSource =
-    snapshot?.metrics.candidateTokenSource ?? null;
+    snapshot?.metrics.candidateTokenSource ??
+    candidateParticipant?.tokenSource ??
+    null;
   const totalClaims = snapshot?.metrics.totalClaims ?? 0;
   const adjudicatedClaims = snapshot?.metrics.adjudicatedClaims ?? 0;
   const openChallenges = snapshot?.metrics.openChallenges ?? 0;
@@ -331,51 +334,24 @@ export default function Home() {
       status: participantPhaseStatus(participant?.status),
     };
   });
-  const displayedAgents = snapshot
-    ? snapshot.participants
-        .filter((participant) =>
-          ["candidate", "orchestrator", "independent"].includes(
-            participant.role,
-          ),
-        )
-        .map((participant, index) => ({
-          role: participant.role
-            .split("_")
-            .map((word) => word[0].toUpperCase() + word.slice(1))
-            .join(" "),
-          model: participant.model,
-          status: participant.status,
-          accent:
-            participant.status === "Failed"
-              ? "red"
-              : participant.status === "Interrupted"
-                ? "amber"
-                : (["blue", "lime", "amber"][index] ?? "blue"),
-          tokens:
-            participant.tokens === null
-              ? "Unavailable"
-              : formatTokenCount(participant.tokens),
-          note: `${participant.provider} · ${
-            participant.tokenSource === "provider_reported"
-              ? "provider-reported"
-              : participant.tokenSource === "measured"
-                ? "host-measured"
-                : participant.tokenSource === "measured_live"
-                  ? "live session log"
-                  : participant.tokenSource === "estimated"
-                    ? "estimated"
-                    : participant.tokenSource === "mixed"
-                      ? "mixed sources"
-                      : "usage unavailable"
-          } · ${
-            participant.status === "Active"
-              ? (activePhaseByRole[participant.role] ?? snapshot.phase)
-              : participant.status
-          }`,
-        }))
-    : [];
   const displayedEvidence = snapshot?.evidence ?? [];
   const displayedRecommendations = snapshot?.recommendations ?? [];
+  const isGeneralAudit =
+    snapshot?.auditMode === "general" ||
+    snapshot?.task.includes("waymark-general-navigation@") === true;
+  const probeSummary = isGeneralAudit
+    ? "Seven-principle agent-readiness suite"
+    : displayRunName(undefined, auditTask);
+  const practiceProfile = snapshot?.practiceProfile ?? null;
+  const practiceStatusCounts = practiceProfile
+    ? practiceProfile.items.reduce(
+        (counts, item) => {
+          counts[item.status] += 1;
+          return counts;
+        },
+        { strong: 0, mixed: 0, weak: 0, not_assessed: 0 },
+      )
+    : { strong: 0, mixed: 0, weak: 0, not_assessed: 0 };
   const verifiedClaims =
     snapshot?.metrics.verifiedClaims ??
     displayedEvidence.filter((row) => row.status.startsWith("Verified")).length;
@@ -383,13 +359,71 @@ export default function Home() {
     snapshot?.metrics.contradictedClaims ??
     displayedEvidence.filter((row) => row.status === "Contradicted").length;
   const tokenUsage = snapshot?.tokenUsage ?? null;
-  const totalAuditTokens = tokenUsage?.overall.totalTokens ?? null;
+  const finalizedAuditTokens = tokenUsage?.overall.totalTokens ?? null;
+  const liveParticipantTokens =
+    snapshot?.participants.reduce(
+      (total, participant) =>
+        participant.tokenSource === "measured_live" &&
+        participant.tokens !== null
+          ? total + participant.tokens
+          : total,
+      0,
+    ) ?? 0;
+  const hasLiveParticipantTokens =
+    snapshot?.participants.some(
+      (participant) =>
+        participant.tokenSource === "measured_live" &&
+        participant.tokens !== null,
+    ) ?? false;
+  const totalAuditTokens =
+    finalizedAuditTokens === null && !hasLiveParticipantTokens
+      ? null
+      : (finalizedAuditTokens ?? 0) + liveParticipantTokens;
   const candidateBudget = tokenUsage?.candidateBudget ?? null;
   const candidateSession = tokenUsage?.candidateSession ?? null;
   const candidateTokenBreakdown =
     tokenUsage?.byPhase.find(
       (phase) => phase.phase === "candidate_navigation",
     ) ?? null;
+  const executionTokenPhases = [
+    "candidate_navigation",
+    "independent_validation",
+    "orchestration",
+    "deterministic_verification",
+    "report_generation",
+  ] as const;
+  const executionStages = displayedPhases.map((phase, index) => {
+    const participantRole = phaseParticipantRoles[index];
+    const participant = participantRole
+      ? snapshot?.participants.find(({ role }) => role === participantRole)
+      : null;
+    const usage = tokenUsage?.byPhase.find(
+      ({ phase: phaseName }) => phaseName === executionTokenPhases[index],
+    );
+    const phaseTokens = usage?.totalTokens ?? participant?.tokens ?? null;
+    const isLiveTokenMeasurement =
+      usage?.totalTokens === null &&
+      participant?.tokenSource === "measured_live" &&
+      participant.tokens !== null;
+    const owner =
+      index === 4
+        ? "Waymark · deterministic scorer"
+        : participant
+          ? `${participant.role
+              .split("_")
+              .map((word) => word[0].toUpperCase() + word.slice(1))
+              .join(" ")} · ${participant.model}`
+          : index === 3
+            ? "Verifier · deterministic"
+            : "Owner pending";
+    return {
+      ...phase,
+      owner,
+      tokens: formatTokenCount(phaseTokens),
+      tokenSource: usage?.source ?? participant?.tokenSource ?? null,
+      isLiveTokenMeasurement,
+    };
+  });
   const cachedInputShare =
     tokenUsage?.overall.inputTokens &&
     tokenUsage.overall.cachedInputTokens !== null
@@ -399,7 +433,7 @@ export default function Home() {
             1000,
         ) / 10
       : null;
-  const tokenCompositionTotal = totalAuditTokens ?? 0;
+  const tokenCompositionTotal = finalizedAuditTokens ?? 0;
   const compositionWidth = (value: number | null) =>
     tokenCompositionTotal > 0 && value !== null
       ? `${(value / tokenCompositionTotal) * 100}%`
@@ -624,16 +658,26 @@ export default function Home() {
                 <h1>
                   {snapshot.status === "running"
                     ? "How hard is this repository to navigate?"
-                    : "Repository navigation report"}
+                    : isGeneralAudit
+                      ? "Repository agent-readiness report"
+                      : "Repository navigation report"}
                 </h1>
-                {snapshot.status === "running" ? (
-                  <p>Navigation probe: “{auditTask}”</p>
-                ) : (
-                  <details className="probe-details">
-                    <summary>Navigation probe</summary>
+                <details className="probe-details">
+                  <summary>
+                    <span>
+                      {isGeneralAudit
+                        ? "General repository audit"
+                        : "Navigation probe"}
+                    </span>
+                    <strong>{probeSummary}</strong>
+                    <span className="probe-details-toggle">Scope</span>
+                  </summary>
+                  <div className="probe-details-content">
+                    <span>Full probe</span>
                     <p>{auditTask}</p>
-                  </details>
-                )}
+                  </div>
+                </details>
+              </div>
                 <div className="hero-meta">
                   <span>
                     Started {new Date(snapshot.startedAt).toLocaleString()}
@@ -654,7 +698,6 @@ export default function Home() {
                     <span>{snapshot.activeAgentCount} active agents</span>
                   ) : null}
                 </div>
-              </div>
               {snapshot.status !== "completed" ? (
                 <div
                   className="audit-completion"
@@ -714,7 +757,7 @@ export default function Home() {
               </article>
               <article className="metric-card">
                 <div className="metric-label">
-                  Candidate navigation tokens
+                  Candidate processed tokens
                 </div>
                 <div className="metric-value">
                   {candidateTokens === null
@@ -766,16 +809,15 @@ export default function Home() {
 
             {
               <section
-                className={`live-grid ${
+                className={`live-grid is-consolidated ${
                   snapshot.status === "completed" ? "is-details" : ""
                 }`}
               >
-              {snapshot.status !== "completed" ? (
-                <article className="panel phase-panel">
+                <article className="panel phase-panel execution-panel">
                 <div className="panel-heading">
                   <div>
-                    <span className="section-kicker">Pipeline</span>
-                    <h2>Audit progress</h2>
+                    <span className="section-kicker">Execution</span>
+                    <h2>Audit stages and owners</h2>
                   </div>
                   {snapshot.status === "running" ? (
                     <RunningSignal compact label="Running" />
@@ -787,7 +829,7 @@ export default function Home() {
                 </div>
 
                 <ol className="phase-list">
-                  {displayedPhases.map((phase, index) => {
+                  {executionStages.map((phase, index) => {
                     const phaseStatus = phase.status;
                     return (
                     <li className={`phase ${phaseStatus}`} key={phase.label}>
@@ -803,8 +845,20 @@ export default function Home() {
                       <div className="phase-copy">
                         <strong>{phase.label}</strong>
                         <span>{phase.detail}</span>
+                        <code>{phase.owner}</code>
                       </div>
-                      <span className="phase-state">{phaseStatus}</span>
+                      <div className="phase-result">
+                        <span className="phase-state">{phaseStatus}</span>
+                        <strong
+                          className={
+                            phase.isLiveTokenMeasurement ? "is-live" : ""
+                          }
+                          title={formatTokenSource(phase.tokenSource)}
+                        >
+                          {phase.tokens}
+                          {phase.isLiveTokenMeasurement ? <small>live</small> : null}
+                        </strong>
+                      </div>
                     </li>
                     );
                   })}
@@ -824,62 +878,34 @@ export default function Home() {
                     {snapshot.status === "running" ? "Listening" : "Latest"}
                   </time>
                 </div>
-              </article>
-              ) : null}
 
-              <article className="panel agent-panel">
-                <details
-                  className={`agent-details ${
-                    snapshot.status === "completed" ? "" : "is-live"
-                  }`}
-                  open={snapshot.status !== "completed"}
-                >
-                <summary className="panel-heading">
-                  <div>
-                    <span className="section-kicker">
-                      {snapshot.status === "completed"
-                        ? "Persisted provenance"
-                        : "Research team"}
-                    </span>
-                    <h2>
-                      {snapshot.status === "completed"
-                        ? "Run details"
-                        : "Agent activity"}
-                    </h2>
+                {tokenUsage || hasLiveParticipantTokens ? (
+                  <div className="token-plain-language">
+                    <strong>
+                      {formatTokenCount(totalAuditTokens)} processed
+                      {hasLiveParticipantTokens ? " · live" : ""}
+                    </strong>
+                    {hasLiveParticipantTokens ? (
+                      <span>
+                        {formatTokenCount(finalizedAuditTokens)} finalized ·{" "}
+                        {formatTokenCount(liveParticipantTokens)} active participant
+                      </span>
+                    ) : tokenUsage ? (
+                      <span>
+                        {formatTokenCount(tokenUsage.overall.cachedInputTokens)} cached
+                        input ·{" "}
+                        {formatTokenCount(tokenUsage.overall.uncachedInputTokens)} new
+                        input ·{" "}
+                        {formatTokenCount(tokenUsage.overall.outputTokens)} output
+                      </span>
+                    ) : null}
+                    <small>
+                      {hasLiveParticipantTokens
+                        ? "Live total combines finalized phases with current participant session telemetry. The detailed composition settles when the active phase finishes."
+                        : "Processed totals accumulate across model/tool turns. Cached input is included once; this is not the active context size or a full-price token estimate."}
+                    </small>
                   </div>
-                  <span className="running-badge">
-                    {snapshot.status === "completed"
-                      ? `${displayedAgents.length} roles`
-                      : `${snapshot.activeAgentCount} active`}
-                  </span>
-                </summary>
-
-                <div className="agent-list">
-                  {displayedAgents.map((agent) => (
-                    <div className="agent-row" key={agent.role}>
-                      <div className={`agent-avatar ${agent.accent}`}>
-                        {agent.role
-                          .split(" ")
-                          .map((word) => word[0])
-                          .join("")}
-                      </div>
-                      <div className="agent-copy">
-                        <div>
-                          <strong>{agent.role}</strong>
-                          <span className={`agent-status ${agent.accent}`}>
-                            {agent.status}
-                          </span>
-                        </div>
-                        <code>{agent.model}</code>
-                        <p>{agent.note}</p>
-                      </div>
-                      <div className="agent-tokens">
-                        <strong>{agent.tokens}</strong>
-                        <span>tokens</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
+                ) : null}
 
                 <details className="run-methodology">
                   <summary>
@@ -888,8 +914,12 @@ export default function Home() {
                   </summary>
                   <div className="token-stack">
                   <div className="token-stack-head">
-                    <span>Total processed tokens</span>
-                    <strong>{formatTokenCount(totalAuditTokens)}</strong>
+                    <span>
+                      {hasLiveParticipantTokens
+                        ? "Finalized token composition"
+                        : "Total processed tokens"}
+                    </span>
+                    <strong>{formatTokenCount(finalizedAuditTokens)}</strong>
                   </div>
                   {tokenUsage ? (
                     <>
@@ -1209,7 +1239,6 @@ export default function Home() {
                   ) : null}
                   </div>
                 </details>
-                </details>
               </article>
               </section>
             }
@@ -1399,11 +1428,153 @@ export default function Home() {
               </div>
             </dialog>
 
+              {isGeneralAudit ? (
+                <section className="panel general-practice-panel">
+                  <div className="panel-heading">
+                    <div>
+                      <span className="section-kicker">
+                        General repository audit
+                      </span>
+                      <h2>Seven-principle agent-readiness profile</h2>
+                    </div>
+                    <span className="muted-action">
+                      {practiceProfile?.available
+                        ? `${practiceProfile.assessedCount}/${practiceProfile.totalCount} assessed`
+                        : "Profile unavailable"}
+                    </span>
+                  </div>
+
+                  {practiceProfile?.available ? (
+                    <>
+                      <div
+                        className="practice-profile-summary"
+                        aria-label="Practice profile summary"
+                      >
+                        <span className="status-strong">
+                          <strong>{practiceStatusCounts.strong}</strong> strong
+                        </span>
+                        <span className="status-mixed">
+                          <strong>{practiceStatusCounts.mixed}</strong> mixed
+                        </span>
+                        <span className="status-weak">
+                          <strong>{practiceStatusCounts.weak}</strong> weak
+                        </span>
+                        <span className="status-not_assessed">
+                          <strong>{practiceStatusCounts.not_assessed}</strong>{" "}
+                          not assessed
+                        </span>
+                      </div>
+
+                      <div className="practice-profile-list">
+                        {practiceProfile.items.map((item) => (
+                          <details
+                            className={`practice-profile-item status-${item.status}`}
+                            key={item.practiceId}
+                          >
+                            <summary>
+                              <span className="practice-profile-number">
+                                {item.practiceId}
+                              </span>
+                              <span className="practice-profile-copy">
+                                <strong>{item.title}</strong>
+                                <small>{item.assessment}</small>
+                              </span>
+                              <span className="practice-profile-status">
+                                {item.status === "not_assessed"
+                                  ? "Not assessed"
+                                  : item.status}
+                              </span>
+                              <span aria-hidden="true">+</span>
+                            </summary>
+                            <div className="practice-profile-detail">
+                              <section>
+                                <h3>Navigation-token effect</h3>
+                                <p>{item.tokenImpact}</p>
+                              </section>
+
+                              <section>
+                                <h3>Verified repository evidence</h3>
+                                {item.evidence.length > 0 ? (
+                                  <ul className="practice-profile-evidence">
+                                    {item.evidence.map((evidence, index) => (
+                                      <li
+                                        key={`${evidence.path}-${evidence.startLine}-${index}`}
+                                      >
+                                        <code>
+                                          {evidence.path}
+                                          {evidence.startLine
+                                            ? `:${evidence.startLine}`
+                                            : ""}
+                                        </code>
+                                        <span>{evidence.assertion}</span>
+                                      </li>
+                                    ))}
+                                  </ul>
+                                ) : (
+                                  <p>No verified evidence was available.</p>
+                                )}
+                              </section>
+
+                              {item.recommendations.length > 0 ? (
+                                <section>
+                                  <h3>Linked improvements</h3>
+                                  <ul className="practice-profile-links">
+                                    {item.recommendations.map(
+                                      (recommendation) => (
+                                        <li key={recommendation.id}>
+                                          <a
+                                            href={`#recommendation-${recommendation.id}`}
+                                          >
+                                            <span>
+                                              {recommendation.priority}
+                                            </span>
+                                            {recommendation.title}
+                                          </a>
+                                        </li>
+                                      ),
+                                    )}
+                                  </ul>
+                                </section>
+                              ) : null}
+
+                              {item.limitations.length > 0 ? (
+                                <section>
+                                  <h3>Coverage limits</h3>
+                                  <ul>
+                                    {item.limitations.map((limitation) => (
+                                      <li key={limitation}>{limitation}</li>
+                                    ))}
+                                  </ul>
+                                </section>
+                              ) : null}
+                            </div>
+                          </details>
+                        ))}
+                      </div>
+                    </>
+                  ) : (
+                    <div className="practice-profile-legacy">
+                      <strong>This saved report uses the earlier general probe.</strong>
+                      <p>
+                        {practiceProfile?.reason ??
+                          "This report predates the seven-principle general-audit profile. Run a new General repository audit to assess every Practice Guide principle."}
+                      </p>
+                    </div>
+                  )}
+                </section>
+              ) : null}
+
               <section className="panel recommendation-panel">
               <div className="panel-heading">
                 <div>
-                  <span className="section-kicker">Primary outcome</span>
-                  <h2>How to improve token efficiency</h2>
+                  <span className="section-kicker">
+                    {isGeneralAudit ? "Improvement backlog" : "Primary outcome"}
+                  </span>
+                  <h2>
+                    {isGeneralAudit
+                      ? "Prioritized repository improvements"
+                      : "How to improve token efficiency"}
+                  </h2>
                 </div>
                 <div className="recommendation-header-actions">
                   <span className="muted-action">
@@ -1430,6 +1601,7 @@ export default function Home() {
                   displayedRecommendations.map((item) => (
                     <details
                       className="recommendation-detail"
+                      id={`recommendation-${item.id}`}
                       key={item.id}
                     >
                       <summary>

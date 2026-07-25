@@ -126,7 +126,14 @@ test("provider capabilities discover installed adapters and model-specific reaso
   );
   assert.deepEqual(
     capabilities.tokenBudgetBasis.candidate_navigation,
-    { source: "rubric_default", sampleSize: 0 },
+    {
+      source: "rubric_default",
+      sampleSize: 0,
+      historicalAverageTokens: null,
+      cappedToRubricDefault: false,
+      usedForTarget: false,
+      minimumSampleSize: 3,
+    },
   );
 });
 
@@ -137,24 +144,90 @@ test("provider capabilities derive automatic token targets from completed-run av
     environment: {},
     historicalTokenAverages: {
       candidate_navigation: {
-        averageTokens: 15_250,
+        averageTokens: 9_000,
         sampleSize: 4,
       },
     },
   });
 
   assert.deepEqual(capabilities.tokenBudgetDefaults.candidate_navigation, {
-    targetTokens: 15_250,
-    hardLimitTokens: 30_500,
+    targetTokens: 9_000,
+    hardLimitTokens: 18_000,
   });
   assert.deepEqual(capabilities.tokenBudgetBasis.candidate_navigation, {
     source: "historical_average",
     sampleSize: 4,
+    historicalAverageTokens: 9_000,
+    cappedToRubricDefault: false,
+    usedForTarget: true,
+    minimumSampleSize: 3,
   });
   assert.deepEqual(capabilities.tokenBudgetBasis.independent_validation, {
     source: "rubric_default",
     sampleSize: 0,
+    historicalAverageTokens: null,
+    cappedToRubricDefault: false,
+    usedForTarget: false,
+    minimumSampleSize: 3,
   });
+});
+
+test("historical outliers cannot inflate automatic token budgets", () => {
+  const directory = mkdtempSync(join(tmpdir(), "waymark-capability-cap-"));
+  const capabilities = discoverProviderCapabilities({
+    codexEntryPath: createFakeCodexEntry(directory),
+    environment: {},
+    historicalTokenAverages: {
+      candidate_navigation: {
+        averageTokens: 232_919,
+        sampleSize: 1,
+      },
+      independent_validation: {
+        averageTokens: 254_751,
+        sampleSize: 1,
+      },
+    },
+  });
+
+  assert.deepEqual(capabilities.tokenBudgetDefaults.candidate_navigation, {
+    targetTokens: 12_000,
+    hardLimitTokens: 24_000,
+  });
+  assert.deepEqual(capabilities.tokenBudgetDefaults.independent_validation, {
+    targetTokens: 24_000,
+    hardLimitTokens: 48_000,
+  });
+  assert.deepEqual(capabilities.tokenBudgetBasis.candidate_navigation, {
+    source: "historical_average",
+    sampleSize: 1,
+    historicalAverageTokens: 232_919,
+    cappedToRubricDefault: true,
+    usedForTarget: false,
+    minimumSampleSize: 3,
+  });
+});
+
+test("one low-cost run cannot prematurely lower automatic token budgets", () => {
+  const directory = mkdtempSync(join(tmpdir(), "waymark-capability-sample-"));
+  const capabilities = discoverProviderCapabilities({
+    codexEntryPath: createFakeCodexEntry(directory),
+    environment: {},
+    historicalTokenAverages: {
+      candidate_navigation: {
+        averageTokens: 4_000,
+        sampleSize: 1,
+      },
+    },
+  });
+
+  assert.deepEqual(capabilities.tokenBudgetDefaults.candidate_navigation, {
+    targetTokens: 12_000,
+    hardLimitTokens: 24_000,
+  });
+  assert.equal(
+    capabilities.tokenBudgetBasis.candidate_navigation.usedForTarget,
+    false,
+  );
 });
 
 test("provider capability failure remains explicit and exposes no model catalog", () => {
@@ -249,17 +322,56 @@ test("the audit skill owns the versioned general navigation suite", () => {
     "utf8",
   );
   const suitePath =
-    "../.agents/skills/waymark-audit/references/general-navigation-suite-1.0.0.json";
+    "../.agents/skills/waymark-audit/references/general-navigation-suite-2.0.0.json";
   const suite = JSON.parse(
     readFileSync(new URL(suitePath, import.meta.url), "utf8"),
   );
 
-  assert.match(skill, /references\/general-navigation-suite-1\.0\.0\.json/);
+  assert.match(skill, /references\/general-navigation-suite-2\.0\.0\.json/);
   assert.equal(suite.id, "waymark-general-navigation");
-  assert.equal(suite.version, "1.0.0");
-  assert.equal(suite.name, "General repository navigation");
-  assert.equal(suite.tasks.length, 3);
-  assert.equal(suite.constraints.length, 3);
+  assert.equal(suite.version, "2.0.0");
+  assert.equal(suite.name, "General repository agent-readiness assessment");
+  assert.deepEqual(
+    suite.tasks.map(({ practiceId }) => practiceId),
+    ["01", "02", "03", "04", "05", "06", "07"],
+  );
+  assert.deepEqual(suite.assessmentContract.statuses, [
+    "strong",
+    "mixed",
+    "weak",
+    "not_assessed",
+  ]);
+  assert.ok(suite.constraints.length >= 5);
+});
+
+test("general mode reaches fresh roles as a seven-principle assessment", () => {
+  const [assignment] = createInvestigationAssignments({
+    runId: "general-run",
+    auditMode: "general",
+    target: {
+      path: "C:\\work\\target",
+      identity: "target",
+      commitSha: "0123456789abcdef",
+      readOnly: true,
+    },
+    task: "Versioned general repository suite",
+    candidate: {
+      role: "candidate",
+      provider: "openai",
+      model: "candidate-model",
+    },
+    capabilities: {
+      parallelAgents: false,
+      independentResearcher: null,
+    },
+  });
+
+  const prompt = renderAssignmentPrompt(assignment);
+  assert.match(prompt, /Audit mode: general/);
+  assert.match(prompt, /cold, repository-wide agent-readiness assessment/);
+  assert.match(prompt, /all seven Practice Guide principles/);
+  assert.match(prompt, /exactly one practiceAssessments item/);
+  assert.match(prompt, /generated\/external code boundaries/);
 });
 
 test("prepared system explanations measure finding cost instead of prose depth", () => {

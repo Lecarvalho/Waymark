@@ -693,13 +693,20 @@ export function toRunSnapshot(report, runCount) {
     }
   }
   const calibrationIssues = events
-    .filter((event) => event.type === "policy.violation")
+    .filter((event) =>
+      ["policy.violation", "investigation.degraded"].includes(event.type),
+    )
     .map((event) => ({
-      type: "policy_violation",
+      type:
+        event.type === "policy.violation"
+          ? "policy_violation"
+          : "evidence_degraded",
       actor: event.actor,
       reason:
         typeof event.payload?.reason === "string"
           ? event.payload.reason
+          : typeof event.payload?.message === "string"
+            ? event.payload.message
           : event.type,
       phase:
         typeof event.payload?.phase === "string"
@@ -852,6 +859,59 @@ export function toRunSnapshot(report, runCount) {
         source: "evidence_linked_addendum",
       }),
     ) ?? null;
+  const auditMode = run.runConditions?.auditMode ?? "task_specific";
+  const practiceProfileEvent = lastDefinedEvent(
+    events,
+    (event) =>
+      event.type === "report.practice_profile" &&
+      event.actor === "waymark:reporter" &&
+      event.payload?.scope === "general_repository" &&
+      Array.isArray(event.payload?.items),
+  );
+  const practiceProfileItems =
+    practiceProfileEvent?.payload.items.map((item) => ({
+      practiceId: item.practiceId,
+      title: PRACTICE_CATALOG[item.practiceId] ?? "Unknown practice",
+      status: item.status,
+      assessment:
+        userFacingText(item.assessment) ??
+        "No repository-specific assessment was recorded.",
+      tokenImpact:
+        userFacingText(item.tokenImpact) ??
+        "The navigation-token mechanism was not recorded.",
+      limitations: userFacingList(item.limitations),
+      evidence: Array.isArray(item.claimIds)
+        ? item.claimIds.flatMap((claimId) => {
+            const claim = claimsById.get(claimId);
+            const verification = latestVerificationByClaim.get(claimId);
+            if (!claim) return [];
+            return claim.citations.map((citation) => ({
+              assertion: claim.assertion,
+              path: citation.path,
+              startLine: citation.startLine ?? null,
+              endLine: citation.endLine ?? null,
+              verdict: verification?.verdict ?? "unverified",
+              method: verification?.method ?? "none",
+            }));
+          })
+        : [],
+      recommendations: Array.isArray(item.recommendationIds)
+        ? item.recommendationIds.flatMap((recommendationId) => {
+            const recommendation = structuredRecommendations?.find(
+              ({ id }) => id === recommendationId,
+            );
+            return recommendation
+              ? [
+                  {
+                    id: recommendation.id,
+                    priority: recommendation.priority,
+                    title: recommendation.title,
+                  },
+                ]
+              : [];
+          })
+        : [],
+    })) ?? [];
   const partialBudgetEvidence = events
     .filter(
       (event) =>
@@ -879,6 +939,7 @@ export function toRunSnapshot(report, runCount) {
     },
     name: run.name ?? conciseTaskName(run.task),
     task: run.task,
+    auditMode,
     calibration,
     phase,
     progress: Math.max(0, Math.min(100, Math.round(progress))),
@@ -936,6 +997,29 @@ export function toRunSnapshot(report, runCount) {
       score,
       authoritativeScore.input,
     ),
+    practiceProfile: {
+      available: practiceProfileEvent !== undefined,
+      schemaVersion:
+        typeof practiceProfileEvent?.payload?.schemaVersion === "string"
+          ? practiceProfileEvent.payload.schemaVersion
+          : null,
+      suite:
+        practiceProfileEvent?.payload?.suite &&
+        typeof practiceProfileEvent.payload.suite === "object"
+          ? practiceProfileEvent.payload.suite
+          : null,
+      assessedCount: practiceProfileItems.filter(
+        ({ status }) => status !== "not_assessed",
+      ).length,
+      totalCount: 7,
+      items: practiceProfileItems,
+      reason:
+        practiceProfileEvent !== undefined
+          ? null
+          : auditMode === "general"
+            ? "This report predates the seven-principle general-audit profile. Run a new General repository audit to assess every Practice Guide principle."
+            : "Repository-wide practice profiling is available only in General repository audits.",
+    },
     recommendations:
       structuredRecommendations ??
       events

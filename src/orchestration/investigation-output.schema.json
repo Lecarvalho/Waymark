@@ -5,6 +5,7 @@
   "required": [
     "summary",
     "findings",
+    "practiceAssessments",
     "probeResult",
     "deadEnds",
     "instructions",
@@ -27,7 +28,8 @@
           "friction",
           "confidence",
           "criticality",
-          "citations"
+          "citations",
+          "practiceIds"
         ],
         "properties": {
           "kind": {
@@ -90,6 +92,56 @@
                   "type": ["string", "null"]
                 }
               }
+            }
+          },
+          "practiceIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": ["01", "02", "03", "04", "05", "06", "07"]
+            },
+            "description": "Practice Guide principles directly evidenced by this finding. Required by the general-audit contract and optional in focused modes."
+          }
+        }
+      }
+    },
+    "practiceAssessments": {
+      "type": "array",
+      "description": "Exactly seven ordered assessments in general mode; an empty array in task-specific and system-explanation modes.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "practiceId",
+          "status",
+          "summary",
+          "findingIndexes",
+          "limitations"
+        ],
+        "properties": {
+          "practiceId": {
+            "type": "string",
+            "enum": ["01", "02", "03", "04", "05", "06", "07"]
+          },
+          "status": {
+            "type": "string",
+            "enum": ["strong", "mixed", "weak", "not_assessed"]
+          },
+          "summary": {
+            "type": "string"
+          },
+          "findingIndexes": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "description": "Zero-based indexes into findings that support this assessment."
+          },
+          "limitations": {
+            "type": "array",
+            "items": {
+              "type": "string"
             }
           }
         }

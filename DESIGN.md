@@ -58,6 +58,10 @@ borders, spacing, and type—not stacked shadows.
 - Tables and evidence lists: aligned columns and row dividers
 - Status: plain text or compact 4 px labels; reserve pills for true filters
 - Progress: linear and labeled; avoid decorative circular meters
+- Audit execution: one consolidated stage list shows the true owner, model,
+  status, and measured phase tokens for candidate research, independent
+  research, orchestration, deterministic verification, and scoring; do not
+  repeat the same roles in a separate agent-activity panel
 - Buttons: visible hover and keyboard focus, restrained transitions
 - Report sections: tabs expose Progress, Evidence, and Recommendations one at a
   time
@@ -65,6 +69,9 @@ borders, spacing, and type—not stacked shadows.
   dependent provider/model/reasoning selects, a read-only prompt preview, and
   one explicit copy action
 - Practice comparisons: accordion rows expose one principle at a time
+- General-audit reports: a seven-row practice profile shows strong, mixed,
+  weak, and not-assessed states; expanded rows expose verified evidence,
+  navigation-token effects, linked improvements, and coverage limitations
 - Large code comparisons: switch between alternatives instead of rendering both
   simultaneously
 
@@ -101,6 +108,8 @@ Don’t:
 - Repeat tiny uppercase section labels.
 - Use oversized full-sentence headlines inside operational views.
 - Show every report section or every guide example at the same time.
+- Present a task-specific probe result as though it assessed the whole
+  repository against the Practice Guide.
 - Add chat controls, model invocation, or a start-audit action to the observer
   interface.
 - Hardcode model names or reasoning efforts in the modal.

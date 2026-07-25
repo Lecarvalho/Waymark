@@ -16,6 +16,15 @@ and primarily measure the tokens and navigation work needed to reach an
 adequate supported answer; prose depth and hypothetical change-surface recall
 are not objectives.
 
+A general repository audit is the broad mode. Its versioned suite samples
+representative repository surfaces and returns a verified result for every
+Practice Guide principle: behavior organization, dependency direction, concept
+naming, canonical workflows, proximal instructions, test discoverability, and
+generated or external code boundaries. It states sampling limits and unknowns;
+it does not claim exhaustive coverage or become a general code-quality review.
+Task-specific and system-explanation audits do not add this repository-wide
+profile.
+
 ## Platform
 
 Waymark is a local-first web application paired with coding-agent tools such as
@@ -44,6 +53,8 @@ report surface.
 - Give recommendations with expected discovery and consumption impact.
 - Tie recommendations to repository structure, naming, documentation,
   boundaries, and verification discoverability observed during the run.
+- In general mode, show all seven Practice Guide outcomes and link every mixed
+  or weak outcome to a verified repository-specific improvement.
 
 ## Interface Posture
 

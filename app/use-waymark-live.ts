@@ -12,6 +12,7 @@ export type WaymarkRunSnapshot = {
   };
   name?: string;
   task: string;
+  auditMode?: "general" | "task_specific" | "system_explanation";
   calibration: {
     eligible: boolean;
     status:
@@ -20,7 +21,7 @@ export type WaymarkRunSnapshot = {
       | "eligible_with_partial_budget_report"
       | "diagnostic_only";
     issues: Array<{
-      type: "policy_violation";
+      type: "policy_violation" | "evidence_degraded";
       actor: string | null;
       reason: string;
       phase: string | null;
@@ -93,6 +94,39 @@ export type WaymarkRunSnapshot = {
     maximumScoreHeadroom: number;
     headroomStatus: "maximum_not_projection";
   }>;
+  practiceProfile?: {
+    available: boolean;
+    schemaVersion: string | null;
+    suite: {
+      id?: string;
+      version?: string;
+      name?: string;
+    } | null;
+    assessedCount: number;
+    totalCount: number;
+    items: Array<{
+      practiceId: string;
+      title: string;
+      status: "strong" | "mixed" | "weak" | "not_assessed";
+      assessment: string;
+      tokenImpact: string;
+      limitations: string[];
+      evidence: Array<{
+        assertion: string;
+        path: string;
+        startLine: number | null;
+        endLine: number | null;
+        verdict: string;
+        method: string;
+      }>;
+      recommendations: Array<{
+        id: string;
+        priority: string;
+        title: string;
+      }>;
+    }>;
+    reason: string | null;
+  };
   recommendations: Array<{
     id: string;
     priority: string;

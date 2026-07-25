@@ -782,6 +782,50 @@ export class AuditStore {
     });
   }
 
+  appendReportPracticeProfile(runId, input) {
+    this.#assertOpen();
+    const normalizedRunId = this.#requiredString(runId, "runId");
+    if (
+      input === null ||
+      typeof input !== "object" ||
+      Array.isArray(input) ||
+      input.scope !== "general_repository" ||
+      typeof input.schemaVersion !== "string" ||
+      input.schemaVersion.trim() === "" ||
+      !Array.isArray(input.items) ||
+      input.items.length !== 7
+    ) {
+      throw new ProtocolValidationError(
+        "practiceProfile: must contain a schema version, general_repository scope, and exactly seven items",
+      );
+    }
+
+    return this.#transaction(() => {
+      const run = this.readRun(normalizedRunId);
+      if (!["active", "completed"].includes(run.status)) {
+        throw new AuditStoreError(
+          "RUN_NOT_REPORTABLE",
+          `Run ${normalizedRunId} is ${run.status}; a practice profile requires an active or completed run`,
+        );
+      }
+      return this.#appendReservedEvent({
+        runId: normalizedRunId,
+        actor: "waymark:reporter",
+        type: "report.practice_profile",
+        payload: {
+          schemaVersion: input.schemaVersion,
+          scope: input.scope,
+          suite: input.suite ?? null,
+          items: input.items,
+        },
+        occurredAt:
+          typeof input.createdAt === "string"
+            ? input.createdAt
+            : this.#now(),
+      });
+    });
+  }
+
   readEvents(runId, { afterSequence = 0, limit = 1000 } = {}) {
     this.#assertOpen();
     const normalizedRunId = this.#requiredString(runId, "runId");

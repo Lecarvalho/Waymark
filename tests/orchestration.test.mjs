@@ -4,6 +4,7 @@ import {
   appendFileSync,
   mkdirSync,
   mkdtempSync,
+  readFileSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -32,19 +33,55 @@ const fakeProviderPath = fileURLToPath(
   new URL("../fixtures/providers/fake-jsonl-provider.mjs", import.meta.url),
 );
 
+test("provider output schemas stay within the strict structured-output subset", () => {
+  const schemaPaths = [
+    "../src/orchestration/investigation-output.schema.json",
+    "../src/orchestration/orchestration-output.schema.json",
+  ];
+  for (const schemaPath of schemaPaths) {
+    const schema = JSON.parse(
+      readFileSync(fileURLToPath(new URL(schemaPath, import.meta.url)), "utf8"),
+    );
+    const inspect = (node, path = "$") => {
+      if (!node || typeof node !== "object") return;
+      assert.equal(
+        Object.hasOwn(node, "uniqueItems"),
+        false,
+        `${schemaPath} ${path} uses unsupported uniqueItems`,
+      );
+      if (node.type === "object" && node.properties) {
+        assert.deepEqual(
+          [...(node.required ?? [])].sort(),
+          Object.keys(node.properties).sort(),
+          `${schemaPath} ${path} must require every declared property`,
+        );
+      }
+      for (const [key, value] of Object.entries(node)) {
+        inspect(value, `${path}.${key}`);
+      }
+    };
+    inspect(schema);
+  }
+});
+
 function createRun(
   store,
   {
     independent = true,
     candidateHardLimit = 500,
     candidateCommandBudget = 6,
+    independentCommandBudget = 8,
+    auditMode = "task_specific",
   } = {},
 ) {
   return store.createRun({
     targetRepositoryPath: repositoryRoot,
     repositoryIdentity: "waymark-test",
     commitSha: "0123456789abcdef",
-    task: "Locate the owner and change surface for a test feature",
+    task:
+      auditMode === "general"
+        ? "Assess all seven Practice Guide principles"
+        : "Locate the owner and change surface for a test feature",
     participants: [
       { role: "orchestrator", provider: "fake", model: "orchestrator" },
       { role: "candidate", provider: "fake", model: "candidate" },
@@ -58,6 +95,15 @@ function createRun(
       forbidden: ["editing target files"],
     },
     runConditions: {
+      auditMode,
+      ...(auditMode === "general"
+        ? {
+            taskSuite: {
+              id: "waymark-general-navigation",
+              version: "2.0.0",
+            },
+          }
+        : {}),
       candidateReasoningEffort: "low",
       independentReasoningEffort: "high",
       execution: {
@@ -67,7 +113,7 @@ function createRun(
         measurementScope: "role_process_only",
         shellCommandBudget: {
           candidate: candidateCommandBudget,
-          independent: 8,
+          independent: independentCommandBudget,
           orchestrator: 6,
         },
         searchResultLimit: 40,
@@ -305,6 +351,63 @@ test("fresh candidate and independent processes stream evidence and keep a succe
   );
 });
 
+test("general audits require and finalize a verified seven-principle profile", async (t) => {
+  const directory = mkdtempSync(join(tmpdir(), "waymark-general-profile-"));
+  const store = new AuditStore({ databasePath: join(directory, "audit.sqlite") });
+  t.after(() => store.close());
+  const run = createRun(store, {
+    auditMode: "general",
+    candidateHardLimit: 1_000,
+  });
+
+  const result = await runInvestigationPhase({
+    store,
+    runId: run.id,
+    adapters: [fakeAdapter()],
+  });
+
+  assert.equal(result.status, "active");
+  let report = store.readReport(run.id);
+  assert.equal(report.claims.length, 7);
+  assert.equal(result.orchestrationProjection.practiceProfileCount, 7);
+  assert.throws(
+    () => finalizeDraftRecommendations({ store, runId: run.id }),
+    (error) => error.code === "GENERAL_PRACTICE_CLAIM_NOT_VERIFIED",
+  );
+
+  for (const claim of report.claims) {
+    store.recordVerification({
+      runId: run.id,
+      claimId: claim.id,
+      verifier: "orchestrator",
+      method: "static_inspection",
+      verdict: "verified",
+      evidence: {
+        citationStatus: "valid",
+        independentAssessment: "agree",
+      },
+    });
+  }
+
+  finalizeDraftRecommendations({ store, runId: run.id });
+  report = store.readReport(run.id);
+  const profileEvents = report.events.filter(
+    ({ type }) => type === "report.practice_profile",
+  );
+  assert.equal(profileEvents.length, 1);
+  assert.deepEqual(
+    profileEvents[0].payload.items.map(({ practiceId }) => practiceId),
+    ["01", "02", "03", "04", "05", "06", "07"],
+  );
+  const snapshot = toRunSnapshot(report, 1);
+  assert.equal(snapshot.auditMode, "general");
+  assert.equal(snapshot.practiceProfile.available, true);
+  assert.equal(snapshot.practiceProfile.assessedCount, 7);
+  assert.equal(snapshot.practiceProfile.items.length, 7);
+  assert.equal(snapshot.practiceProfile.items[0].evidence[0].verdict, "verified");
+  assert.equal(snapshot.practiceProfile.items[0].recommendations.length, 1);
+});
+
 test("live provider usage and command progress reach the journal before completion", async (t) => {
   const directory = mkdtempSync(join(tmpdir(), "waymark-live-progress-"));
   const store = new AuditStore({ databasePath: join(directory, "audit.sqlite") });
@@ -417,7 +520,10 @@ test("a resumable provider stops exploration and retains a partial report", asyn
       actor === "candidate" && type === "budget.wrap_up_requested",
   );
   assert.equal(requested.payload.wrapUpTriggerTokens, 80);
-  assert.equal(requested.payload.reservedTokens, 20);
+  assert.equal(requested.payload.reservedTokens, 15);
+  assert.equal(requested.payload.plannedReserveTokens, 20);
+  assert.equal(requested.payload.contextTokens, 60);
+  assert.equal(requested.payload.projectedReportTokens, 155);
   assert.equal(
     report.events.some(
       ({ actor, type, payload }) =>
@@ -453,6 +559,228 @@ test("a resumable provider stops exploration and retains a partial report", asyn
       ({ source, status }) =>
         source === "candidate partial report" &&
         status === "Partial - budget reserve",
+    ),
+    true,
+  );
+});
+
+test("asynchronous live telemetry stops exploration at the reporting reserve", async (t) => {
+  const directory = mkdtempSync(
+    join(tmpdir(), "waymark-async-budget-wrap-up-"),
+  );
+  const store = new AuditStore({ databasePath: join(directory, "audit.sqlite") });
+  t.after(() => store.close());
+  const run = createRun(store, {
+    independent: false,
+    candidateHardLimit: 100,
+  });
+  const startUsageMonitor = ({ onUsage }) => {
+    const timer = setTimeout(() => {
+      onUsage({
+        cumulative: {
+          inputTokens: 65,
+          cachedInputTokens: 20,
+          outputTokens: 20,
+          totalTokens: 85,
+        },
+        context: {
+          inputTokens: 50,
+          cachedInputTokens: 15,
+          outputTokens: 10,
+          totalTokens: 60,
+        },
+        contextWindowTokens: 258_400,
+        contextPercent: 0.02,
+      });
+    }, 25);
+    return () => clearTimeout(timer);
+  };
+
+  const result = await runInvestigationPhase({
+    store,
+    runId: run.id,
+    adapters: [
+      fakeAdapter(
+        { candidate: "early-output-await" },
+        "post_completion",
+        startUsageMonitor,
+        true,
+      ),
+    ],
+    killGraceMs: 100,
+  });
+
+  assert.equal(result.status, "active");
+  assert.equal(result.results[0].status, "completed_partial_budget");
+  const report = store.readReport(run.id);
+  const requested = report.events.find(
+    ({ actor, type }) =>
+      actor === "candidate" && type === "budget.wrap_up_requested",
+  );
+  assert.equal(requested.payload.trigger, "reporting_reserve_reached");
+  assert.equal(requested.payload.observedTokens, 85);
+  assert.match(
+    result.results[0].completion.result.probeResult.summary,
+    /Budget reserve triggered/i,
+  );
+  assert.doesNotMatch(
+    result.results[0].completion.result.summary,
+    /Early placeholder/i,
+  );
+});
+
+test("a reporting rescue can complete after realistic provider latency", async (t) => {
+  const directory = mkdtempSync(
+    join(tmpdir(), "waymark-delayed-budget-wrap-up-"),
+  );
+  const store = new AuditStore({ databasePath: join(directory, "audit.sqlite") });
+  t.after(() => store.close());
+  const run = createRun(store, {
+    independent: false,
+    candidateHardLimit: 100,
+  });
+  const startUsageMonitor = ({ onUsage }) => {
+    onUsage({
+      cumulative: {
+        inputTokens: 35,
+        cachedInputTokens: 10,
+        outputTokens: 5,
+        totalTokens: 40,
+      },
+      context: {
+        inputTokens: 45,
+        cachedInputTokens: 10,
+        outputTokens: 5,
+        totalTokens: 50,
+      },
+      contextWindowTokens: 258_400,
+      contextPercent: 0.02,
+    });
+    return () => {};
+  };
+
+  const result = await runInvestigationPhase({
+    store,
+    runId: run.id,
+    adapters: [
+      fakeAdapter(
+        { candidate: "await-interrupt" },
+        "post_completion",
+        startUsageMonitor,
+        true,
+        "report-only-delayed",
+      ),
+    ],
+    killGraceMs: 100,
+    budgetWrapUpTimeoutMs: 500,
+  });
+
+  assert.equal(result.status, "active");
+  assert.equal(result.results[0].status, "completed_partial_budget");
+  const report = store.readReport(run.id);
+  const requested = report.events.find(
+    ({ actor, type }) =>
+      actor === "candidate" && type === "budget.wrap_up_requested",
+  );
+  assert.equal(requested.payload.trigger, "projected_report_reserve_reached");
+  assert.equal(requested.payload.observedTokens, 40);
+  assert.equal(requested.payload.contextTokens, 50);
+  assert.equal(requested.payload.reportOutputReserveTokens, 10);
+  assert.equal(requested.payload.projectedReportTokens, 100);
+  assert.equal(
+    report.events.some(
+      ({ actor, type, payload }) =>
+        actor === "candidate" &&
+        type === "budget.wrap_up_completed" &&
+        payload.reportTimeoutMs === 500 &&
+        payload.resultRetained === true,
+    ),
+    true,
+  );
+});
+
+test("a reporting rescue remains subject to the declared hard token limit", async (t) => {
+  const directory = mkdtempSync(
+    join(tmpdir(), "waymark-bounded-budget-wrap-up-"),
+  );
+  const store = new AuditStore({ databasePath: join(directory, "audit.sqlite") });
+  t.after(() => store.close());
+  const run = createRun(store, {
+    independent: false,
+    candidateHardLimit: 100,
+  });
+  let monitorStarts = 0;
+  const startUsageMonitor = ({ onUsage }) => {
+    monitorStarts += 1;
+    if (monitorStarts === 1) {
+      onUsage({
+        cumulative: {
+          inputTokens: 35,
+          cachedInputTokens: 10,
+          outputTokens: 5,
+          totalTokens: 40,
+        },
+        context: {
+          inputTokens: 45,
+          cachedInputTokens: 10,
+          outputTokens: 5,
+          totalTokens: 50,
+        },
+        contextWindowTokens: 258_400,
+        contextPercent: 0.02,
+      });
+      return () => {};
+    }
+    const timer = setTimeout(() => {
+      onUsage({
+        cumulative: {
+          inputTokens: 96,
+          cachedInputTokens: 30,
+          outputTokens: 5,
+          totalTokens: 101,
+        },
+        context: {
+          inputTokens: 56,
+          cachedInputTokens: 20,
+          outputTokens: 5,
+          totalTokens: 61,
+        },
+        contextWindowTokens: 258_400,
+        contextPercent: 0.02,
+      });
+    }, 25);
+    return () => clearTimeout(timer);
+  };
+
+  const result = await runInvestigationPhase({
+    store,
+    runId: run.id,
+    adapters: [
+      fakeAdapter(
+        { candidate: "await-interrupt" },
+        "post_completion",
+        startUsageMonitor,
+        true,
+        "report-only-delayed",
+      ),
+    ],
+    killGraceMs: 100,
+    budgetWrapUpTimeoutMs: 500,
+  });
+
+  assert.equal(result.status, "failed");
+  assert.equal(result.results[0].status, "budget_exceeded");
+  assert.equal(result.results[0].failure.reason, "hard_token_limit_exceeded");
+  assert.equal(result.results[0].failure.enforcement, "live_stream_interrupt");
+  const report = store.readReport(run.id);
+  assert.equal(report.tokens[0].totalTokens, 101);
+  assert.equal(
+    report.events.some(
+      ({ actor, type, payload }) =>
+        actor === "candidate" &&
+        type === "budget.wrap_up_failed" &&
+        payload.terminationReason === "hard_token_limit" &&
+        payload.resultRetained === false,
     ),
     true,
   );
@@ -660,7 +988,7 @@ test("the runner rejects a role on shell command N+1 and counts declined command
   const result = await runInvestigationPhase({
     store,
     runId: run.id,
-    adapters: [fakeAdapter({ candidate: "command-over-budget" })],
+    adapters: [fakeAdapter({ candidate: "command-over-budget-await" })],
     killGraceMs: 100,
   });
 
@@ -707,6 +1035,202 @@ test("the runner rejects a role on shell command N+1 and counts declined command
   );
 });
 
+test("a command-limit stop retains a no-tools partial report when resumable", async (t) => {
+  const directory = mkdtempSync(join(tmpdir(), "waymark-command-wrap-up-"));
+  const store = new AuditStore({ databasePath: join(directory, "audit.sqlite") });
+  t.after(() => store.close());
+  const run = createRun(store, {
+    independent: false,
+    candidateCommandBudget: 1,
+  });
+
+  const result = await runInvestigationPhase({
+    store,
+    runId: run.id,
+    adapters: [
+      fakeAdapter(
+        { candidate: "command-over-budget-await" },
+        "post_completion",
+        null,
+        true,
+        "report-only",
+      ),
+    ],
+    killGraceMs: 100,
+  });
+
+  assert.equal(result.status, "active");
+  assert.equal(result.results[0].status, "completed_partial_policy");
+  const report = store.readReport(run.id);
+  assert.equal(report.run.status, "active");
+  assert.equal(report.claims.length > 0, true);
+  assert.equal(
+    report.events.some(
+      ({ actor, type, payload }) =>
+        actor === "candidate" &&
+        type === "budget.wrap_up_requested" &&
+        payload.trigger === "shell_command_budget_exceeded",
+    ),
+    true,
+  );
+  assert.equal(
+    report.events.some(
+      ({ actor, type, payload }) =>
+        actor === "candidate" &&
+        type === "investigation.completed" &&
+        payload.evidenceCompleteness === "partial_policy_exceeded" &&
+        payload.calibrationEligible === false,
+    ),
+    true,
+  );
+});
+
+test("a command-limit rescue replaces an early structured placeholder", async (t) => {
+  const directory = mkdtempSync(
+    join(tmpdir(), "waymark-command-placeholder-"),
+  );
+  const store = new AuditStore({ databasePath: join(directory, "audit.sqlite") });
+  t.after(() => store.close());
+  const run = createRun(store, {
+    independent: false,
+    candidateCommandBudget: 1,
+  });
+
+  const result = await runInvestigationPhase({
+    store,
+    runId: run.id,
+    adapters: [
+      fakeAdapter(
+        { candidate: "early-output-command-over-budget-await" },
+        "post_completion",
+        null,
+        true,
+        "report-only",
+      ),
+    ],
+    killGraceMs: 100,
+  });
+
+  assert.equal(result.status, "active");
+  assert.equal(result.results[0].status, "completed_partial_policy");
+  assert.doesNotMatch(
+    result.results[0].completion.result.summary,
+    /Early placeholder/i,
+  );
+  const report = store.readReport(run.id);
+  assert.equal(report.run.status, "active");
+  assert.equal(report.claims.length > 0, true);
+});
+
+test("completed candidate evidence survives an independent policy failure", async (t) => {
+  const directory = mkdtempSync(join(tmpdir(), "waymark-independent-failure-"));
+  const store = new AuditStore({ databasePath: join(directory, "audit.sqlite") });
+  t.after(() => store.close());
+  const run = createRun(store, {
+    independent: true,
+    independentCommandBudget: 1,
+    auditMode: "general",
+  });
+
+  const result = await runInvestigationPhase({
+    store,
+    runId: run.id,
+    adapters: [
+      fakeAdapter({
+        independent: "command-over-budget-await",
+      }),
+    ],
+    killGraceMs: 100,
+  });
+
+  assert.equal(result.status, "active");
+  assert.deepEqual(
+    result.results.map(({ role, status }) => ({ role, status })),
+    [
+      { role: "candidate", status: "completed" },
+      { role: "independent", status: "policy_exceeded" },
+    ],
+  );
+  const report = store.readReport(run.id);
+  assert.equal(report.run.status, "active");
+  assert.equal(report.claims.length > 0, true);
+  assert.equal(
+    report.events.some(
+      ({ actor, type, payload }) =>
+        actor === "workflow" &&
+        type === "investigation.degraded" &&
+        payload.calibrationEligible === false &&
+        payload.unavailableRoles[0].role === "independent",
+    ),
+    true,
+  );
+  assert.equal(
+    report.events.some(
+      ({ actor, type }) =>
+        actor === "orchestrator" && type === "orchestration.completed",
+    ),
+    true,
+  );
+});
+
+test("a general audit continues when degraded independent evidence omits the practice profile", async (t) => {
+  const directory = mkdtempSync(
+    join(tmpdir(), "waymark-independent-partial-general-"),
+  );
+  const store = new AuditStore({ databasePath: join(directory, "audit.sqlite") });
+  t.after(() => store.close());
+  const run = createRun(store, {
+    independent: true,
+    independentCommandBudget: 1,
+    auditMode: "general",
+  });
+
+  const result = await runInvestigationPhase({
+    store,
+    runId: run.id,
+    adapters: [
+      fakeAdapter(
+        { independent: "command-over-budget-await" },
+        "post_completion",
+        null,
+        true,
+        "report-only-empty-general",
+      ),
+    ],
+    killGraceMs: 100,
+  });
+
+  assert.equal(result.status, "active");
+  assert.equal(result.results[0].status, "completed");
+  assert.equal(result.results[1].status, "completed_partial_policy");
+  const report = store.readReport(run.id);
+  assert.equal(report.run.status, "active");
+  assert.equal(report.claims.length, 7);
+  assert.equal(
+    report.events.some(
+      ({ actor, type, payload }) =>
+        actor === "workflow" &&
+        type === "investigation.degraded" &&
+        payload.calibrationEligible === false &&
+        payload.unavailableRoles[0].role === "independent" &&
+        payload.unavailableRoles[0].reason ===
+          "shell_command_budget_exceeded",
+    ),
+    true,
+  );
+  assert.equal(
+    report.events.filter(({ type }) => type === "probe.result").length,
+    2,
+  );
+  assert.equal(
+    report.events.some(
+      ({ actor, type }) =>
+        actor === "orchestrator" && type === "orchestration.completed",
+    ),
+    true,
+  );
+});
+
 test("candidate evidence import rejects findings that are not navigation facts", async (t) => {
   const directory = mkdtempSync(join(tmpdir(), "waymark-finding-kind-"));
   const store = new AuditStore({ databasePath: join(directory, "audit.sqlite") });
@@ -721,7 +1245,7 @@ test("candidate evidence import rejects findings that are not navigation facts",
 
   assert.equal(result.status, "failed");
   assert.equal(result.failure.reason, "candidate_evidence_import_failed");
-  assert.equal(result.failure.error.code, "CANDIDATE_FINDING_KIND_REQUIRED");
+  assert.equal(result.failure.error.code, "CANDIDATE_USABLE_FINDINGS_REQUIRED");
   const report = store.readReport(run.id);
   assert.equal(report.run.status, "failed");
   assert.equal(report.claims.length, 0);
@@ -729,7 +1253,154 @@ test("candidate evidence import rejects findings that are not navigation facts",
     report.events.some(
       ({ type, payload }) =>
         type === "orchestration.failed" &&
-        payload.error?.code === "CANDIDATE_FINDING_KIND_REQUIRED",
+        payload.error?.code === "CANDIDATE_USABLE_FINDINGS_REQUIRED",
+    ),
+    true,
+  );
+});
+
+test("candidate evidence import retains valid findings when a sibling finding is malformed", async (t) => {
+  const directory = mkdtempSync(
+    join(tmpdir(), "waymark-partial-finding-import-"),
+  );
+  const store = new AuditStore({ databasePath: join(directory, "audit.sqlite") });
+  t.after(() => store.close());
+  const run = createRun(store, { independent: false });
+
+  const result = await runInvestigationPhase({
+    store,
+    runId: run.id,
+    adapters: [
+      fakeAdapter({ candidate: "mixed-valid-and-invalid-findings" }),
+    ],
+  });
+
+  assert.equal(result.status, "active");
+  const report = store.readReport(run.id);
+  assert.equal(report.run.status, "active");
+  assert.equal(report.claims.length, 1);
+  const degraded = report.events.find(
+    ({ actor, type, payload }) =>
+      actor === "workflow" &&
+      type === "investigation.degraded" &&
+      payload.reason === "evidence_normalization_required",
+  );
+  assert.ok(degraded);
+  assert.equal(degraded.payload.retainedCandidateClaims, 1);
+  assert.equal(
+    degraded.payload.issues.some(
+      ({ scope, code }) =>
+        scope === "finding" && code === "CANDIDATE_FINDING_KIND_REQUIRED",
+    ),
+    true,
+  );
+  const snapshot = toRunSnapshot(report, 1);
+  assert.equal(snapshot.calibration.eligible, false);
+  assert.equal(snapshot.calibration.status, "diagnostic_only");
+  assert.equal(snapshot.calibration.issues[0].type, "evidence_degraded");
+});
+
+test("general evidence import removes only invalid practice references", async (t) => {
+  const directory = mkdtempSync(
+    join(tmpdir(), "waymark-partial-practice-references-"),
+  );
+  const store = new AuditStore({ databasePath: join(directory, "audit.sqlite") });
+  t.after(() => store.close());
+  const run = createRun(store, {
+    auditMode: "general",
+    candidateHardLimit: 1_000,
+  });
+
+  const result = await runInvestigationPhase({
+    store,
+    runId: run.id,
+    adapters: [
+      fakeAdapter({ candidate: "invalid-practice-references-general" }),
+    ],
+  });
+
+  assert.equal(result.status, "active");
+  const report = store.readReport(run.id);
+  assert.equal(report.claims.length, 7);
+  assert.equal(
+    report.events.some(
+      ({ type }) => type === "orchestration.completed",
+    ),
+    true,
+  );
+  const degraded = report.events.find(
+    ({ type, payload }) =>
+      type === "investigation.degraded" &&
+      payload.reason === "evidence_normalization_required",
+  );
+  assert.ok(degraded);
+  assert.equal(degraded.payload.issueCount, 3);
+  assert.deepEqual(
+    degraded.payload.issues.map(({ practiceId, findingIndex, code }) => ({
+      practiceId,
+      findingIndex,
+      code,
+    })),
+    [
+      {
+        practiceId: "01",
+        findingIndex: 4,
+        code: "GENERAL_PRACTICE_FINDING_MISMATCH",
+      },
+      {
+        practiceId: "05",
+        findingIndex: 0,
+        code: "GENERAL_PRACTICE_FINDING_MISMATCH",
+      },
+      {
+        practiceId: "07",
+        findingIndex: 99,
+        code: "GENERAL_PRACTICE_FINDING_OUT_OF_RANGE",
+      },
+    ],
+  );
+  assert.equal(toRunSnapshot(report, 1).calibration.eligible, false);
+});
+
+test("general evidence import fills a missing practice as not assessed", async (t) => {
+  const directory = mkdtempSync(
+    join(tmpdir(), "waymark-missing-practice-assessment-"),
+  );
+  const store = new AuditStore({ databasePath: join(directory, "audit.sqlite") });
+  t.after(() => store.close());
+  const run = createRun(store, {
+    auditMode: "general",
+    candidateHardLimit: 1_000,
+  });
+
+  const result = await runInvestigationPhase({
+    store,
+    runId: run.id,
+    adapters: [
+      fakeAdapter({ candidate: "missing-practice-assessment-general" }),
+    ],
+  });
+
+  assert.equal(result.status, "active");
+  const report = store.readReport(run.id);
+  assert.equal(report.claims.length, 7);
+  const degraded = report.events.find(
+    ({ type, payload }) =>
+      type === "investigation.degraded" &&
+      payload.reason === "evidence_normalization_required",
+  );
+  assert.ok(degraded);
+  assert.equal(
+    degraded.payload.issues.some(
+      ({ practiceId, code }) =>
+        practiceId === "06" &&
+        code === "GENERAL_PRACTICE_ASSESSMENT_MISSING",
+    ),
+    true,
+  );
+  assert.equal(
+    report.events.some(
+      ({ type }) => type === "orchestration.completed",
     ),
     true,
   );

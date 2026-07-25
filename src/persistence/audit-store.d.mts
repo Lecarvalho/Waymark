@@ -43,6 +43,16 @@ export class AuditStore {
   >;
   readRun(runId: string): AuditRun;
   appendEvent(input: AppendEventInput): AuditEvent;
+  appendReportPracticeProfile(
+    runId: string,
+    input: {
+      schemaVersion: string;
+      scope: "general_repository";
+      suite?: unknown;
+      items: unknown[];
+      createdAt?: string;
+    },
+  ): AuditEvent;
   readEvents(
     runId: string,
     options?: { afterSequence?: number; limit?: number },

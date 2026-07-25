@@ -1,0 +1,68 @@
+{
+  "id": "waymark-general-navigation",
+  "version": "2.0.0",
+  "name": "General repository agent-readiness assessment",
+  "purpose": "Assess how directly a fresh coding agent can orient, trace behavior, follow dependencies, discover instructions, locate verification, and distinguish owned code from generated or external code.",
+  "tasks": [
+    {
+      "practiceId": "01",
+      "title": "Organize around behavior",
+      "probe": "Sample at least two representative behavior areas when the repository contains them. Determine whether an agent can move from an entry point to ownership, dependencies, consumers, and tests without reconstructing the behavior from layer-wide dumping grounds."
+    },
+    {
+      "practiceId": "02",
+      "title": "Make dependency direction explicit",
+      "probe": "Trace at least two representative dependency paths when available. Check whether dependency direction, interfaces, composition roots, and important side effects are visible without repeated non-local searches."
+    },
+    {
+      "practiceId": "03",
+      "title": "Name files for the concept they own",
+      "probe": "Inspect the repository inventory for precise concept names, generic containers, ambiguous duplicates, temporary suffixes, and oversized files that force agents to open content before understanding ownership."
+    },
+    {
+      "practiceId": "04",
+      "title": "Provide one canonical workflow",
+      "probe": "Compare root documentation, package or build scripts, and continuous-integration configuration. Determine whether setup, development, test, lint, typecheck, and verification commands have one discoverable source of truth or conflict."
+    },
+    {
+      "practiceId": "05",
+      "title": "Put instructions close to the code",
+      "probe": "Locate repository-wide and scoped agent or contributor instructions. Check their precedence, proximity, accuracy, conflicts, and coverage of unusual module constraints."
+    },
+    {
+      "practiceId": "06",
+      "title": "Make tests mirror behavior",
+      "probe": "For the representative behavior areas, determine whether focused, integration, and end-to-end tests can be predicted from implementation paths and whether their commands are discoverable."
+    },
+    {
+      "practiceId": "07",
+      "title": "Separate generated and external code",
+      "probe": "Locate generated, vendored, external, migration, fixture, and hand-written code boundaries. Determine whether edit ownership and regeneration rules are explicit enough to prevent wasted reads or unsafe edits."
+    }
+  ],
+  "orientationQuestions": [
+    "Where do representative behaviors live?",
+    "What is allowed to depend on what?",
+    "How does an agent run and verify the repository?",
+    "Which repository-wide and scoped instructions apply?",
+    "Which files are hand-written, generated, vendored, or otherwise not normal edit targets?"
+  ],
+  "assessmentContract": {
+    "statuses": ["strong", "mixed", "weak", "not_assessed"],
+    "coverage": "Return exactly one assessment for every Practice Guide ID from 01 through 07.",
+    "evidence": "Every strong, mixed, or weak assessment must reference one or more cited navigation findings. Use not_assessed with a concrete limitation when evidence is insufficient.",
+    "recommendations": "Every mixed or weak assessment must link at least one repository-specific improvement with a token-efficiency mechanism and repeatable validation check."
+  },
+  "sampling": [
+    "State which behavior areas, runtime paths, instruction scopes, workflows, and test surfaces were sampled.",
+    "Do not claim exhaustive repository coverage from a bounded sample.",
+    "Prefer representative cross-boundary paths over repeatedly inspecting one well-documented area."
+  ],
+  "constraints": [
+    "Measure AI coding navigability only; do not score security, correctness, maintainability, accessibility, style, or general software quality.",
+    "Keep the target repository read-only.",
+    "Do not invent a feature request or propose feature implementation.",
+    "Report positive signals, missing practices, contradictions, unknowns, dead ends, and sampling limitations explicitly.",
+    "Do not assign or predict the authoritative Waymark score."
+  ]
+}

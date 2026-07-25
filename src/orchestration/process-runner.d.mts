@@ -58,6 +58,7 @@ export function runInvestigationPhase(input: {
   adapters: ProcessProviderAdapter[];
   signal?: AbortSignal;
   killGraceMs?: number;
+  budgetWrapUpTimeoutMs?: number;
 }): Promise<{
   runId: string;
   status: "active" | "failed" | "cancelled";

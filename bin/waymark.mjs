@@ -275,7 +275,9 @@ function calculateScore(store, options) {
   }
   const report = store.readReport(runId);
   const calibrationIssues = report.events.filter(
-    (event) => event.type === "policy.violation",
+    (event) =>
+      event.type === "policy.violation" ||
+      event.type === "investigation.degraded",
   );
   const resourceOverruns = report.events.filter(
     (event) => event.type === "budget.exceeded",

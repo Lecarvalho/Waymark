@@ -79,6 +79,7 @@ export interface InvestigationFinding {
   friction: string;
   confidence: number;
   criticality: ClaimCriticality;
+  practiceIds?: readonly ("01" | "02" | "03" | "04" | "05" | "06" | "07")[];
   citations: readonly {
     path: string;
     startLine?: number;

@@ -6,7 +6,8 @@
     "summary",
     "challenges",
     "verificationRequests",
-    "recommendations"
+    "recommendations",
+    "practiceProfile"
   ],
   "properties": {
     "summary": {
@@ -170,6 +171,57 @@
           },
           "effort": {
             "type": ["string", "null"]
+          }
+        }
+      }
+    },
+    "practiceProfile": {
+      "type": "array",
+      "description": "Exactly seven ordered items in general mode; an empty array in task-specific and system-explanation modes.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "practiceId",
+          "status",
+          "assessment",
+          "tokenImpact",
+          "claimIds",
+          "recommendationIds",
+          "limitations"
+        ],
+        "properties": {
+          "practiceId": {
+            "type": "string",
+            "enum": ["01", "02", "03", "04", "05", "06", "07"]
+          },
+          "status": {
+            "type": "string",
+            "enum": ["strong", "mixed", "weak", "not_assessed"]
+          },
+          "assessment": {
+            "type": "string"
+          },
+          "tokenImpact": {
+            "type": "string"
+          },
+          "claimIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "recommendationIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "limitations": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           }
         }
       }

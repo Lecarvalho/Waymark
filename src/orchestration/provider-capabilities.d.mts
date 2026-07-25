@@ -40,6 +40,10 @@ export interface ProviderCapabilities {
     readonly [Phase in keyof AuditTokenBudgets]: {
       readonly source: "historical_average" | "rubric_default";
       readonly sampleSize: number;
+      readonly historicalAverageTokens: number | null;
+      readonly cappedToRubricDefault: boolean;
+      readonly usedForTarget: boolean;
+      readonly minimumSampleSize: number;
     };
   };
 }

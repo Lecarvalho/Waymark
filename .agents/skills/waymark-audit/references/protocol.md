@@ -68,7 +68,7 @@ requiring its ID and task list in the prepared request. Persist
 `runConditions.taskSuite` as:
 
 ```json
-{"id":"waymark-general-navigation","version":"1.0.0"}
+{"id":"waymark-general-navigation","version":"2.0.0"}
 ```
 
 The run's `task` contains that suite's ordered tasks. For other modes, preserve
@@ -107,25 +107,59 @@ launcher discovery is unavailable. Candidate and independent research runs in
 parallel. The runner imports candidate findings, then launches the orchestrator
 with only the task, immutable target, run policy, cited claims, and bounded
 investigation results. A successful command keeps the run active for
-deterministic verification. A provider failure, interruption, or missing
-structured result finishes the run as failed or cancelled. A completion-only
-hard-limit overrun retains the structured result, continues the benchmark, and
-records a failed resource-envelope outcome.
+deterministic verification. A candidate failure, interruption, or missing
+structured candidate result finishes the run as failed or cancelled. When the
+candidate completes but independent research fails, the runner imports the
+candidate evidence, records `investigation.degraded`, continues orchestration
+with independent coverage explicitly unavailable, and makes the run
+calibration-ineligible. It must not imply independent agreement. A
+completion-only hard-limit overrun retains the structured result, continues the
+benchmark, and records a failed resource-envelope outcome.
+
+For `general` mode, identify `waymark-general-navigation@2.0.0` in
+`runConditions.taskSuite`. Candidate and independent outputs include
+`practiceAssessments`: exactly one item for each Practice Guide ID `01` through
+`07`. Every `strong`, `mixed`, or `weak` item references cited findings tagged
+with that practice. A `not_assessed` item references no finding and states its
+coverage limitation. Focused audit modes return an empty
+`practiceAssessments` array.
+
+Import is loss-tolerant at semantic evidence boundaries. Preserve every valid
+cited candidate navigation finding when another finding or practice reference
+is malformed. Remove only invalid, duplicate, mismatched, rejected, or
+out-of-range references. If no valid selected reference remains for a practice,
+normalize that practice to `not_assessed` with an explicit limitation. Fill a
+missing practice assessment the same way so downstream reconciliation still
+receives IDs `01` through `07`. Append `investigation.degraded` with structural
+issue details, make the run calibration-ineligible, and continue. Do not infer
+an intended index, auto-link an unselected finding, or treat rejected evidence
+as verified. The candidate phase is fatal only when it leaves no usable cited
+navigation finding.
+
+The fresh orchestrator returns `practiceProfile`: exactly seven ordered items
+in general mode and an empty array otherwise. Each assessed item references
+candidate claim IDs. Every mixed or weak item also links a recommendation ID
+tagged with the same practice.
 
 Every run declares the budget object shown above. Interrupt providers that
-expose live cumulative usage when the reporting reserve is reached. Stop the
-full provider process tree and resume the same session once with a no-tools
+expose live cumulative usage when the reporting reserve is reached. The reserve
+must include the current context that a resumed turn will replay plus bounded
+report output; the final 20% is a minimum, not a complete cost estimate. Stop
+the full provider process tree and resume the same session once with a no-tools
 structured-report directive. If telemetry jumps directly past the hard limit,
 or the provider exits over budget without output, make that same reporting-only
-rescue attempt. It has a 60-second deadline and any tool call invalidates it.
+rescue attempt. It has a five-minute safety deadline, remains subject to the
+declared hard token limit, and any tool call invalidates it.
 Providers that only report usage at turn completion must append
 `budget.exceeded`, retain a complete result, and continue the audit when the
 final value crosses the limit. The report remains valid evidence and must
 distinguish task completion from the failed resource-envelope outcome.
 Shell command budgets are enforced from live command-start events. Command N+1
-terminates the role, appends `policy.violation`, and disqualifies the run. A
-provider-declined command still counts because the attempted command has already
-consumed navigation budget.
+stops exploration, appends `policy.violation`, and disqualifies the run. When
+the provider can resume the same session, Waymark makes one five-minute no-tools
+reporting attempt and retains that structured result as partial,
+calibration-ineligible evidence. A provider-declined command still counts
+because the attempted command has already consumed navigation budget.
 The target is the efficiency objective; the hard limit is a separately
 calibrated validity ceiling. Establish the ceiling before the run from a prior
 bounded measurement for the same host/model/task class. Do not raise it after
@@ -206,6 +240,10 @@ node bin/waymark.mjs --db <journal> report finalize --run <run-id>
 
 Finalization emits the authoritative structured `report.recommendations` event
 and fails if any cited claim lacks a latest deterministic verified verdict.
+In general mode it also emits `report.practice_profile`. Finalization rejects
+missing or duplicate practice IDs, non-deterministically verified profile
+evidence, and mixed or weak items without a linked improvement. The practice
+profile remains separate from the deterministic navigability score.
 
 Claim criticalities are `critical`, `high`, `medium`, and `low`. Cite
 repository-relative paths and one-based line ranges. Keep assertions atomic.

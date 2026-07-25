@@ -496,8 +496,9 @@ Post-calibration report and protocol remediation:
 
 ### Current status
 
-Milestone 2 is in progress. The fresh-process orchestration path and the
-preparation-only request workflow are implemented:
+Milestone 2 is complete. The fresh-process orchestration path and the
+preparation-only request workflow are implemented and validated by the second
+completion-gate attempt:
 
 - `investigation run` launches candidate and independent research in parallel,
   imports structured navigation evidence, then launches a fresh orchestrator
@@ -506,18 +507,22 @@ preparation-only request workflow are implemented:
   phase targets and hard limits, shell-command limits, and normalized tool and
   token telemetry. Interruptions, failures, policy violations, and resource
   overruns remain explicit journal evidence.
-- Resumable providers reserve the final 20% of each hard token limit for
-  reporting. At the wrap-up threshold, Waymark stops the full provider process
-  tree and resumes the same provider session once with a no-tools partial-report
-  directive and a 60-second deadline. The same rescue runs when telemetry jumps
+- Resumable providers reserve at least the final 20% of each hard token limit
+  for reporting. The live threshold also accounts for the current context that
+  a resumed turn must replay and bounded report output. Waymark stops the full
+  provider process tree and resumes the same provider session once with a
+  no-tools partial-report directive, a five-minute safety deadline, and
+  continued hard-limit enforcement. The same rescue runs when telemetry jumps
   past the hard limit or an over-budget provider exits without output. Cited
   findings, dead ends, unresolved traceability, and budget exhaustion remain
   usable evidence.
 - The read-only local service exposes installed provider-adapter capabilities,
   model-specific reasoning efforts, supported audit modes, and automatic phase
-  targets without adding a mutation route. Each target uses the average
-  observed tokens from completed runs for that phase and audit mode, and falls
-  back to the rubric default until matching history exists.
+  targets without adding a mutation route. After at least three same-mode
+  completed samples, a lower average may reduce the target for that phase, but
+  historical runs never raise the safe rubric default. This prevents one
+  expensive run from inflating every later audit's automatic target and hard
+  limit, and prevents one unusually cheap run from prematurely shrinking them.
 - The service already started by the user is authoritative for both port and
   SQLite journal. The development launcher probes `/health` and reuses an
   existing Waymark service by default. Prepared requests embed that service's
@@ -526,8 +531,8 @@ preparation-only request workflow are implemented:
 - The observer interface provides a secondary, keyboard-accessible “Prepare
   audit request” modal. Repository scope, audit mode, task, participant
   selections, and editable hard limits remain in browser memory. Target-token
-  fields are not user inputs; their historical-average basis is shown
-  read-only. A concise name is inferred deterministically from the task. The
+  fields are not user inputs; their historical-average basis and any safe cap
+  are shown read-only. A concise name is inferred deterministically from the task. The
   prompt is copied only after the explicit “Copy audit request” action and
   states that preparation did not create or start a run.
 - Provider/model/reasoning catalogs live in the adapter capability declaration,
@@ -564,14 +569,37 @@ mutations.
 - This failed attempt remains unchanged and visible. It does not satisfy the
   Milestone 2 completion gate.
 
-The milestone is not marked complete yet. Its completion-gate smoke test must
-still copy a prepared request through the real modal, execute that exact request
-through the authoritative audit skill with fixed immutable inputs and bounded
-role processes, and observe monotonic live progress plus evidence-linked
-recommendations in the UI. Disposable implementation-worktree automation also
-remains intentionally future-facing; discovery continues to enforce a
-read-only target and the generated request permits a disposable worktree only
-after separate authorization.
+### Milestone 2 completion-gate attempt 2
+
+- Successful completion-gate workflow:
+  `84ffe504-c8f8-47ea-a405-d77fa4d7b4e0`, stored in the shared default
+  `.waymark/waymark.sqlite` journal against clean Pokwe commit
+  `d88ba7aa9dac4b0139fd625237ca9dd75d450ba5`.
+- The request was copied through the real preparation modal and executed through
+  the authoritative repository-local audit skill with immutable inputs,
+  assignment-only fresh processes, a read-only target, and fixed 240,000-token
+  role ceilings.
+- Candidate and independent research ran in parallel and retained structured
+  results at 156,677 and 237,031 measured tokens. Fresh orchestration completed
+  at 195,346 measured tokens. All three roles remained within their declared
+  hard limits.
+- The journal retained 166 ordered events. Live progress advanced monotonically
+  through 5%, 40%, 65%, and 90%. Five claims received five deterministic static
+  verdicts, and the finalized report exposed three evidence-linked navigation
+  recommendations in the observer UI.
+- The audit itself ended with the explicit `adequacy_gate_failed` outcome
+  because the disposable verification checkout could not restore NuGet
+  dependencies with network access disabled. Waymark correctly withheld an
+  authoritative score, preserved the completed research and recommendations,
+  and left the target repository untouched. This is a valid measured audit
+  outcome and does not invalidate the Milestone 2 orchestration gate.
+
+Milestone 2 is complete. Disposable implementation-worktree automation remains
+intentionally future-facing; discovery continues to enforce a read-only target
+and the generated request permits a disposable worktree only after separate
+authorization.
+
+Delivered Milestone 2 scope:
 
 - Add a secondary “Prepare audit request” action that opens an accessible modal
   without displacing the active-audit viewport.
@@ -580,8 +608,9 @@ after separate authorization.
 - Collect repository path, audit mode, task or short system question, participant
   provider/model/reasoning selections, and advanced hard limits. Infer the
   concise audit name deterministically from the probe and phase token targets
-  from same-mode completed-run averages, with explicit defaults when matching
-  history is absent.
+  from same-mode completed-run averages after a minimum three-run sample.
+  Permit history to lower a target, but never let it raise the safe rubric
+  default; show the retained default or cap when it applies.
 - Generate a deterministic, compact handoff containing only runtime inputs and
   tell the paired agent to use the authoritative repository-local Waymark audit
   workflow for fixed policy. Copy it only after explicit user action.
@@ -609,7 +638,53 @@ after separate authorization.
 - Measure score ordering, variance, false confidence, and sensitivity to genuine
   repository improvements.
 - Publish the rubric version and calibration results with each report.
+
+### General audit v2 real-run remediation
+
+- A real `waymark-general-navigation@2.0.0` attempt against Clapline exposed two
+  paid-work loss paths before a final report was produced. The provider rejected
+  unsupported strict-schema keywords, then an independent role exceeded its
+  declared 16-command and 509,502-token envelope after the candidate had already
+  returned a complete seven-principle assessment.
+- Provider schemas now stay inside the strict structured-output subset:
+  `uniqueItems` is removed, every declared object property is required, and
+  duplicate references remain rejected by deterministic runtime validation.
+  A contract test recursively checks both role-output schemas.
+- Parallel investigation no longer discards a completed candidate result when
+  only independent research fails. Candidate claims and practice assessments
+  are imported, `investigation.degraded` records the missing research coverage,
+  orchestration continues without claiming independent agreement, and the run
+  remains explicitly calibration-ineligible.
+- A shell-command stop now uses the same reporting-only recovery path as a token
+  stop. Command N+1 still records a policy violation and invalidates
+  calibration, but a resumable provider gets one bounded no-tools turn to emit
+  the evidence already gathered instead of losing the paid investigation.
+- The failed attempts remain unchanged in the shared journal. No additional paid
+  run is required to validate this failure-path remediation; deterministic
+  provider fixtures cover it.
 - Define acceptable variance bands before comparing commits or models.
+
+### General repository audit direction
+
+- General mode uses `waymark-general-navigation@2.0.0` as a cold,
+  repository-wide agent-readiness assessment. Candidate and independent roles
+  sample representative surfaces and assess Practice Guide IDs `01` through
+  `07`; task-specific and system-explanation modes remain focused.
+- The orchestrator must reconcile exactly one `strong`, `mixed`, `weak`, or
+  `not_assessed` result for every practice. Every assessed result references
+  cited candidate claims. Mixed and weak practices link to repository-specific
+  improvements with token mechanisms and repeatable validation checks.
+- `report finalize` admits the general practice profile only after every linked
+  claim has deterministic verification. Unknown areas retain explicit coverage
+  limitations instead of inheriting a favorable result.
+- The observer projects the practice profile separately from the authoritative
+  navigability score, audit reliability, and resource economy. Earlier general
+  reports remain visible and are labeled as predating the seven-principle
+  profile.
+- Calibration must add controlled answer keys for all seven practices, measure
+  per-practice false positives and false negatives, and apply one-practice
+  repository improvements to test sensitivity before aggregate practice
+  grading is introduced.
 
 ## Milestone 4 — Additional Agent Adapters
 

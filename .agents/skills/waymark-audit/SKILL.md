@@ -19,10 +19,13 @@ repeat those rules.
 Resolve omitted fixed metadata as follows:
 
 - `general` mode selects
-  [waymark-general-navigation@1.0.0](references/general-navigation-suite-1.0.0.json).
+  [waymark-general-navigation@2.0.0](references/general-navigation-suite-2.0.0.json).
   Read that suite, persist its ID and version in `runConditions.taskSuite`, and
-  use its ordered tasks as the verbatim run probe. Apply its constraints
-  without requiring the prepared request to repeat them.
+  use its ordered practice probes, orientation questions, assessment contract,
+  sampling rules, and constraints as the verbatim run probe. General mode
+  returns a verified seven-principle agent-readiness profile and a prioritized
+  repository-navigation backlog. Apply the suite without requiring the
+  prepared request to repeat it.
 - `task_specific` mode uses the supplied task verbatim.
 - `system_explanation` mode uses the supplied question verbatim and applies the
   explanation constraints below.
@@ -64,7 +67,22 @@ audit. Preparing or copying the request did not create a run.
    never support a recommendation. All three roles run as fresh, non-resumed
    provider processes with assignment-only context and a read-only sandbox. The
    orchestrator stores challenges, deterministic verification requests, and
-   structured recommendation drafts. Never replace this command with subagents
+   structured recommendation drafts. In `general` mode it also requires both
+   investigations to assess every Practice Guide principle and requires the
+   orchestrator to draft exactly one profile result for IDs `01` through `07`.
+   A candidate failure remains fatal because there is no claim source. If the
+   candidate completes but independent research fails or exceeds policy, retain
+   and import the candidate evidence, mark the run calibration-ineligible, and
+   continue diagnostic orchestration with independent coverage explicitly
+   unavailable. Never imply independent agreement in that report.
+   Malformed semantic links inside an otherwise usable structured result are
+   not an all-or-nothing failure. Retain valid cited navigation findings,
+   reject only invalid findings or references, downgrade an unsupported
+   general-practice assessment to `not_assessed`, journal each rejected item,
+   and continue as calibration-ineligible. Never repair a bad reference by
+   guessing or linking a finding the role did not select. Candidate failure is
+   fatal only when no usable cited candidate finding remains.
+   Never replace this command with subagents
    forked from the controlling conversation or an ad hoc provider command.
    Before paid work, prove the installed Codex JavaScript entry point with a
    no-model preflight; use `--codex-entry <path>` or `WAYMARK_CODEX_ENTRY` when
@@ -74,7 +92,9 @@ audit. Preparing or copying the request did not create a run.
    correct phase. Missing telemetry remains unavailable. A blocked command still
    consumes navigation budget. The runner counts command starts, interrupts on
    shell command N+1, records a policy violation, and makes the run
-   calibration-ineligible. Count only the audited role processes:
+   calibration-ineligible. When the provider supports same-session resume, the
+   interruption must still reserve one no-tools reporting turn so completed
+   research is not discarded. Count only the audited role processes:
    development, debugging, UI checks, and operator conversation never enter the
    run.
 5. Review the imported navigation claims and the orchestrator's challenges and
@@ -106,7 +126,10 @@ audit. Preparing or copying the request did not create a run.
    repository-navigation change, its token mechanism, limitations, and a
    repeatable before/after validation check. The selected question or task
    remains only a probe; never convert the recommendation into feature
-   implementation advice.
+   implementation advice. For `general` mode, finalization also rejects a
+   practice profile that omits or duplicates a Practice Guide ID, treats an
+   unverified claim as evidence, or leaves a mixed or weak practice without a
+   linked improvement. Other audit modes do not create a practice profile.
 8. Create the observation-count JSON from the stored trace and verified answer
    key. Read the stored report, then optionally run
    `node .agents/skills/waymark-audit/scripts/build-score-input.mjs` to assemble
@@ -129,22 +152,27 @@ audit. Preparing or copying the request did not create a run.
     records.
 
 When live usage reaches the reporting reserve, stop the full provider process
-tree and resume the same session once with a reporting-only directive. If a
+tree and resume the same session once with a reporting-only directive. The
+reserve trigger must account for both cumulative usage and the current context
+that a resumed turn must replay; the fixed 20% reserve is only a minimum. If a
 telemetry update jumps past the hard limit, or the provider exits over budget
 before returning structured output, make the same rescue attempt instead of
-discarding the session. The rescue may not call tools and has a 60-second
-deadline. Persist and continue with a valid partial result; if the rescue fails,
-record that failure explicitly.
+discarding the session. The rescue may not call tools, has a five-minute safety
+deadline, and remains subject to the declared hard token limit. Persist and
+continue with a valid partial result; if the rescue fails, record that failure
+explicitly.
 
 If a provider reports a hard-token-limit overrun only after returning a complete
 structured result, append `budget.exceeded`, retain that result, continue the
 workflow, and record that the result exceeded its declared resource reference.
 The overrun is scored navigability evidence, not a reason to discard
-already-paid work or invalidate an otherwise protocol-compliant benchmark. If
-orchestration otherwise cannot continue, append a failure event and finish the
-run as `failed` or `cancelled`; do not manufacture missing evidence. Keep failed
-attempts as separate runs. Never reuse their context or silently raise a hard
-limit after observing the result.
+already-paid work or invalidate an otherwise protocol-compliant benchmark.
+Likewise, an independent-role failure must not discard a completed candidate
+result: continue as a diagnostic-only run and expose the missing independent
+coverage. If the candidate fails or orchestration otherwise cannot continue,
+append a failure event and finish the run as `failed` or `cancelled`; do not
+manufacture missing evidence. Keep failed attempts as separate runs. Never
+reuse their context or silently raise a hard limit after observing the result.
 
 ## Fresh-session preflight
 

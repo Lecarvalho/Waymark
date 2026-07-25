@@ -598,11 +598,11 @@ export function PrepareAuditDialog() {
                 {resolvedTokenBudgets && (
                   <div>
                     <p className="budget-config-note">
-                      Targets use the average tokens consumed by completed
-                      audits of this probe type. Defaults are used until
-                      matching history is available. The final 20% of each hard
-                      limit is reserved for a partial report if exploration
-                      runs long.
+                      Targets may decrease from completed audits of this probe
+                      type, but history never raises the safe rubric defaults.
+                      Waymark reserves enough room to replay the current
+                      context and return a partial report if exploration runs
+                      long.
                     </p>
                     <div className="budget-config-list">
                       {(
@@ -621,9 +621,15 @@ export function PrepareAuditDialog() {
                               </strong>
                               <small>
                                 {basis?.source === "historical_average"
-                                  ? `Average of ${basis.sampleSize} completed ${
-                                      basis.sampleSize === 1 ? "run" : "runs"
-                                    }`
+                                  ? !basis.usedForTarget
+                                    ? `Historical average ${basis.historicalAverageTokens?.toLocaleString()} from ${basis.sampleSize} completed ${
+                                        basis.sampleSize === 1 ? "run" : "runs"
+                                      } · safe default retained until ${basis.minimumSampleSize} runs`
+                                    : basis.cappedToRubricDefault
+                                      ? `Historical average ${basis.historicalAverageTokens?.toLocaleString()} from ${basis.sampleSize} completed runs · capped at the safe default`
+                                    : `Average of ${basis.sampleSize} completed ${
+                                        basis.sampleSize === 1 ? "run" : "runs"
+                                      }`
                                   : "Default until a completed run is available"}
                               </small>
                             </div>

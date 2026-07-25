@@ -11,6 +11,12 @@ const role = codexCliMode
   : (process.argv[3] ?? "candidate");
 const suppliedClaimId = codexCliMode ? undefined : process.argv[4];
 const prompt = readFileSync(0, "utf8");
+const delayedReportMode = mode === "report-only-delayed";
+const commandOverBudgetMode = [
+  "command-over-budget",
+  "command-over-budget-await",
+  "early-output-command-over-budget-await",
+].includes(mode);
 
 function emit(value) {
   process.stdout.write(`${JSON.stringify(value)}\n`);
@@ -18,10 +24,44 @@ function emit(value) {
 
 emit({ type: "thread.started", thread_id: `fresh-${role}` });
 emit({ type: "turn.started" });
+if (
+  [
+    "early-output-await",
+    "early-output-command-over-budget-await",
+  ].includes(mode)
+) {
+  emit({
+    type: "item.completed",
+    item: {
+      id: `${role}-early-message`,
+      type: "agent_message",
+      text: JSON.stringify({
+        summary: "Early placeholder emitted before repository exploration.",
+        findings: [],
+        practiceAssessments: [],
+        probeResult: {
+          status: "partial",
+          summary: "Exploration has not completed.",
+          citations: [
+            {
+              path: "package.json",
+              startLine: 1,
+              endLine: 1,
+              symbol: null,
+            },
+          ],
+        },
+        deadEnds: [],
+        instructions: [],
+        verificationWorkflows: [],
+      }),
+    },
+  });
+}
 const commandCount =
-  mode === "report-only"
+  mode.startsWith("report-only")
     ? 0
-    : mode === "command-over-budget"
+    : commandOverBudgetMode
       ? 7
       : 1;
 for (let index = 1; index <= commandCount; index += 1) {
@@ -37,30 +77,92 @@ for (let index = 1; index <= commandCount; index += 1) {
     item: {
       ...item,
       status:
-        mode === "command-over-budget" && index === commandCount
+        commandOverBudgetMode && index === commandCount
           ? "declined"
           : "completed",
       exit_code:
-        mode === "command-over-budget" && index === commandCount ? -1 : 0,
+        commandOverBudgetMode && index === commandCount
+          ? -1
+          : 0,
     },
   });
 }
 
-if (mode === "await-interrupt") {
+if (
+  [
+    "await-interrupt",
+    "command-over-budget-await",
+    "early-output-await",
+    "early-output-command-over-budget-await",
+  ].includes(mode)
+) {
   setInterval(() => {}, 10_000);
 } else if (mode === "failure") {
   process.stderr.write("simulated provider failure");
   process.exitCode = 7;
 } else {
   let claimId = suppliedClaimId;
-  if (role === "orchestrator" && !claimId) {
+  let suppliedClaimIds = suppliedClaimId ? [suppliedClaimId] : [];
+  if (role === "orchestrator") {
     const marker = "Assignment evidence (JSON):\n";
     const markerIndex = prompt.indexOf(marker);
     if (markerIndex >= 0) {
       const context = JSON.parse(prompt.slice(markerIndex + marker.length));
-      claimId = context.claims?.[0]?.id;
+      claimId ??= context.claims?.[0]?.id;
+      suppliedClaimIds = (context.claims ?? []).map(({ id }) => id);
     }
   }
+  const generalMode = prompt.includes("Audit mode: general");
+  const generalPracticeIds = ["01", "02", "03", "04", "05", "06", "07"];
+  const generalDimensions = [
+    "discoveryEfficiency",
+    "dependencyClarity",
+    "discoveryEfficiency",
+    "verificationDiscoverability",
+    "instructionQuality",
+    "verificationDiscoverability",
+    "ownershipClarity",
+  ];
+  const generalFindings = generalPracticeIds.map((practiceId, index) => ({
+    kind: "navigation_fact",
+    dimension: generalDimensions[index],
+    subject: `general practice ${practiceId}`,
+    assertion: `The controlled fixture exposes cited evidence for Practice Guide ${practiceId}.`,
+    friction: `The fixture retains one bounded navigation gap for practice ${practiceId}.`,
+    confidence: 0.9,
+    criticality: "high",
+    practiceIds: [practiceId],
+    citations: [
+      {
+        path: "package.json",
+        startLine: 1,
+        endLine: 20,
+        symbol: null,
+      },
+    ],
+  }));
+  const generalRecommendations = generalPracticeIds.map(
+    (practiceId, index) => ({
+      id: `fake-general-recommendation-${practiceId}`,
+      priority: index < 2 ? "P1" : "P2",
+      title: `Improve Practice Guide ${practiceId}`,
+      problem: `The controlled fixture retains navigation friction for practice ${practiceId}.`,
+      change: `Add a repository-specific navigation signal for practice ${practiceId}.`,
+      repositoryChanges: [
+        `Document and index the fixture evidence for practice ${practiceId}.`,
+      ],
+      claimIds: [suppliedClaimIds[index]],
+      practiceIds: [practiceId],
+      affectedDimensions: [generalDimensions[index]],
+      tokenMechanism:
+        "A direct repository signal replaces repeated bounded searches.",
+      validationChecks: [
+        `Repeat the general audit and confirm practice ${practiceId} is found directly.`,
+      ],
+      limitations: ["This is deterministic fake-provider evidence."],
+      effort: null,
+    }),
+  );
   const result =
     role === "orchestrator"
       ? {
@@ -83,8 +185,10 @@ if (mode === "await-interrupt") {
               checks: ["Confirm the cited file and symbol exist."],
             },
           ],
-          recommendations: [
-            {
+          recommendations: generalMode
+            ? generalRecommendations
+            : [
+              {
               id: "fake-recommendation-1",
               priority: "P1",
               title: "Index the test change surface",
@@ -109,34 +213,105 @@ if (mode === "await-interrupt") {
               limitations: ["The fake provider does not execute a probe."],
               effort: null,
             },
-          ],
+            ],
+          practiceProfile: generalMode
+            ? generalPracticeIds.map((practiceId, index) => ({
+                practiceId,
+                status: "mixed",
+                assessment: `Practice ${practiceId} has useful signals and one verified navigation gap.`,
+                tokenImpact:
+                  "The remaining gap causes one additional bounded search.",
+                claimIds: [suppliedClaimIds[index]],
+                recommendationIds: [
+                  `fake-general-recommendation-${practiceId}`,
+                ],
+                limitations: ["The controlled fixture is intentionally small."],
+              }))
+            : [],
         }
       : {
           summary: `${role} inspected an assignment-only prompt`,
-          findings: [
-            {
-              kind:
-                mode === "invalid-finding-kind"
-                  ? "proposed_change"
-                  : "navigation_fact",
-              dimension: "verificationDiscoverability",
-              subject: "script discoverability",
-              assertion:
-                "package.json exposes the repository's named verification scripts in one discoverable entry point.",
-              friction:
-                "Without this single index, an agent would need to search neighboring configuration files for the canonical verification command.",
-              confidence: 0.95,
-              criticality: "critical",
-              citations: [
+          findings: generalMode
+            ? mode === "report-only-empty-general"
+              ? []
+              : generalFindings
+            : [
                 {
-                  path: "package.json",
-                  startLine: 1,
-                  endLine: 20,
-                  symbol: null,
+                  kind:
+                    mode === "invalid-finding-kind"
+                      ? "proposed_change"
+                      : "navigation_fact",
+                  dimension: "verificationDiscoverability",
+                  subject: "script discoverability",
+                  assertion:
+                    "package.json exposes the repository's named verification scripts in one discoverable entry point.",
+                  friction:
+                    "Without this single index, an agent would need to search neighboring configuration files for the canonical verification command.",
+                  confidence: 0.95,
+                  criticality: "critical",
+                  citations: [
+                    {
+                      path: "package.json",
+                      startLine: 1,
+                      endLine: 20,
+                      symbol: null,
+                    },
+                  ],
                 },
+                ...(mode === "mixed-valid-and-invalid-findings"
+                  ? [
+                      {
+                        kind: "proposed_change",
+                        dimension: "discoveryEfficiency",
+                        subject: "invalid proposed change",
+                        assertion:
+                          "This item is intentionally not a navigation fact.",
+                        friction: "This fixture item must be rejected.",
+                        confidence: 0.5,
+                        criticality: "low",
+                        citations: [
+                          {
+                            path: "package.json",
+                            startLine: 1,
+                            endLine: 1,
+                            symbol: null,
+                          },
+                        ],
+                      },
+                    ]
+                  : []),
               ],
-            },
-          ],
+          practiceAssessments: generalMode
+            ? mode === "report-only-empty-general"
+              ? []
+              : generalPracticeIds
+                  .filter(
+                    (practiceId) =>
+                      mode !== "missing-practice-assessment-general" ||
+                      practiceId !== "06",
+                  )
+                  .map((practiceId) => {
+                    const index = generalPracticeIds.indexOf(practiceId);
+                    return {
+                      practiceId,
+                      status: "mixed",
+                      summary: `Practice ${practiceId} is only partly explicit in the controlled fixture.`,
+                      findingIndexes:
+                        mode === "invalid-practice-references-general"
+                          ? practiceId === "01"
+                            ? [0, 4]
+                            : practiceId === "05"
+                              ? [0]
+                              : practiceId === "07"
+                                ? [6, 99]
+                                : [index]
+                          : [index],
+                      limitations: [
+                        "The fixture contains one representative path.",
+                      ],
+                    };
+                  })
+            : [],
           probeResult: {
             status: prompt.includes("Budget wrap-up directive")
               ? "partial"
@@ -177,6 +352,9 @@ if (mode === "await-interrupt") {
               "Do not retry a declined or failed command with a syntactic variant",
             ),
         };
+  if (delayedReportMode) {
+    await new Promise((resolve) => setTimeout(resolve, 120));
+  }
   emit({
     type: "item.completed",
     item: {

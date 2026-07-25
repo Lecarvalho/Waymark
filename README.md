@@ -96,15 +96,22 @@ npm run waymark -- investigation run --run <run-id>
 The Codex adapter starts each audited role in a separate ephemeral
 assignment-only process with a read-only sandbox. Candidate and independent
 roles run in parallel. JSONL tool events and host-measured token usage are
-written to the journal as they arrive. Reaching the reporting reserve interrupts
-the full provider process tree. Waymark then resumes that same session once,
-without tools and with a 60-second deadline, to retain a structured partial
-report. This rescue also runs when telemetry jumps past the ceiling or an
-over-budget provider exits before returning output.
+written to the journal as they arrive. The reporting reserve includes both the
+current context that a resumed turn must replay and bounded report output; the
+fixed final 20% is only a minimum. Reaching that reserve interrupts the full
+provider process tree. Waymark then resumes that same session once, without
+tools and with a five-minute safety deadline, to retain a structured partial
+report. The rescue remains subject to the declared hard token limit. It also
+runs when telemetry jumps past the ceiling or an over-budget provider exits
+before returning output.
 
 On Windows, Waymark resolves the installed Codex JavaScript entry point instead
 of spawning a `.cmd` launcher. Set `WAYMARK_CODEX_ENTRY` or pass
 `--codex-entry <path>` if it is installed in a nonstandard location.
+
+Automatic phase targets start from the safe rubric defaults. At least three
+same-mode completed samples are required before a lower historical average may
+reduce a target; historical usage never raises the automatic default.
 
 ## Audited roles
 

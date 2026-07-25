@@ -89,6 +89,7 @@ const DEFAULT_CODEX_MODELS = Object.freeze([
 ]);
 
 const TOKEN_PHASES = Object.freeze(Object.keys(DEFAULT_AUDIT_TOKEN_BUDGETS));
+const MIN_HISTORICAL_SAMPLE_SIZE = 3;
 
 function resolveTokenBudgets(historicalTokenAverages = {}) {
   const tokenBudgetDefaults = {};
@@ -102,9 +103,14 @@ function resolveTokenBudgets(historicalTokenAverages = {}) {
       history.averageTokens > 0 &&
       Number.isSafeInteger(history?.sampleSize) &&
       history.sampleSize > 0;
-    const targetTokens = hasHistory
-      ? history.averageTokens
+    const historyEligible =
+      hasHistory && history.sampleSize >= MIN_HISTORICAL_SAMPLE_SIZE;
+    const targetTokens = historyEligible
+      ? Math.min(history.averageTokens, fallback.targetTokens)
       : fallback.targetTokens;
+    const cappedToRubricDefault =
+      hasHistory &&
+      (!historyEligible || history.averageTokens > fallback.targetTokens);
 
     tokenBudgetDefaults[phase] = Object.freeze({
       targetTokens,
@@ -113,6 +119,10 @@ function resolveTokenBudgets(historicalTokenAverages = {}) {
     tokenBudgetBasis[phase] = Object.freeze({
       source: hasHistory ? "historical_average" : "rubric_default",
       sampleSize: hasHistory ? history.sampleSize : 0,
+      historicalAverageTokens: hasHistory ? history.averageTokens : null,
+      cappedToRubricDefault,
+      usedForTarget: historyEligible,
+      minimumSampleSize: MIN_HISTORICAL_SAMPLE_SIZE,
     });
   }
 

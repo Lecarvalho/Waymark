@@ -11,7 +11,36 @@ import {
 const MAX_STDERR_CHARACTERS = 8_000;
 const MAX_RESULT_CHARACTERS = 64_000;
 const BUDGET_WRAP_UP_RESERVE_RATIO = 0.2;
-const BUDGET_WRAP_UP_TIMEOUT_MS = 60_000;
+const DEFAULT_BUDGET_WRAP_UP_TIMEOUT_MS = 300_000;
+const GENERAL_PRACTICE_IDS = Object.freeze([
+  "01",
+  "02",
+  "03",
+  "04",
+  "05",
+  "06",
+  "07",
+]);
+const GENERAL_PRACTICE_ID_SET = new Set(GENERAL_PRACTICE_IDS);
+const PRACTICE_STATUSES = new Set([
+  "strong",
+  "mixed",
+  "weak",
+  "not_assessed",
+]);
+
+function assertUniqueItems(items, path) {
+  if (new Set(items).size !== items.length) {
+    throw new OrchestrationError(
+      "DUPLICATE_REFERENCES_NOT_ALLOWED",
+      `${path} must not contain duplicate values`,
+    );
+  }
+}
+const DETERMINISTIC_VERIFICATION_METHODS = new Set([
+  "static_inspection",
+  "executable_probe",
+]);
 
 export class OrchestrationError extends Error {
   constructor(code, message, details = undefined) {
@@ -36,8 +65,13 @@ function roleCompleted(status) {
   return (
     status === "completed" ||
     status === "completed_over_budget" ||
-    status === "completed_partial_budget"
+    status === "completed_partial_budget" ||
+    status === "completed_partial_policy"
   );
+}
+
+function roleHasCompleteEvidence(status) {
+  return status === "completed" || status === "completed_over_budget";
 }
 
 function wrapUpTriggerTokens(tokenBudget) {
@@ -49,11 +83,11 @@ function wrapUpTriggerTokens(tokenBudget) {
   );
 }
 
-function renderBudgetWrapUpPrompt(assignment) {
+function renderBudgetWrapUpPrompt(assignment, reportTimeoutMs) {
   return [
     "Budget wrap-up directive.",
     "Stop investigating immediately. Do not call tools, run commands, or read more files.",
-    `Return one concise structured report within ${BUDGET_WRAP_UP_TIMEOUT_MS / 1_000} seconds.`,
+    `Return one concise structured report within ${reportTimeoutMs / 1_000} seconds.`,
     "Return the required structured result now using only evidence already gathered in this session.",
     "Treat the result as partial: state what was found, every unresolved question, and the concrete searches, file hops, ambiguity, or traceability barriers that prevented completion.",
     "Keep repository claims tied to citations already observed. Do not invent citations or attribute budget exhaustion solely to the repository.",
@@ -267,6 +301,7 @@ async function executeAssignment({
   adapters,
   signal,
   killGraceMs,
+  budgetWrapUpTimeoutMs,
 }) {
   const { role, participant, tokenBudget, shellCommandBudget } = assignment;
   const phase = phaseForRole(role);
@@ -312,14 +347,17 @@ async function executeAssignment({
   let stopUsageMonitor = null;
   let providerSessionId = null;
   let processControl = null;
-  let allowBudgetWrapUp = false;
   let wrapUpRequested = false;
   let wrapUpCompleted = false;
   let reportingOnly = false;
   let reportToolViolation = false;
   let invalidLineCount = 0;
   let processResult;
-  const wrapUpAtTokens = wrapUpTriggerTokens(tokenBudget);
+  const fixedWrapUpAtTokens = wrapUpTriggerTokens(tokenBudget);
+  const reportOutputReserveTokens = Math.max(
+    1,
+    Math.min(8_000, Math.floor(tokenBudget.hardLimitTokens * 0.1)),
+  );
 
   const appendRoleProgress = (message) => {
     store.appendEvent({
@@ -349,18 +387,37 @@ async function executeAssignment({
       latestUsage = usage;
     }
   };
-  const enforceTokenBudget = (totalTokens) => {
-    if (reportingOnly) return;
+  const enforceTokenBudget = (
+    totalTokens,
+    { discardExistingOutput = false, contextTokens = null } = {},
+  ) => {
+    if (reportingOnly) {
+      if (totalTokens > tokenBudget.hardLimitTokens) {
+        budgetExceeded = true;
+        processControl?.terminate("hard_token_limit");
+      }
+      return;
+    }
+    const projectedReportTokens =
+      Number.isSafeInteger(contextTokens) && contextTokens >= 0
+        ? totalTokens + contextTokens + reportOutputReserveTokens
+        : null;
+    const fixedReserveReached = totalTokens >= fixedWrapUpAtTokens;
+    const projectedReserveReached =
+      projectedReportTokens !== null &&
+      projectedReportTokens >= tokenBudget.hardLimitTokens;
     const canRequestWrapUp =
-      allowBudgetWrapUp &&
-      totalTokens >= wrapUpAtTokens &&
-      finalOutput === undefined &&
+      (fixedReserveReached || projectedReserveReached) &&
+      (finalOutput === undefined || discardExistingOutput) &&
       providerSessionId !== null &&
       typeof adapter.createResumeLaunchSpec === "function" &&
       !wrapUpRequested;
     if (canRequestWrapUp) {
       if (totalTokens > tokenBudget.hardLimitTokens) {
         budgetExceeded = true;
+      }
+      if (discardExistingOutput) {
+        finalOutput = undefined;
       }
       wrapUpRequested = true;
       store.appendEvent({
@@ -370,15 +427,22 @@ async function executeAssignment({
         payload: {
           phase,
           observedTokens: totalTokens,
-          wrapUpTriggerTokens: wrapUpAtTokens,
+          wrapUpTriggerTokens: fixedWrapUpAtTokens,
           hardLimitTokens: tokenBudget.hardLimitTokens,
-          reservedTokens: tokenBudget.hardLimitTokens - wrapUpAtTokens,
-          reportTimeoutMs: BUDGET_WRAP_UP_TIMEOUT_MS,
+          reservedTokens: tokenBudget.hardLimitTokens - totalTokens,
+          plannedReserveTokens:
+            tokenBudget.hardLimitTokens - fixedWrapUpAtTokens,
+          contextTokens,
+          reportOutputReserveTokens,
+          projectedReportTokens,
+          reportTimeoutMs: budgetWrapUpTimeoutMs,
           providerSessionId,
           trigger:
             totalTokens > tokenBudget.hardLimitTokens
               ? "telemetry_overshot_hard_limit"
-              : "reporting_reserve_reached",
+              : projectedReserveReached && !fixedReserveReached
+                ? "projected_report_reserve_reached"
+                : "reporting_reserve_reached",
           message: `${role}: exploration stopped; reserved budget is being used for a partial report`,
         },
       });
@@ -399,7 +463,10 @@ async function executeAssignment({
   const recordLiveUsage = (usage) => {
     latestRolloutUsage = usage;
     retainLatestUsage(usage.cumulative);
-    enforceTokenBudget(usage.cumulative.totalTokens);
+    enforceTokenBudget(usage.cumulative.totalTokens, {
+      discardExistingOutput: true,
+      contextTokens: usage.context.totalTokens,
+    });
     store.appendEvent({
       runId: assignment.runId,
       actor: role,
@@ -500,7 +567,6 @@ async function executeAssignment({
       killGraceMs,
       onControlReady(control) {
         processControl = control;
-        allowBudgetWrapUp = true;
       },
       onEvent(event) {
         const output = adapter.extractFinalOutput(event);
@@ -560,6 +626,7 @@ async function executeAssignment({
               shellCommandBudget !== undefined &&
               shellCommandCount > shellCommandBudget
             ) {
+              finalOutput = undefined;
               shellCommandBudgetExceeded = true;
             }
           }
@@ -577,7 +644,7 @@ async function executeAssignment({
         if (shellCommandBudgetExceeded) {
           return { terminate: true, reason: "shell_command_budget" };
         }
-        if (wrapUpRequested && allowBudgetWrapUp) {
+        if (wrapUpRequested) {
           return { terminate: true, reason: "budget_wrap_up" };
         }
         if (
@@ -606,7 +673,7 @@ async function executeAssignment({
           providerSessionId,
           resultRetained: true,
           reportingOnly: false,
-          reportTimeoutMs: BUDGET_WRAP_UP_TIMEOUT_MS,
+          reportTimeoutMs: budgetWrapUpTimeoutMs,
           reportToolViolation: false,
           terminationReason: processResult.terminationReason,
           summary:
@@ -638,13 +705,53 @@ async function executeAssignment({
         payload: {
           phase,
           observedTokens: latestUsage?.totalTokens ?? null,
-          wrapUpTriggerTokens: wrapUpAtTokens,
+          wrapUpTriggerTokens: fixedWrapUpAtTokens,
           hardLimitTokens: tokenBudget.hardLimitTokens,
-          reservedTokens: tokenBudget.hardLimitTokens - wrapUpAtTokens,
-          reportTimeoutMs: BUDGET_WRAP_UP_TIMEOUT_MS,
+          reservedTokens:
+            latestUsage === null
+              ? null
+              : tokenBudget.hardLimitTokens - latestUsage.totalTokens,
+          plannedReserveTokens:
+            tokenBudget.hardLimitTokens - fixedWrapUpAtTokens,
+          reportOutputReserveTokens,
+          reportTimeoutMs: budgetWrapUpTimeoutMs,
           providerSessionId,
           trigger: "provider_exit_after_budget_overrun",
           message: `${role}: provider exited without a result; attempting a no-tools partial report`,
+        },
+      });
+    }
+
+    if (
+      shellCommandBudgetExceeded &&
+      finalOutput === undefined &&
+      providerSessionId !== null &&
+      typeof adapter.createResumeLaunchSpec === "function" &&
+      !wrapUpRequested
+    ) {
+      wrapUpRequested = true;
+      store.appendEvent({
+        runId: assignment.runId,
+        actor: role,
+        type: "budget.wrap_up_requested",
+        payload: {
+          phase,
+          observedTokens: latestUsage?.totalTokens ?? null,
+          wrapUpTriggerTokens: fixedWrapUpAtTokens,
+          hardLimitTokens: tokenBudget.hardLimitTokens,
+          reservedTokens:
+            latestUsage === null
+              ? null
+              : tokenBudget.hardLimitTokens - latestUsage.totalTokens,
+          plannedReserveTokens:
+            tokenBudget.hardLimitTokens - fixedWrapUpAtTokens,
+          reportOutputReserveTokens,
+          reportTimeoutMs: budgetWrapUpTimeoutMs,
+          providerSessionId,
+          trigger: "shell_command_budget_exceeded",
+          declaredCommands: shellCommandBudget,
+          observedCommands: shellCommandCount,
+          message: `${role}: command budget reached; attempting a no-tools partial report`,
         },
       });
     }
@@ -656,7 +763,6 @@ async function executeAssignment({
       typeof adapter.createResumeLaunchSpec === "function"
     ) {
       finalOutput = undefined;
-      allowBudgetWrapUp = false;
       reportingOnly = true;
       if (typeof adapter.startUsageMonitor === "function") {
         try {
@@ -679,7 +785,7 @@ async function executeAssignment({
       processResult = await runJsonlProcess(
         adapter.createResumeLaunchSpec(
           assignment,
-          renderBudgetWrapUpPrompt(assignment),
+          renderBudgetWrapUpPrompt(assignment, budgetWrapUpTimeoutMs),
           providerSessionId,
         ),
         {
@@ -689,13 +795,14 @@ async function executeAssignment({
             processControl = control;
           },
           onEvent: handleWrapUpEvent,
-          timeoutMs: BUDGET_WRAP_UP_TIMEOUT_MS,
+          timeoutMs: budgetWrapUpTimeoutMs,
         },
       );
       invalidLineCount += processResult.invalidLineCount;
       processControl = null;
       wrapUpCompleted =
-        processResult.exitCode === 0 &&
+        (processResult.exitCode === 0 ||
+          processResult.terminationReason === "hard_token_limit") &&
         finalOutput !== undefined &&
         !reportToolViolation;
       store.appendEvent({
@@ -711,7 +818,7 @@ async function executeAssignment({
           providerSessionId,
           resultRetained: wrapUpCompleted,
           reportingOnly: true,
-          reportTimeoutMs: BUDGET_WRAP_UP_TIMEOUT_MS,
+          reportTimeoutMs: budgetWrapUpTimeoutMs,
           reportToolViolation,
           terminationReason: processResult.terminationReason,
           summary:
@@ -768,8 +875,9 @@ async function executeAssignment({
     });
   }
 
+  let commandPolicyViolation = null;
   if (shellCommandBudgetExceeded) {
-    const failure = {
+    commandPolicyViolation = {
       reason: "shell_command_budget_exceeded",
       phase,
       declaredLimit: shellCommandBudget,
@@ -785,15 +893,21 @@ async function executeAssignment({
       runId: assignment.runId,
       actor: role,
       type: "policy.violation",
-      payload: failure,
+      payload: commandPolicyViolation,
     });
-    store.appendEvent({
-      runId: assignment.runId,
-      actor: role,
-      type: `${lifecycle}.failed`,
-      payload: failure,
-    });
-    return { role, status: "policy_exceeded", failure };
+    if (finalOutput === undefined) {
+      store.appendEvent({
+        runId: assignment.runId,
+        actor: role,
+        type: `${lifecycle}.failed`,
+        payload: commandPolicyViolation,
+      });
+      return {
+        role,
+        status: "policy_exceeded",
+        failure: commandPolicyViolation,
+      };
+    }
   }
 
   let completionOnlyOverrun = null;
@@ -893,7 +1007,9 @@ async function executeAssignment({
   if (
     processResult.exitCode !== 0 &&
     !(
-      processResult.terminationReason === "hard_token_limit" &&
+      ["hard_token_limit", "shell_command_budget"].includes(
+        processResult.terminationReason,
+      ) &&
       finalOutput !== undefined
     )
   ) {
@@ -936,15 +1052,19 @@ async function executeAssignment({
     normalizedEventCount,
     tokenMeasurement: latestUsage === null ? "unavailable" : "measured",
     calibrationEligible:
-      completionOnlyOverrun === null ||
-      completionOnlyOverrun.calibrationEligible === true,
-    evidenceCompleteness: wrapUpCompleted
-      ? "partial_budget_exhausted"
-      : "complete",
+      commandPolicyViolation === null &&
+      (completionOnlyOverrun === null ||
+        completionOnlyOverrun.calibrationEligible === true),
+    evidenceCompleteness:
+      commandPolicyViolation !== null
+        ? "partial_policy_exceeded"
+        : wrapUpCompleted
+          ? "partial_budget_exhausted"
+          : "complete",
     ...(wrapUpCompleted
       ? {
           budgetWrapUp: {
-            wrapUpTriggerTokens: wrapUpAtTokens,
+            wrapUpTriggerTokens: fixedWrapUpAtTokens,
             hardLimitTokens: tokenBudget.hardLimitTokens,
             resultRetained: true,
           },
@@ -953,6 +1073,9 @@ async function executeAssignment({
     ...(completionOnlyOverrun === null
       ? {}
       : { budgetOverrun: completionOnlyOverrun }),
+    ...(commandPolicyViolation === null
+      ? {}
+      : { policyViolation: commandPolicyViolation }),
     result: boundedResult(finalOutput),
   };
   store.appendEvent({
@@ -964,7 +1087,9 @@ async function executeAssignment({
   return {
     role,
     status:
-      wrapUpCompleted
+      commandPolicyViolation !== null
+        ? "completed_partial_policy"
+        : wrapUpCompleted
         ? "completed_partial_budget"
         : completionOnlyOverrun === null
         ? "completed"
@@ -1012,7 +1137,370 @@ function validateCitations(citations, path) {
   }
 }
 
-function persistProbeResult(store, runId, role, investigationResult) {
+function validateInvestigationPracticeAssessments(
+  investigationResult,
+  role,
+  auditMode,
+) {
+  const assessments = investigationResult?.practiceAssessments;
+  if (auditMode !== "general") {
+    if (!Array.isArray(assessments) || assessments.length !== 0) {
+      throw new OrchestrationError(
+        "FOCUSED_PRACTICE_ASSESSMENT_NOT_ALLOWED",
+        `${role} must return an empty practiceAssessments array outside general mode`,
+      );
+    }
+    return [];
+  }
+  if (!Array.isArray(assessments) || assessments.length !== 7) {
+    throw new OrchestrationError(
+      "GENERAL_PRACTICE_ASSESSMENTS_REQUIRED",
+      `${role} must return exactly seven general-audit practice assessments`,
+    );
+  }
+  const findings = Array.isArray(investigationResult?.findings)
+    ? investigationResult.findings
+    : [];
+  const seen = new Set();
+  for (const [index, assessment] of assessments.entries()) {
+    const path = `${role}.practiceAssessments[${index}]`;
+    if (
+      !GENERAL_PRACTICE_ID_SET.has(assessment?.practiceId) ||
+      seen.has(assessment.practiceId)
+    ) {
+      throw new OrchestrationError(
+        "GENERAL_PRACTICE_COVERAGE_INVALID",
+        `${path}.practiceId must contain each Practice Guide ID exactly once`,
+      );
+    }
+    seen.add(assessment.practiceId);
+    if (
+      !PRACTICE_STATUSES.has(assessment.status) ||
+      typeof assessment.summary !== "string" ||
+      assessment.summary.trim() === "" ||
+      !Array.isArray(assessment.findingIndexes) ||
+      !Array.isArray(assessment.limitations)
+    ) {
+      throw new OrchestrationError(
+        "GENERAL_PRACTICE_ASSESSMENT_INVALID",
+        `${path} must include a valid status, summary, findingIndexes, and limitations`,
+      );
+    }
+    if (assessment.status === "not_assessed") {
+      if (
+        assessment.findingIndexes.length !== 0 ||
+        assessment.limitations.length === 0
+      ) {
+        throw new OrchestrationError(
+          "GENERAL_PRACTICE_UNKNOWN_INVALID",
+          `${path} must use no findings and state a limitation when not assessed`,
+        );
+      }
+      continue;
+    }
+    assertUniqueItems(assessment.findingIndexes, `${path}.findingIndexes`);
+    if (assessment.findingIndexes.length === 0) {
+      throw new OrchestrationError(
+        "GENERAL_PRACTICE_EVIDENCE_REQUIRED",
+        `${path} must reference at least one cited finding`,
+      );
+    }
+    for (const findingIndex of assessment.findingIndexes) {
+      const finding = findings[findingIndex];
+      if (
+        !Number.isSafeInteger(findingIndex) ||
+        findingIndex < 0 ||
+        !finding ||
+        !Array.isArray(finding.practiceIds) ||
+        !finding.practiceIds.includes(assessment.practiceId)
+      ) {
+        throw new OrchestrationError(
+          "GENERAL_PRACTICE_FINDING_INVALID",
+          `${path}.findingIndexes must reference findings tagged with practice ${assessment.practiceId}`,
+        );
+      }
+      validateCitations(
+        finding.citations,
+        `${role}.findings[${findingIndex}].citations`,
+      );
+    }
+  }
+  return assessments;
+}
+
+function evidenceIssue({
+  role,
+  scope,
+  index = null,
+  practiceId = null,
+  findingIndex = null,
+  error,
+}) {
+  return {
+    role,
+    scope,
+    index,
+    practiceId,
+    findingIndex,
+    code: error?.code ?? "EVIDENCE_INVALID",
+    message: error instanceof Error ? error.message : String(error),
+  };
+}
+
+function notAssessedPractice(practiceId, role, limitations) {
+  return {
+    practiceId,
+    status: "not_assessed",
+    summary: `${role} did not provide usable cited evidence for Practice Guide ${practiceId}.`,
+    findingIndexes: [],
+    limitations:
+      limitations.length > 0
+        ? limitations
+        : ["No usable cited finding was linked to this practice."],
+  };
+}
+
+function normalizeInvestigationPracticeAssessments(
+  investigationResult,
+  role,
+  auditMode,
+  { eligibleFindingIndexes = null } = {},
+) {
+  if (auditMode !== "general") {
+    return {
+      assessments: validateInvestigationPracticeAssessments(
+        investigationResult,
+        role,
+        auditMode,
+      ),
+      issues: [],
+    };
+  }
+
+  const findings = Array.isArray(investigationResult?.findings)
+    ? investigationResult.findings
+    : [];
+  const sourceAssessments = Array.isArray(
+    investigationResult?.practiceAssessments,
+  )
+    ? investigationResult.practiceAssessments
+    : [];
+  const assessmentsByPractice = new Map();
+  const issues = [];
+
+  for (const [index, assessment] of sourceAssessments.entries()) {
+    if (!GENERAL_PRACTICE_ID_SET.has(assessment?.practiceId)) {
+      issues.push(
+        evidenceIssue({
+          role,
+          scope: "practice_assessment",
+          index,
+          practiceId: assessment?.practiceId ?? null,
+          error: new OrchestrationError(
+            "GENERAL_PRACTICE_ID_INVALID",
+            `${role}.practiceAssessments[${index}] has an unknown Practice Guide ID`,
+          ),
+        }),
+      );
+      continue;
+    }
+    if (assessmentsByPractice.has(assessment.practiceId)) {
+      issues.push(
+        evidenceIssue({
+          role,
+          scope: "practice_assessment",
+          index,
+          practiceId: assessment.practiceId,
+          error: new OrchestrationError(
+            "GENERAL_PRACTICE_DUPLICATE",
+            `${role}.practiceAssessments[${index}] duplicates Practice Guide ${assessment.practiceId}`,
+          ),
+        }),
+      );
+      continue;
+    }
+    assessmentsByPractice.set(assessment.practiceId, { assessment, index });
+  }
+
+  const assessments = GENERAL_PRACTICE_IDS.map((practiceId) => {
+    const source = assessmentsByPractice.get(practiceId);
+    if (!source) {
+      const error = new OrchestrationError(
+        "GENERAL_PRACTICE_ASSESSMENT_MISSING",
+        `${role} omitted Practice Guide ${practiceId}`,
+      );
+      issues.push(
+        evidenceIssue({
+          role,
+          scope: "practice_assessment",
+          practiceId,
+          error,
+        }),
+      );
+      return notAssessedPractice(practiceId, role, [error.message]);
+    }
+
+    const { assessment, index } = source;
+    const path = `${role}.practiceAssessments[${index}]`;
+    const limitations = Array.isArray(assessment.limitations)
+      ? assessment.limitations.filter(
+          (limitation) =>
+            typeof limitation === "string" && limitation.trim() !== "",
+        )
+      : [];
+    if (
+      !PRACTICE_STATUSES.has(assessment.status) ||
+      typeof assessment.summary !== "string" ||
+      assessment.summary.trim() === "" ||
+      !Array.isArray(assessment.findingIndexes)
+    ) {
+      const error = new OrchestrationError(
+        "GENERAL_PRACTICE_ASSESSMENT_INVALID",
+        `${path} is missing a valid status, summary, findingIndexes, or limitations`,
+      );
+      issues.push(
+        evidenceIssue({
+          role,
+          scope: "practice_assessment",
+          index,
+          practiceId,
+          error,
+        }),
+      );
+      return notAssessedPractice(practiceId, role, [
+        ...limitations,
+        error.message,
+      ]);
+    }
+
+    if (assessment.status === "not_assessed") {
+      if (
+        assessment.findingIndexes.length > 0 ||
+        limitations.length === 0
+      ) {
+        const error = new OrchestrationError(
+          "GENERAL_PRACTICE_UNKNOWN_NORMALIZED",
+          `${path} was normalized to an evidence-free not-assessed result`,
+        );
+        issues.push(
+          evidenceIssue({
+            role,
+            scope: "practice_assessment",
+            index,
+            practiceId,
+            error,
+          }),
+        );
+        return notAssessedPractice(practiceId, role, [
+          ...limitations,
+          error.message,
+        ]);
+      }
+      return {
+        ...assessment,
+        findingIndexes: [],
+        limitations,
+      };
+    }
+
+    const validFindingIndexes = [];
+    const seenFindingIndexes = new Set();
+    for (const findingIndex of assessment.findingIndexes) {
+      let error = null;
+      const finding = findings[findingIndex];
+      if (
+        !Number.isSafeInteger(findingIndex) ||
+        findingIndex < 0 ||
+        !finding
+      ) {
+        error = new OrchestrationError(
+          "GENERAL_PRACTICE_FINDING_OUT_OF_RANGE",
+          `${path} references missing finding ${String(findingIndex)}`,
+        );
+      } else if (seenFindingIndexes.has(findingIndex)) {
+        error = new OrchestrationError(
+          "GENERAL_PRACTICE_FINDING_DUPLICATE",
+          `${path} repeats finding ${findingIndex}`,
+        );
+      } else if (
+        eligibleFindingIndexes !== null &&
+        !eligibleFindingIndexes.has(findingIndex)
+      ) {
+        error = new OrchestrationError(
+          "GENERAL_PRACTICE_FINDING_REJECTED",
+          `${path} references candidate finding ${findingIndex}, which was rejected during claim import`,
+        );
+      } else if (
+        !Array.isArray(finding.practiceIds) ||
+        !finding.practiceIds.includes(practiceId)
+      ) {
+        error = new OrchestrationError(
+          "GENERAL_PRACTICE_FINDING_MISMATCH",
+          `${path} references finding ${findingIndex}, which is not tagged with practice ${practiceId}`,
+        );
+      } else {
+        try {
+          validateCitations(
+            finding.citations,
+            `${role}.findings[${findingIndex}].citations`,
+          );
+        } catch (citationError) {
+          error = citationError;
+        }
+      }
+
+      seenFindingIndexes.add(findingIndex);
+      if (error) {
+        issues.push(
+          evidenceIssue({
+            role,
+            scope: "practice_finding_reference",
+            index,
+            practiceId,
+            findingIndex:
+              Number.isSafeInteger(findingIndex) ? findingIndex : null,
+            error,
+          }),
+        );
+      } else {
+        validFindingIndexes.push(findingIndex);
+      }
+    }
+
+    if (validFindingIndexes.length === 0) {
+      return notAssessedPractice(practiceId, role, [
+        ...limitations,
+        `${path} had no usable cited finding after invalid references were removed.`,
+      ]);
+    }
+    return {
+      ...assessment,
+      findingIndexes: validFindingIndexes,
+      limitations:
+        validFindingIndexes.length === assessment.findingIndexes.length
+          ? limitations
+          : [
+              ...limitations,
+              "Invalid finding references were removed during deterministic evidence import.",
+            ],
+    };
+  });
+
+  validateInvestigationPracticeAssessments(
+    { ...investigationResult, practiceAssessments: assessments },
+    role,
+    auditMode,
+  );
+  return { assessments, issues };
+}
+
+function persistProbeResult(
+  store,
+  runId,
+  role,
+  investigationResult,
+  auditMode,
+) {
   const probeResult = investigationResult?.probeResult;
   if (
     probeResult === null ||
@@ -1027,6 +1515,11 @@ function persistProbeResult(store, runId, role, investigationResult) {
     );
   }
   validateCitations(probeResult.citations, `${role}.probeResult.citations`);
+  validateInvestigationPracticeAssessments(
+    investigationResult,
+    role,
+    auditMode,
+  );
   return store.appendEvent({
     runId,
     actor: role,
@@ -1041,7 +1534,7 @@ function persistProbeResult(store, runId, role, investigationResult) {
   });
 }
 
-function importCandidateClaims(store, runId, candidateResult) {
+function importCandidateClaims(store, runId, candidateResult, auditMode) {
   const findings = candidateResult?.findings;
   if (!Array.isArray(findings) || findings.length === 0) {
     throw new OrchestrationError(
@@ -1057,39 +1550,89 @@ function importCandidateClaims(store, runId, candidateResult) {
     "verificationDiscoverability",
     "instructionQuality",
   ]);
-  return findings.map((finding, index) => {
-    if (finding?.kind !== "navigation_fact") {
-      throw new OrchestrationError(
-        "CANDIDATE_FINDING_KIND_REQUIRED",
-        `findings[${index}] must be an atomic navigation_fact`,
+  const claims = [];
+  const claimByFindingIndex = new Map();
+  const issues = [];
+  for (const [index, finding] of findings.entries()) {
+    try {
+      if (finding?.kind !== "navigation_fact") {
+        throw new OrchestrationError(
+          "CANDIDATE_FINDING_KIND_REQUIRED",
+          `findings[${index}] must be an atomic navigation_fact`,
+        );
+      }
+      if (!navigationDimensions.has(finding.dimension)) {
+        throw new OrchestrationError(
+          "CANDIDATE_FINDING_DIMENSION_REQUIRED",
+          `findings[${index}] must name one Waymark navigability dimension`,
+        );
+      }
+      if (
+        typeof finding.friction !== "string" ||
+        finding.friction.trim() === ""
+      ) {
+        throw new OrchestrationError(
+          "CANDIDATE_FINDING_FRICTION_REQUIRED",
+          `findings[${index}] must state concrete navigation friction`,
+        );
+      }
+      validateCitations(finding.citations, `findings[${index}].citations`);
+      const claim = store.submitClaim({
+        runId,
+        subject: `${
+          Array.isArray(finding.practiceIds) && finding.practiceIds.length > 0
+            ? `Practice ${finding.practiceIds.join("/")}: `
+            : ""
+        }${finding.dimension}: ${finding.subject}`,
+        assertion: `${finding.assertion} Navigation friction: ${finding.friction}`,
+        claimant: "candidate",
+        citations: finding.citations.map(normalizeCitation),
+        confidence: finding.confidence,
+        criticality: finding.criticality,
+      });
+      claims.push(claim);
+      claimByFindingIndex.set(index, claim);
+    } catch (error) {
+      if (!(error instanceof OrchestrationError)) throw error;
+      issues.push(
+        evidenceIssue({
+          role: "candidate",
+          scope: "finding",
+          index,
+          findingIndex: index,
+          error,
+        }),
       );
     }
-    if (!navigationDimensions.has(finding.dimension)) {
-      throw new OrchestrationError(
-        "CANDIDATE_FINDING_DIMENSION_REQUIRED",
-        `findings[${index}] must name one Waymark navigability dimension`,
-      );
-    }
-    if (
-      typeof finding.friction !== "string" ||
-      finding.friction.trim() === ""
-    ) {
-      throw new OrchestrationError(
-        "CANDIDATE_FINDING_FRICTION_REQUIRED",
-        `findings[${index}] must state concrete navigation friction`,
-      );
-    }
-    validateCitations(finding.citations, `findings[${index}].citations`);
-    return store.submitClaim({
-      runId,
-      subject: `${finding.dimension}: ${finding.subject}`,
-      assertion: `${finding.assertion} Navigation friction: ${finding.friction}`,
-      claimant: "candidate",
-      citations: finding.citations.map(normalizeCitation),
-      confidence: finding.confidence,
-      criticality: finding.criticality,
-    });
-  });
+  }
+  if (claims.length === 0) {
+    throw new OrchestrationError(
+      "CANDIDATE_USABLE_FINDINGS_REQUIRED",
+      "The candidate process returned no valid cited navigation findings to verify",
+      { issues },
+    );
+  }
+  const normalized = normalizeInvestigationPracticeAssessments(
+    candidateResult,
+    "candidate",
+    auditMode,
+    { eligibleFindingIndexes: new Set(claimByFindingIndex.keys()) },
+  );
+  const practiceAssessments = normalized.assessments.map((assessment) => ({
+    ...assessment,
+    claimIds: assessment.findingIndexes.map(
+      (findingIndex) => claimByFindingIndex.get(findingIndex).id,
+    ),
+  }));
+  return {
+    claims,
+    practiceAssessments,
+    normalizedResult: {
+      ...candidateResult,
+      practiceAssessments: normalized.assessments,
+    },
+    issues: [...issues, ...normalized.issues],
+  };
 }
 
 function assertKnownClaim(claimIds, claimId, path) {
@@ -1101,7 +1644,111 @@ function assertKnownClaim(claimIds, claimId, path) {
   }
 }
 
-function persistOrchestrationOutput(store, runId, output, claims) {
+function validateDraftPracticeProfile({
+  output,
+  auditMode,
+  claimIds,
+  recommendations,
+}) {
+  const profile = output.practiceProfile;
+  if (auditMode !== "general") {
+    if (!Array.isArray(profile) || profile.length !== 0) {
+      throw new OrchestrationError(
+        "FOCUSED_PRACTICE_PROFILE_NOT_ALLOWED",
+        "The orchestrator must return an empty practiceProfile outside general mode",
+      );
+    }
+    return [];
+  }
+  if (!Array.isArray(profile) || profile.length !== 7) {
+    throw new OrchestrationError(
+      "GENERAL_PRACTICE_PROFILE_REQUIRED",
+      "The orchestrator must return exactly seven general-audit practiceProfile items",
+    );
+  }
+  const recommendationById = new Map(
+    recommendations.map((recommendation) => [recommendation.id, recommendation]),
+  );
+  const seen = new Set();
+  for (const [index, item] of profile.entries()) {
+    const path = `practiceProfile[${index}]`;
+    if (
+      !GENERAL_PRACTICE_ID_SET.has(item?.practiceId) ||
+      seen.has(item.practiceId) ||
+      item.practiceId !== GENERAL_PRACTICE_IDS[index]
+    ) {
+      throw new OrchestrationError(
+        "GENERAL_PRACTICE_PROFILE_COVERAGE_INVALID",
+        `${path} must contain the ordered Practice Guide IDs 01 through 07 exactly once`,
+      );
+    }
+    seen.add(item.practiceId);
+    if (
+      !PRACTICE_STATUSES.has(item.status) ||
+      typeof item.assessment !== "string" ||
+      item.assessment.trim() === "" ||
+      typeof item.tokenImpact !== "string" ||
+      item.tokenImpact.trim() === "" ||
+      !Array.isArray(item.claimIds) ||
+      !Array.isArray(item.recommendationIds) ||
+      !Array.isArray(item.limitations)
+    ) {
+      throw new OrchestrationError(
+        "GENERAL_PRACTICE_PROFILE_INVALID",
+        `${path} is missing its assessment, token impact, evidence, recommendation links, or limitations`,
+      );
+    }
+    if (item.status === "not_assessed") {
+      if (item.claimIds.length !== 0 || item.limitations.length === 0) {
+        throw new OrchestrationError(
+          "GENERAL_PRACTICE_PROFILE_UNKNOWN_INVALID",
+          `${path} must have no claim IDs and at least one limitation when not assessed`,
+        );
+      }
+    } else if (item.claimIds.length === 0) {
+      throw new OrchestrationError(
+        "GENERAL_PRACTICE_PROFILE_EVIDENCE_REQUIRED",
+        `${path} must reference at least one candidate navigation claim`,
+      );
+    }
+    assertUniqueItems(item.claimIds, `${path}.claimIds`);
+    assertUniqueItems(item.recommendationIds, `${path}.recommendationIds`);
+    for (const claimId of item.claimIds) {
+      assertKnownClaim(claimIds, claimId, `${path}.claimIds`);
+    }
+    if (
+      ["mixed", "weak"].includes(item.status) &&
+      item.recommendationIds.length === 0
+    ) {
+      throw new OrchestrationError(
+        "GENERAL_PRACTICE_IMPROVEMENT_REQUIRED",
+        `${path} must link an improvement for a mixed or weak practice`,
+      );
+    }
+    for (const recommendationId of item.recommendationIds) {
+      const recommendation = recommendationById.get(recommendationId);
+      if (
+        !recommendation ||
+        !Array.isArray(recommendation.practiceIds) ||
+        !recommendation.practiceIds.includes(item.practiceId)
+      ) {
+        throw new OrchestrationError(
+          "GENERAL_PRACTICE_RECOMMENDATION_INVALID",
+          `${path}.recommendationIds must reference recommendations tagged with practice ${item.practiceId}`,
+        );
+      }
+    }
+  }
+  return profile;
+}
+
+function persistOrchestrationOutput(
+  store,
+  runId,
+  output,
+  claims,
+  auditMode,
+) {
   if (
     output === null ||
     typeof output !== "object" ||
@@ -1182,6 +1829,12 @@ function persistOrchestrationOutput(store, runId, output, claims) {
       );
     }
   }
+  const practiceProfile = validateDraftPracticeProfile({
+    output,
+    auditMode,
+    claimIds,
+    recommendations,
+  });
   const draft = store.appendEvent({
     runId,
     actor: "orchestrator",
@@ -1190,12 +1843,14 @@ function persistOrchestrationOutput(store, runId, output, claims) {
       scope: "repository_navigation",
       method: "fresh_orchestrator_evidence_review",
       recommendations,
+      practiceProfile,
     },
   });
   return {
     challengeCount: challenges.length,
     verificationRequestCount: verificationRequests.length,
     recommendationCount: recommendations.length,
+    practiceProfileCount: practiceProfile.length,
     draftEventId: draft.id,
   };
 }
@@ -1217,17 +1872,59 @@ export function finalizeDraftRecommendations({ store, runId }) {
       `Run ${runId} has no fresh-orchestrator recommendation draft`,
     );
   }
-  const existing = report.events.find(
+  let existing = report.events.find(
     (event) =>
       event.sequence > draft.sequence &&
       event.actor === "waymark:reporter" &&
       event.type === "report.recommendations",
   );
-  if (existing) return existing;
-  const recommendationEvent = store.appendReportRecommendations(runId, {
-    scope: "repository_navigation",
+  const auditMode = report.run.runConditions?.auditMode ?? "task_specific";
+  const profile = validateDraftPracticeProfile({
+    output: { practiceProfile: draft.payload.practiceProfile ?? [] },
+    auditMode,
+    claimIds: new Set(report.claims.map(({ id }) => id)),
     recommendations: draft.payload.recommendations,
   });
+  if (auditMode === "general") {
+    const latestVerificationByClaim = new Map();
+    for (const verification of report.verifications) {
+      latestVerificationByClaim.set(verification.claimId, verification);
+    }
+    for (const item of profile) {
+      for (const claimId of item.claimIds) {
+        const verification = latestVerificationByClaim.get(claimId);
+        if (
+          verification?.verdict !== "verified" ||
+          !DETERMINISTIC_VERIFICATION_METHODS.has(verification.method)
+        ) {
+          throw new OrchestrationError(
+            "GENERAL_PRACTICE_CLAIM_NOT_VERIFIED",
+            `Practice ${item.practiceId} references claim ${claimId} without deterministic verification`,
+          );
+        }
+      }
+    }
+  }
+  if (!existing) {
+    existing = store.appendReportRecommendations(runId, {
+      scope: "repository_navigation",
+      recommendations: draft.payload.recommendations,
+    });
+  }
+  const existingProfile = report.events.find(
+    (event) =>
+      event.sequence > draft.sequence &&
+      event.actor === "waymark:reporter" &&
+      event.type === "report.practice_profile",
+  );
+  if (auditMode === "general" && !existingProfile) {
+    store.appendReportPracticeProfile(runId, {
+      schemaVersion: "waymark-practice-profile/1.0.0",
+      scope: "general_repository",
+      suite: report.run.runConditions?.taskSuite ?? null,
+      items: profile,
+    });
+  }
   if (report.run.status === "active") {
     store.appendEvent({
       runId,
@@ -1236,11 +1933,14 @@ export function finalizeDraftRecommendations({ store, runId }) {
       payload: {
         phase: "report_generation",
         progress: 90,
-        message: "Verified evidence-linked recommendations finalized",
+        message:
+          auditMode === "general"
+            ? "Verified seven-principle profile and improvement backlog finalized"
+            : "Verified evidence-linked recommendations finalized",
       },
     });
   }
-  return recommendationEvent;
+  return existing;
 }
 
 export async function runInvestigationPhase({
@@ -1249,11 +1949,21 @@ export async function runInvestigationPhase({
   adapters,
   signal,
   killGraceMs,
+  budgetWrapUpTimeoutMs = DEFAULT_BUDGET_WRAP_UP_TIMEOUT_MS,
 }) {
   if (!Array.isArray(adapters) || adapters.length === 0) {
     throw new OrchestrationError(
       "PROVIDER_ADAPTER_REQUIRED",
       "At least one provider adapter is required",
+    );
+  }
+  if (
+    !Number.isSafeInteger(budgetWrapUpTimeoutMs) ||
+    budgetWrapUpTimeoutMs < 1
+  ) {
+    throw new OrchestrationError(
+      "BUDGET_WRAP_UP_TIMEOUT_INVALID",
+      "budgetWrapUpTimeoutMs must be a positive integer",
     );
   }
   const run = store.readRun(runId);
@@ -1298,6 +2008,7 @@ export async function runInvestigationPhase({
     commitSha: run.commitSha,
     readOnly: true,
   };
+  const auditMode = run.runConditions.auditMode ?? "task_specific";
 
   store.appendEvent({
     runId,
@@ -1313,7 +2024,7 @@ export async function runInvestigationPhase({
   const assignments = createInvestigationAssignments({
     runId,
     target,
-    auditMode: run.runConditions.auditMode ?? "task_specific",
+    auditMode,
     task: run.task,
     candidate,
     capabilities: {
@@ -1343,17 +2054,21 @@ export async function runInvestigationPhase({
         adapters,
         signal,
         killGraceMs,
+        budgetWrapUpTimeoutMs,
       }),
     ),
   );
   const cancelled = results.some(({ status }) => status === "cancelled");
-  const failed = results.some(({ status }) => !roleCompleted(status));
+  const candidateExecution = results.find(
+    ({ role }) => role === "candidate",
+  );
+  const candidateFailed = !roleCompleted(candidateExecution?.status);
 
-  if (failed) {
+  if (cancelled || candidateFailed) {
     const status = cancelled ? "cancelled" : "failed";
-    const failedResult = results.find(
-      ({ status: roleStatus }) => !roleCompleted(roleStatus),
-    );
+    const failedResult =
+      candidateExecution ??
+      results.find(({ status: roleStatus }) => !roleCompleted(roleStatus));
     store.finishRun(runId, {
       status,
       summary: {
@@ -1370,6 +2085,35 @@ export async function runInvestigationPhase({
     return { runId, status, results };
   }
 
+  const supportingFailures = results.filter(
+    ({ role, status }) =>
+      role !== "candidate" && !roleHasCompleteEvidence(status),
+  );
+  const supportingLimitations = supportingFailures.map(
+    ({ role, status, failure, completion }) => ({
+      role,
+      status,
+      reason:
+        failure?.reason ??
+        completion?.policyViolation?.reason ??
+        completion?.budgetOverrun?.reason ??
+        "incomplete_investigation_evidence",
+    }),
+  );
+  if (supportingFailures.length > 0) {
+    store.appendEvent({
+      runId,
+      actor: "workflow",
+      type: "investigation.degraded",
+      payload: {
+        calibrationEligible: false,
+        message:
+          "Candidate evidence was retained; orchestration is continuing without complete independent research",
+        unavailableRoles: supportingLimitations,
+      },
+    });
+  }
+
   store.appendEvent({
     runId,
     actor: "workflow",
@@ -1377,23 +2121,58 @@ export async function runInvestigationPhase({
     payload: {
       phase: "orchestration",
       progress: 40,
-      message: "Fresh candidate and independent investigations completed",
+      message:
+        supportingFailures.length === 0
+          ? "Fresh candidate and independent investigations completed"
+          : "Candidate investigation completed; diagnostic orchestration continuing with independent research unavailable",
     },
   });
 
   let claims;
+  let candidatePracticeAssessments = [];
+  const normalizedInvestigationResults = new Map();
+  const evidenceIssues = [];
   try {
-    for (const result of results) {
+    const candidateResult = results.find(({ role }) => role === "candidate")
+      ?.completion?.result;
+    const imported = importCandidateClaims(
+      store,
+      runId,
+      candidateResult,
+      auditMode,
+    );
+    claims = imported.claims;
+    candidatePracticeAssessments = imported.practiceAssessments;
+    normalizedInvestigationResults.set(
+      "candidate",
+      imported.normalizedResult,
+    );
+    evidenceIssues.push(...imported.issues);
+
+    for (const result of results.filter(({ status }) => roleCompleted(status))) {
+      let normalizedResult = normalizedInvestigationResults.get(result.role);
+      if (!normalizedResult) {
+        const sourceResult = result.completion?.result;
+        const normalized = normalizeInvestigationPracticeAssessments(
+          sourceResult,
+          result.role,
+          auditMode,
+        );
+        normalizedResult = {
+          ...sourceResult,
+          practiceAssessments: normalized.assessments,
+        };
+        normalizedInvestigationResults.set(result.role, normalizedResult);
+        evidenceIssues.push(...normalized.issues);
+      }
       persistProbeResult(
         store,
         runId,
         result.role,
-        result.completion?.result,
+        normalizedResult,
+        auditMode,
       );
     }
-    const candidateResult = results.find(({ role }) => role === "candidate")
-      ?.completion?.result;
-    claims = importCandidateClaims(store, runId, candidateResult);
   } catch (error) {
     const failure = {
       reason: "candidate_evidence_import_failed",
@@ -1413,13 +2192,42 @@ export async function runInvestigationPhase({
     return { runId, status: "failed", results, failure };
   }
 
+  if (evidenceIssues.length > 0) {
+    store.appendEvent({
+      runId,
+      actor: "workflow",
+      type: "investigation.degraded",
+      payload: {
+        calibrationEligible: false,
+        reason: "evidence_normalization_required",
+        message:
+          "Usable investigation evidence was retained; malformed findings or cross-references were rejected without discarding the complete role result",
+        retainedCandidateClaims: claims.length,
+        issueCount: evidenceIssues.length,
+        issues: evidenceIssues,
+      },
+    });
+  }
+
   const investigationContext = Object.fromEntries(
-    results.map(({ role, completion }) => [role, completion?.result ?? null]),
+    results.map(({ role, status, completion }) => [
+      role,
+      roleCompleted(status)
+        ? (normalizedInvestigationResults.get(role) ??
+          completion?.result ??
+          null)
+        : null,
+    ]),
   );
+  const evidenceLimitations = evidenceIssues.map((issue) => ({
+    role: issue.role,
+    status: "degraded",
+    reason: issue.code,
+  }));
   const orchestratorAssignment = createOrchestratorAssignment({
     runId,
     target,
-    auditMode: run.runConditions.auditMode ?? "task_specific",
+    auditMode,
     task: run.task,
     orchestrator,
     tokenBudgets: run.runConditions.tokenBudgets,
@@ -1428,7 +2236,18 @@ export async function runInvestigationPhase({
     additionalConstraints: assignmentConstraints(run, "orchestrator"),
     context: {
       claims,
+      candidatePracticeAssessments,
       investigations: investigationContext,
+      researchCoverage: {
+        candidate: "complete",
+        independent:
+          independent === null
+            ? "not_configured"
+            : supportingFailures.length === 0
+              ? "complete"
+              : "unavailable",
+        limitations: [...supportingLimitations, ...evidenceLimitations],
+      },
     },
   });
   const orchestration = await executeAssignment({
@@ -1437,6 +2256,7 @@ export async function runInvestigationPhase({
     adapters,
     signal,
     killGraceMs,
+    budgetWrapUpTimeoutMs,
   });
   if (!roleCompleted(orchestration.status)) {
     const status = orchestration.status === "cancelled" ? "cancelled" : "failed";
@@ -1460,6 +2280,7 @@ export async function runInvestigationPhase({
       runId,
       orchestration.completion.result,
       claims,
+      auditMode,
     );
   } catch (error) {
     const failure = {

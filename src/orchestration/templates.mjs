@@ -65,6 +65,23 @@ const SYSTEM_EXPLANATION_CONSTRAINTS = Object.freeze([
   "The primary measurement is navigation cost: processed tokens, searches, file hops, dead ends, and effort before a supported answer.",
   "Do not treat hypothetical change-surface recall as required evidence in this mode.",
 ]);
+const GENERAL_PRACTICE_IDS = Object.freeze([
+  "01",
+  "02",
+  "03",
+  "04",
+  "05",
+  "06",
+  "07",
+]);
+const GENERAL_AUDIT_CONSTRAINTS = Object.freeze([
+  "This is the versioned General repository audit. Perform a cold, repository-wide agent-readiness assessment rather than a single feature probe.",
+  "Assess all seven Practice Guide principles: 01 behavior organization, 02 dependency direction, 03 concept naming, 04 canonical workflow, 05 proximal instructions, 06 behavior-mirroring tests, and 07 generated/external code boundaries.",
+  "Sample at least two representative behavior areas or runtime paths when the repository contains them; state the sample and do not imply exhaustive coverage.",
+  "Return exactly one practiceAssessments item for every Practice Guide ID from 01 through 07.",
+  "Every strong, mixed, or weak practice assessment must reference one or more finding indexes whose full assertions are supported by citations. Use not_assessed with a concrete limitation when evidence is insufficient.",
+  "Record both effective repository signals and missing or costly patterns. Mixed and weak assessments must explain the extra searches, file hops, ambiguity, hidden edges, command hunting, or unsafe edit risk they create.",
+]);
 const REASONING_EFFORTS = new Set([
   "low",
   "medium",
@@ -147,6 +164,7 @@ export function createInvestigationAssignments(input) {
       : {}),
     constraints: Object.freeze([
       ...READ_ONLY_CONSTRAINTS,
+      ...(auditMode === "general" ? GENERAL_AUDIT_CONSTRAINTS : []),
       ...(auditMode === "system_explanation"
         ? SYSTEM_EXPLANATION_CONSTRAINTS
         : []),
@@ -156,9 +174,23 @@ export function createInvestigationAssignments(input) {
       "Valid finding example: 'No repository map connects the notification producers and worker; locating the surface required searches across three projects.' Invalid finding example: 'The worker resolves IEmailSender per message.' Put the invalid example's kind of feature behavior only in probeResult.",
       "Every finding must include at least one line-range citation that supports the entire assertion.",
       "Record feature-surface understanding only in probeResult. It exists to let validators judge navigation adequacy and must not contain implementation advice.",
+      ...(auditMode === "general"
+        ? [
+            "Tag every general-audit finding with one or more practiceIds from 01 through 07.",
+            "Use probeResult to summarize the sampled repository surfaces and whether the seven-principle assessment is adequate; it remains validator-only.",
+          ]
+        : [
+            "Return an empty practiceAssessments array; repository-wide practice profiling belongs only to general mode.",
+          ]),
       ...(input.additionalConstraints?.candidate ?? []),
     ]),
-    expectedEvidence: CANDIDATE_EVIDENCE,
+    expectedEvidence:
+      auditMode === "general"
+        ? Object.freeze([
+            ...CANDIDATE_EVIDENCE,
+            "exactly seven practice assessments with cited finding references, including positive signals, gaps, and sampling limitations",
+          ])
+        : CANDIDATE_EVIDENCE,
   };
 
   const independent = input.capabilities.independentResearcher;
@@ -185,18 +217,35 @@ export function createInvestigationAssignments(input) {
         : {}),
       constraints: Object.freeze([
         ...READ_ONLY_CONSTRAINTS,
+        ...(auditMode === "general" ? GENERAL_AUDIT_CONSTRAINTS : []),
         ...(auditMode === "system_explanation"
           ? SYSTEM_EXPLANATION_CONSTRAINTS
           : []),
+        ...(auditMode === "general"
+          ? [
+              "Independently return exactly seven practiceAssessments items and challenge shallow, single-path, or unsupported coverage.",
+              "Tag every general-audit finding with one or more practiceIds from 01 through 07.",
+            ]
+          : [
+              "Return an empty practiceAssessments array; repository-wide practice profiling belongs only to general mode.",
+            ]),
         ...(input.additionalConstraints?.independent ?? []),
       ]),
-      expectedEvidence: INDEPENDENT_EVIDENCE,
+      expectedEvidence:
+        auditMode === "general"
+          ? Object.freeze([
+              ...INDEPENDENT_EVIDENCE,
+              "an independent seven-principle practice assessment and explicit coverage challenges",
+            ])
+          : INDEPENDENT_EVIDENCE,
     },
   ]);
 }
 
 export function createOrchestratorAssignment(input) {
   const auditMode = input.auditMode ?? "task_specific";
+  const independentUnavailable =
+    input.context?.researchCoverage?.independent === "unavailable";
   const tokenBudgets = resolveAuditTokenBudgets(input.tokenBudgets);
   const reasoningEffort = resolveReasoningEffort(
     input.reasoningEffort,
@@ -217,6 +266,7 @@ export function createOrchestratorAssignment(input) {
       : {}),
     constraints: Object.freeze([
       ...READ_ONLY_CONSTRAINTS,
+      ...(auditMode === "general" ? GENERAL_AUDIT_CONSTRAINTS : []),
       ...(auditMode === "system_explanation"
         ? SYSTEM_EXPLANATION_CONSTRAINTS
         : []),
@@ -228,8 +278,26 @@ export function createOrchestratorAssignment(input) {
       "Write every user-facing recommendation field about navigation friction and repository-level remedies: discoverability, ownership clarity, dependency clarity, verification discoverability, or token efficiency.",
       "Do not restate probe-feature behavior or propose the probe feature's implementation in recommendation titles, problems, changes, steps, token mechanisms, or validation checks; claim IDs are provenance only.",
       "Do not assign or predict a Waymark score.",
+      ...(auditMode === "general"
+        ? [
+            independentUnavailable
+              ? "Return exactly seven practiceProfile items, ordered 01 through 07, using candidate evidence only; independent research is unavailable, so state that limitation and do not imply independent agreement."
+              : "Return exactly seven practiceProfile items, ordered 01 through 07, after reconciling candidate and independent assessments.",
+            "Every strong, mixed, or weak profile item must cite supplied candidate claim IDs; every mixed or weak item must link one or more recommendation IDs.",
+            "Use not_assessed only when bounded evidence cannot support a result, with no claim IDs and at least one concrete limitation.",
+            "Make recommendations a prioritized repository-wide improvement backlog. Cover every verified mixed or weak practice, merge duplicates, and retain exact repository paths and validation checks.",
+          ]
+        : [
+            "Return an empty practiceProfile array; repository-wide practice profiling belongs only to general mode.",
+          ]),
     ]),
-    expectedEvidence: ORCHESTRATOR_EVIDENCE,
+    expectedEvidence:
+      auditMode === "general"
+        ? Object.freeze([
+            ...ORCHESTRATOR_EVIDENCE,
+            `a complete reconciled practice profile for IDs ${GENERAL_PRACTICE_IDS.join(", ")}`,
+          ])
+        : ORCHESTRATOR_EVIDENCE,
     context: input.context,
   });
 }
@@ -255,7 +323,7 @@ export function renderAssignmentPrompt(assignment) {
     "- Run in a fresh process with no inherited conversation history.",
     "- Start a new non-resumed provider session; its local rollout log is used only for normalized live telemetry.",
     `- Target ${assignment.tokenBudget.targetTokens} processed tokens; hard limit ${assignment.tokenBudget.hardLimitTokens}.`,
-    "- Waymark reserves the final 20% of the hard limit for a structured partial report and may interrupt exploration before the ceiling.",
+    "- Waymark reserves at least the final 20% of the hard limit for a structured partial report. It may interrupt earlier when replaying the current context would otherwise leave too little reporting budget.",
     "Constraints:",
     constraints,
     "Return:",
