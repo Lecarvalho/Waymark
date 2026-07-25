@@ -53,9 +53,18 @@ selection. Usage is recorded in the separate `general_research` phase.
 `softUsageNoticeTokens`, when present, informs the operator but never stops the
 auditor or determines report validity.
 
-This is the normative redesign contract. Until the corresponding general CLI
-commands are present, stop before paid work instead of passing a general request
-to the legacy benchmark launcher.
+Create the run with the provider-neutral command, then start its semantic
+ledger:
+
+```powershell
+node bin/waymark.mjs --db <journal> run create --input-file <general-run.json>
+node bin/waymark.mjs --db <journal> general start --input-file <general-start.json>
+```
+
+Use the persisted auditor participant ID as the `actor` in
+`general-start.json` and every later general checkpoint. Do not pass a general
+request to `investigation run`, `score calculate`, or another benchmark-only
+command.
 
 ### Benchmark run contract
 

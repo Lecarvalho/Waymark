@@ -7,12 +7,26 @@ export interface PreparedAuditParticipant {
   reasoningEffort: ReasoningEffort;
 }
 
-export interface PreparedAuditRequest {
+interface PreparedAuditRequestBase {
   targetRepositoryPath: string;
   journalPath: string;
   serviceUrl: string;
-  auditMode: "general" | "task_specific" | "system_explanation";
   task: string;
+}
+
+export interface PreparedGeneralAuditRequest
+  extends PreparedAuditRequestBase {
+  auditMode: "general";
+  participants: {
+    auditor: PreparedAuditParticipant;
+  };
+  tokenPolicy: "unbounded_by_waymark";
+  softUsageNoticeTokens?: number | null;
+}
+
+export interface PreparedBenchmarkAuditRequest
+  extends PreparedAuditRequestBase {
+  auditMode: "task_specific" | "system_explanation";
   participants: Record<
     "candidate" | "independent" | "orchestrator",
     PreparedAuditParticipant
@@ -20,9 +34,15 @@ export interface PreparedAuditRequest {
   tokenBudgets: AuditTokenBudgets;
 }
 
+export type PreparedAuditRequest =
+  | PreparedGeneralAuditRequest
+  | PreparedBenchmarkAuditRequest;
+
 export function validatePreparedAuditRequest(
   input: PreparedAuditRequest,
-): PreparedAuditRequest & { name: string };
+): (PreparedAuditRequest & { name: string }) & {
+  tokenPolicy: "unbounded_by_waymark" | "hard_phase_budgets";
+};
 
 export function inferAuditName(input: {
   auditMode: PreparedAuditRequest["auditMode"];

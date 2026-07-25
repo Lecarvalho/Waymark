@@ -18,7 +18,8 @@ import type {
 } from "../src/orchestration/types";
 import { useProviderCapabilities } from "./use-provider-capabilities";
 
-type Role = "candidate" | "independent" | "orchestrator";
+type Role = "auditor" | "candidate" | "independent" | "orchestrator";
+type BenchmarkRole = Exclude<Role, "auditor">;
 type ParticipantSelection = {
   provider: string;
   model: string;
@@ -27,8 +28,8 @@ type ParticipantSelection = {
 type ParticipantSelections = Record<Role, ParticipantSelection>;
 type AuditMode = "general" | "task_specific" | "system_explanation";
 
-const roles: Role[] = ["candidate", "independent", "orchestrator"];
 const roleLabels: Record<Role, string> = {
+  auditor: "Auditor",
   candidate: "Candidate",
   independent: "Independent researcher",
   orchestrator: "Orchestrator",
@@ -47,6 +48,7 @@ function emptyParticipant(): ParticipantSelection {
 
 function emptyParticipants(): ParticipantSelections {
   return {
+    auditor: emptyParticipant(),
     candidate: emptyParticipant(),
     independent: emptyParticipant(),
     orchestrator: emptyParticipant(),
@@ -112,7 +114,9 @@ function validateForm(input: {
   auditMode: AuditMode;
   task: string;
   participants: ParticipantSelections;
+  activeRoles: readonly Role[];
   tokenBudgets: AuditTokenBudgets | null;
+  softUsageNoticeTokens: number | null;
 }) {
   const errors: string[] = [];
   if (input.targetRepositoryPath.trim() === "") {
@@ -125,7 +129,7 @@ function validateForm(input: {
         : "Enter the engineering task used as the navigation probe.",
     );
   }
-  for (const role of roles) {
+  for (const role of input.activeRoles) {
     const selection = input.participants[role];
     if (
       selection.provider === "" ||
@@ -137,9 +141,18 @@ function validateForm(input: {
       ].toLowerCase()}.`);
     }
   }
-  if (input.tokenBudgets === null) {
+  if (
+    input.auditMode === "general" &&
+    input.softUsageNoticeTokens !== null &&
+    (!Number.isSafeInteger(input.softUsageNoticeTokens) ||
+      input.softUsageNoticeTokens < 1)
+  ) {
+    errors.push(
+      "The optional soft usage notice must be a positive token count.",
+    );
+  } else if (input.auditMode !== "general" && input.tokenBudgets === null) {
     errors.push("Token budgets are not available.");
-  } else {
+  } else if (input.auditMode !== "general" && input.tokenBudgets !== null) {
     for (const [phase, budget] of Object.entries(input.tokenBudgets)) {
       if (
         !Number.isSafeInteger(budget.targetTokens) ||
@@ -177,26 +190,51 @@ export function PrepareAuditDialog() {
     useState<ParticipantSelections>(emptyParticipants);
   const [tokenBudgets, setTokenBudgets] =
     useState<AuditTokenBudgets | null>(null);
+  const [softUsageNoticeTokens, setSoftUsageNoticeTokens] =
+    useState<number | null>(null);
   const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">(
     "idle",
   );
   const selectedAuditMode =
     capabilities?.auditModes.find((mode) => mode.id === auditMode) ?? null;
+  const activeRoles = useMemo<readonly Role[]>(
+    () =>
+      selectedAuditMode?.participantRoles ??
+      (auditMode === "general"
+        ? ["auditor"]
+        : ["candidate", "independent", "orchestrator"]),
+    [auditMode, selectedAuditMode],
+  );
 
   const resolvedParticipants = useMemo(() => {
-    if (participants.candidate.provider !== "" || !capabilities) {
+    if (!capabilities) {
       return participants;
     }
-    return Object.fromEntries(
-      roles.map((role) => {
-        const provider = availableProviders(capabilities, role)[0];
-        return [
-          role,
-          provider ? defaultSelection(provider) : emptyParticipant(),
-        ];
-      }),
-    ) as ParticipantSelections;
-  }, [capabilities, participants]);
+    const resolved = { ...participants };
+    for (const role of activeRoles) {
+      const current = participants[role];
+      const currentProvider = availableProviders(capabilities, role).find(
+        ({ id }) => id === current.provider,
+      );
+      const currentModel = currentProvider?.models.find(
+        ({ id }) => id === current.model,
+      );
+      if (
+        currentProvider &&
+        currentModel &&
+        currentModel.reasoningEfforts.includes(
+          current.reasoningEffort as ReasoningEffort,
+        )
+      ) {
+        continue;
+      }
+      const provider = availableProviders(capabilities, role)[0];
+      resolved[role] = provider
+        ? defaultSelection(provider)
+        : emptyParticipant();
+    }
+    return resolved;
+  }, [activeRoles, capabilities, participants]);
   const resolvedTokenBudgets = useMemo(
     () =>
       tokenBudgets ??
@@ -213,30 +251,57 @@ export function PrepareAuditDialog() {
         auditMode,
         task,
         participants: resolvedParticipants,
+        activeRoles,
         tokenBudgets: resolvedTokenBudgets,
+        softUsageNoticeTokens,
       }),
     [
       targetRepositoryPath,
       auditMode,
       task,
       resolvedParticipants,
+      activeRoles,
       resolvedTokenBudgets,
+      softUsageNoticeTokens,
     ],
   );
 
   const prompt = useMemo(() => {
-    if (errors.length > 0 || resolvedTokenBudgets === null) return "";
-    return buildPreparedAuditRequest({
+    if (
+      errors.length > 0 ||
+      (auditMode !== "general" && resolvedTokenBudgets === null)
+    ) {
+      return "";
+    }
+    const base = {
       targetRepositoryPath,
       journalPath: databasePath ?? "",
       serviceUrl,
-      auditMode,
       task,
-      participants: resolvedParticipants as Record<
-        Role,
+    };
+    if (auditMode === "general") {
+      return buildPreparedAuditRequest({
+        ...base,
+        auditMode,
+        participants: {
+          auditor: resolvedParticipants.auditor as ParticipantSelection & {
+            reasoningEffort: ReasoningEffort;
+          },
+        },
+        tokenPolicy: "unbounded_by_waymark",
+        softUsageNoticeTokens,
+      });
+    }
+    return buildPreparedAuditRequest({
+      ...base,
+      auditMode,
+      participants: Object.fromEntries(
+        activeRoles.map((role) => [role, resolvedParticipants[role]]),
+      ) as Record<
+        BenchmarkRole,
         ParticipantSelection & { reasoningEffort: ReasoningEffort }
       >,
-      tokenBudgets: resolvedTokenBudgets,
+      tokenBudgets: resolvedTokenBudgets as AuditTokenBudgets,
     });
   }, [
     errors.length,
@@ -246,7 +311,9 @@ export function PrepareAuditDialog() {
     auditMode,
     task,
     resolvedParticipants,
+    activeRoles,
     resolvedTokenBudgets,
+    softUsageNoticeTokens,
   ]);
 
   const open = () => {
@@ -263,9 +330,8 @@ export function PrepareAuditDialog() {
     value: string,
   ) => {
     setCopyState("idle");
-    setParticipants((current) => {
-      const base =
-        current.candidate.provider === "" ? resolvedParticipants : current;
+    setParticipants(() => {
+      const base = resolvedParticipants;
       const currentSelection = base[role];
       if (field === "provider") {
         const provider =
@@ -400,6 +466,7 @@ export function PrepareAuditDialog() {
                     onChange={(event) => {
                       setCopyState("idle");
                       setTokenBudgets(null);
+                      setSoftUsageNoticeTokens(null);
                       setAuditMode(event.target.value as AuditMode);
                     }}
                     value={auditMode}
@@ -467,8 +534,9 @@ export function PrepareAuditDialog() {
                   </label>
                 ) : (
                   <p className="prepare-mode-note">
-                    The repository-local audit skill resolves the versioned
-                    general-navigation suite. No feature request is needed.
+                    {selectedAuditMode?.description ??
+                      "Broad, evidence-led repository research by one auditor."}{" "}
+                    No feature request or benchmark task suite is needed.
                   </p>
                 )}
               </div>
@@ -510,7 +578,7 @@ export function PrepareAuditDialog() {
                 </div>
               ) : (
                 <div className="participant-config-list">
-                  {roles.map((role) => {
+                  {activeRoles.map((role) => {
                     const selection = resolvedParticipants[role];
                     const provider = selectedProvider(
                       capabilities,
@@ -590,7 +658,38 @@ export function PrepareAuditDialog() {
               aria-labelledby="audit-request-budget"
               className="prepare-section"
             >
-              <details className="prepare-advanced">
+              {auditMode === "general" ? (
+                <div className="prepare-advanced general-token-policy">
+                  <div id="audit-request-budget">
+                    <strong>Auditor token usage</strong>
+                    <span>Measured without a Waymark stopping threshold</span>
+                  </div>
+                  <p className="budget-config-note">
+                    General research is unbounded by Waymark. You may set a
+                    soft notice for visibility; it does not stop the auditor or
+                    determine report validity.
+                  </p>
+                  <label className="prepare-field">
+                    <span>Optional soft usage notice</span>
+                    <input
+                      min={1}
+                      onChange={(event) => {
+                        setCopyState("idle");
+                        setSoftUsageNoticeTokens(
+                          event.target.value === ""
+                            ? null
+                            : Number(event.target.value),
+                        );
+                      }}
+                      placeholder="No notice"
+                      step={1000}
+                      type="number"
+                      value={softUsageNoticeTokens ?? ""}
+                    />
+                  </label>
+                </div>
+              ) : (
+                <details className="prepare-advanced">
                 <summary id="audit-request-budget">
                   Advanced token budgets
                   <span>Automatic targets · editable hard limits</span>
@@ -651,7 +750,8 @@ export function PrepareAuditDialog() {
                     </div>
                   </div>
                 )}
-              </details>
+                </details>
+              )}
             </section>
 
             <section

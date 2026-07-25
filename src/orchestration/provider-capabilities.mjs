@@ -227,16 +227,18 @@ export function discoverProviderCapabilities({
     historicalTokenAverages,
   );
   return Object.freeze({
-    schemaVersion: "1.2.0",
+    schemaVersion: "1.3.0",
     auditModes: Object.freeze([
       Object.freeze({
         id: "general",
         label: "General repository audit",
         taskRequired: false,
         description:
-          "Measures broad repository navigation with a versioned standard task suite.",
+          "Broad, evidence-led repository research by one auditor.",
         probeLabel: null,
         probePlaceholder: null,
+        participantRoles: Object.freeze(["auditor"]),
+        tokenPolicy: "unbounded_by_waymark",
       }),
       Object.freeze({
         id: "task_specific",
@@ -247,6 +249,12 @@ export function discoverProviderCapabilities({
         probeLabel: "Engineering task used as the probe",
         probePlaceholder:
           "Add partial refunds with manager approval and idempotency.",
+        participantRoles: Object.freeze([
+          "candidate",
+          "independent",
+          "orchestrator",
+        ]),
+        tokenPolicy: "hard_phase_budgets",
       }),
       Object.freeze({
         id: "system_explanation",
@@ -256,6 +264,12 @@ export function discoverProviderCapabilities({
           "Measures the navigation cost of finding a supported answer about existing behavior.",
         probeLabel: "What should the agent find?",
         probePlaceholder: "How are refunds approved?",
+        participantRoles: Object.freeze([
+          "candidate",
+          "independent",
+          "orchestrator",
+        ]),
+        tokenPolicy: "hard_phase_budgets",
       }),
     ]),
     providers: Object.freeze([
@@ -265,7 +279,12 @@ export function discoverProviderCapabilities({
         label: "OpenAI Codex",
         available,
         unavailableReason: declarationError ?? availability.unavailableReason,
-        roles: Object.freeze(["candidate", "independent", "orchestrator"]),
+        roles: Object.freeze([
+          "auditor",
+          "candidate",
+          "independent",
+          "orchestrator",
+        ]),
         models: available ? models : Object.freeze([]),
       }),
     ]),

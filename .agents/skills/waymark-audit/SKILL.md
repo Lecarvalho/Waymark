@@ -54,9 +54,9 @@ Route by `auditMode` before creating or launching a run:
 - `task_specific` and `system_explanation` follow the benchmark workflow.
 
 Never substitute the benchmark pipeline for a general audit. If the installed
-CLI does not yet expose the single-auditor general commands required by the
-protocol, stop before paid work and report that the requested contract is not
-available in this checkout.
+CLI does not expose `general start` and the semantic `general` checkpoint
+commands required by the protocol, stop before paid work and report that the
+requested contract is not available in this checkout.
 
 ## General workflow
 
@@ -64,7 +64,9 @@ available in this checkout.
    changing it. Create one general run with one auditor, read-only target
    policy, `general_research` token measurement, and
    `unbounded_by_waymark` token policy. Do not create candidate, independent,
-   orchestrator, or benchmark-verifier participants.
+   orchestrator, or benchmark-verifier participants. Start its semantic ledger
+   with `general start`; never route a general request through
+   `investigation run`.
 2. Research production code, tests, dependency paths and consumers,
    configuration, workflows, generated or external boundaries, documentation,
    and repository instructions. This is high-recall sampling, not a claim of

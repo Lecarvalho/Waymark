@@ -361,6 +361,8 @@ including a migration for any new constrained enum values or tables.
 
 **Dependencies:** GA-01 and GA-02.
 
+**Status:** Completed.
+
 ### Context
 
 The preparation contract currently requires candidate, independent, and

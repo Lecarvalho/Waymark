@@ -5,7 +5,8 @@ const AUDIT_MODES = new Set([
   "task_specific",
   "system_explanation",
 ]);
-const ROLES = ["candidate", "independent", "orchestrator"];
+const BENCHMARK_ROLES = ["candidate", "independent", "orchestrator"];
+const GENERAL_ROLE = "auditor";
 
 function requiredString(value, path) {
   if (typeof value !== "string" || value.trim() === "") {
@@ -67,14 +68,7 @@ export function validatePreparedAuditRequest(input) {
       : typeof input.task === "string"
         ? input.task.trim()
         : "";
-  const participants = Object.fromEntries(
-    ROLES.map((role) => [
-      role,
-      validateParticipant(input.participants?.[role], role),
-    ]),
-  );
-
-  return {
+  const base = {
     targetRepositoryPath: requiredString(
       input.targetRepositoryPath,
       "targetRepositoryPath",
@@ -84,7 +78,50 @@ export function validatePreparedAuditRequest(input) {
     auditMode: input.auditMode,
     name: inferAuditName({ auditMode: input.auditMode, task }),
     task,
-    participants,
+  };
+
+  if (input.auditMode === "general") {
+    if (input.tokenPolicy !== "unbounded_by_waymark") {
+      throw new TypeError(
+        "tokenPolicy must be unbounded_by_waymark for a general audit",
+      );
+    }
+    const softUsageNoticeTokens =
+      input.softUsageNoticeTokens === undefined ||
+      input.softUsageNoticeTokens === null
+        ? null
+        : input.softUsageNoticeTokens;
+    if (
+      softUsageNoticeTokens !== null &&
+      (!Number.isSafeInteger(softUsageNoticeTokens) ||
+        softUsageNoticeTokens < 1)
+    ) {
+      throw new TypeError(
+        "softUsageNoticeTokens must be a positive integer or null",
+      );
+    }
+    return {
+      ...base,
+      participants: {
+        auditor: validateParticipant(
+          input.participants?.auditor,
+          GENERAL_ROLE,
+        ),
+      },
+      tokenPolicy: "unbounded_by_waymark",
+      softUsageNoticeTokens,
+    };
+  }
+
+  return {
+    ...base,
+    participants: Object.fromEntries(
+      BENCHMARK_ROLES.map((role) => [
+        role,
+        validateParticipant(input.participants?.[role], role),
+      ]),
+    ),
+    tokenPolicy: "hard_phase_budgets",
     tokenBudgets: resolveAuditTokenBudgets(input.tokenBudgets),
   };
 }
@@ -100,6 +137,30 @@ export function buildPreparedAuditRequest(input) {
     probeLine = `- Task: ${JSON.stringify(request.task)}`;
   }
 
+  const participantRoles =
+    request.auditMode === "general" ? [GENERAL_ROLE] : BENCHMARK_ROLES;
+  const tokenLines =
+    request.auditMode === "general"
+      ? [
+          "- Token policy: unbounded_by_waymark",
+          "- Token usage: measured",
+          `- Soft usage notice: ${
+            request.softUsageNoticeTokens === null
+              ? "none"
+              : `${request.softUsageNoticeTokens} tokens`
+          }`,
+        ]
+      : [
+          `- Token budgets (target/hard): ${Object.entries(
+            request.tokenBudgets,
+          )
+            .map(
+              ([phase, budget]) =>
+                `${phase}=${budget.targetTokens}/${budget.hardLimitTokens}`,
+            )
+            .join("; ")}`,
+        ];
+
   return [
     "Run $waymark-audit from the current Waymark checkout with these inputs:",
     "",
@@ -109,17 +170,14 @@ export function buildPreparedAuditRequest(input) {
     `- Mode: ${request.auditMode}`,
     ...(probeLine === null ? [] : [probeLine]),
     "- Participants:",
-    ...ROLES.map((role) => {
+    ...participantRoles.map((role) => {
       const participant = request.participants[role];
       return `  - ${role}: provider=${participant.provider}; model=${participant.model}; reasoning=${participant.reasoningEffort}`;
     }),
-    `- Token budgets (target/hard): ${Object.entries(request.tokenBudgets)
-      .map(
-        ([phase, budget]) =>
-          `${phase}=${budget.targetTokens}/${budget.hardLimitTokens}`,
-      )
-      .join("; ")}`,
+    ...tokenLines,
     "",
-    "Create one new run. This request authorizes the audit; preparing it did not start a run.",
+    request.auditMode === "general"
+      ? "Create one new general run with this auditor. This request authorizes the audit; preparing it did not start a run."
+      : "Create one new run. This request authorizes the audit; preparing it did not start a run.",
   ].join("\n");
 }

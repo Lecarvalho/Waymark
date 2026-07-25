@@ -71,6 +71,25 @@ function preparedInput() {
   };
 }
 
+function preparedGeneralInput() {
+  return {
+    targetRepositoryPath: "C:\\work\\target",
+    journalPath: "C:\\work\\waymark\\.waymark\\waymark.sqlite",
+    serviceUrl: "http://127.0.0.1:4318",
+    auditMode: "general",
+    task: "",
+    participants: {
+      auditor: {
+        provider: "openai",
+        model: "auditor-model",
+        reasoningEffort: "ultra",
+      },
+    },
+    tokenPolicy: "unbounded_by_waymark",
+    softUsageNoticeTokens: null,
+  };
+}
+
 test("provider capabilities discover installed adapters and model-specific reasoning", () => {
   const directory = mkdtempSync(join(tmpdir(), "waymark-capabilities-"));
   const entryPath = createFakeCodexEntry(directory);
@@ -91,10 +110,23 @@ test("provider capabilities discover installed adapters and model-specific reaso
     },
   });
 
-  assert.equal(capabilities.schemaVersion, "1.2.0");
+  assert.equal(capabilities.schemaVersion, "1.3.0");
   assert.deepEqual(
     capabilities.auditModes.map(({ id }) => id),
     ["general", "task_specific", "system_explanation"],
+  );
+  assert.deepEqual(
+    capabilities.auditModes.find(({ id }) => id === "general"),
+    {
+      id: "general",
+      label: "General repository audit",
+      taskRequired: false,
+      description: "Broad, evidence-led repository research by one auditor.",
+      probeLabel: null,
+      probePlaceholder: null,
+      participantRoles: ["auditor"],
+      tokenPolicy: "unbounded_by_waymark",
+    },
   );
   assert.deepEqual(
     capabilities.auditModes.find(({ id }) => id === "system_explanation"),
@@ -106,11 +138,19 @@ test("provider capabilities discover installed adapters and model-specific reaso
         "Measures the navigation cost of finding a supported answer about existing behavior.",
       probeLabel: "What should the agent find?",
       probePlaceholder: "How are refunds approved?",
+      participantRoles: ["candidate", "independent", "orchestrator"],
+      tokenPolicy: "hard_phase_budgets",
     },
   );
   assert.equal(capabilities.providers.length, 1);
   assert.equal(capabilities.providers[0].available, true);
   assert.equal(capabilities.providers[0].adapterId, "codex");
+  assert.deepEqual(capabilities.providers[0].roles, [
+    "auditor",
+    "candidate",
+    "independent",
+    "orchestrator",
+  ]);
   assert.deepEqual(capabilities.providers[0].models[0], {
     id: "candidate-model",
     label: "Candidate model",
@@ -302,18 +342,55 @@ test("prepared audit prompts are deterministic, concise, and preparation-only", 
   assert.ok(first.length < 1_100, `prepared prompt is ${first.length} characters`);
 });
 
-test("prepared general audits keep fixed assessment policy out of the handoff", () => {
-  const input = preparedInput();
-  input.auditMode = "general";
-  input.task = "";
-
-  const prompt = buildPreparedAuditRequest(input);
+test("prepared general audits select one auditor without benchmark budgets", () => {
+  const prompt = buildPreparedAuditRequest(preparedGeneralInput());
   assert.match(prompt, /Mode: general/);
+  assert.match(
+    prompt,
+    /auditor: provider=openai; model=auditor-model; reasoning=ultra/,
+  );
+  assert.match(prompt, /Token policy: unbounded_by_waymark/);
+  assert.match(prompt, /Token usage: measured/);
+  assert.match(prompt, /Soft usage notice: none/);
+  assert.match(prompt, /Create one new general run with this auditor/);
+  assert.doesNotMatch(prompt, /candidate:/);
+  assert.doesNotMatch(prompt, /independent:/);
+  assert.doesNotMatch(prompt, /orchestrator:/);
+  assert.doesNotMatch(prompt, /Token budgets/);
+  assert.doesNotMatch(prompt, /hard/i);
   assert.doesNotMatch(prompt, /waymark-general-navigation/);
   assert.doesNotMatch(prompt, /Orientation: locate the repository map/);
   assert.doesNotMatch(prompt, /Task:/);
   assert.doesNotMatch(prompt, /Question:/);
   assert.doesNotMatch(prompt, /Name:/);
+});
+
+test("general preparation ignores stale benchmark selections when modes switch", () => {
+  const input = {
+    ...preparedGeneralInput(),
+    participants: {
+      ...preparedInput().participants,
+      ...preparedGeneralInput().participants,
+    },
+    tokenBudgets: preparedInput().tokenBudgets,
+  };
+
+  const prompt = buildPreparedAuditRequest(input);
+  assert.match(prompt, /auditor-model/);
+  assert.doesNotMatch(
+    prompt,
+    /candidate-model|research-model|orchestrator-model/,
+  );
+  assert.doesNotMatch(prompt, /candidate_navigation|hardLimitTokens/);
+});
+
+test("general preparation retains an optional non-stopping usage notice", () => {
+  const input = preparedGeneralInput();
+  input.softUsageNoticeTokens = 80_000;
+
+  const prompt = buildPreparedAuditRequest(input);
+  assert.match(prompt, /Soft usage notice: 80000 tokens/);
+  assert.match(prompt, /Token policy: unbounded_by_waymark/);
 });
 
 test("the audit skill owns the single-auditor general contract", () => {
@@ -441,6 +518,16 @@ test("prepared audit requests reject invalid hard limits", () => {
   assert.throws(
     () => buildPreparedAuditRequest(input),
     /hardLimitTokens must be an integer at least as large as targetTokens/,
+  );
+});
+
+test("prepared general requests require their unbounded token policy", () => {
+  const input = preparedGeneralInput();
+  input.tokenPolicy = "hard_phase_budgets";
+
+  assert.throws(
+    () => buildPreparedAuditRequest(input),
+    /tokenPolicy must be unbounded_by_waymark/,
   );
 });
 

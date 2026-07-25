@@ -20,12 +20,17 @@ export interface ProviderCapability {
   label: string;
   available: boolean;
   unavailableReason: string | null;
-  roles: readonly ("candidate" | "independent" | "orchestrator")[];
+  roles: readonly (
+    | "auditor"
+    | "candidate"
+    | "independent"
+    | "orchestrator"
+  )[];
   models: readonly ProviderModelCapability[];
 }
 
 export interface ProviderCapabilities {
-  schemaVersion: "1.2.0";
+  schemaVersion: "1.3.0";
   auditModes: readonly {
     id: "general" | "task_specific" | "system_explanation";
     label: string;
@@ -33,6 +38,13 @@ export interface ProviderCapabilities {
     description: string;
     probeLabel: string | null;
     probePlaceholder: string | null;
+    participantRoles: readonly (
+      | "auditor"
+      | "candidate"
+      | "independent"
+      | "orchestrator"
+    )[];
+    tokenPolicy: "unbounded_by_waymark" | "hard_phase_budgets";
   }[];
   providers: readonly ProviderCapability[];
   tokenBudgetDefaults: AuditTokenBudgets;

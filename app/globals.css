@@ -4545,6 +4545,31 @@ code {
   font-weight: 400;
 }
 
+.general-token-policy {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 220px;
+  align-items: end;
+  gap: 4px 16px;
+  padding: 12px;
+}
+
+.general-token-policy > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  grid-column: 1 / -1;
+  color: var(--muted-bright);
+  font-size: 12px;
+}
+
+.general-token-policy > div span {
+  color: var(--muted);
+}
+
+.general-token-policy .budget-config-note {
+  padding: 0;
+}
+
 .budget-config-list {
   border-top: 1px solid var(--line);
 }
@@ -4703,7 +4728,8 @@ code {
 
   .prepare-field-grid,
   .participant-config,
-  .budget-config-row {
+  .budget-config-row,
+  .general-token-policy {
     grid-template-columns: 1fr;
   }
 
