@@ -16,7 +16,7 @@ or change service contracts.
 
 **Dependencies:** None.
 
-**Status:** Not started.
+**Status:** Complete.
 
 ### Context
 
@@ -356,5 +356,314 @@ Do not create generic modules named `utils`, `helpers`, `common`, or `manager`.
   - a non-GET request returns `405` with `read_only_service`.
 - Confirm closing the service releases the temporary SQLite database and its
   WAL/SHM files.
+
+---
+
+## NAV-03 — Replace the global stylesheet with explicit style ownership
+
+**Dependencies:** NAV-01.
+
+**Status:** Not started.
+
+### Context
+
+After NAV-01, `app/globals.css` is still approximately 6,300 lines. The problem
+is no longer only its size. It contains two overlapping styling systems:
+
+- newer unlayered rules and feature overrides in the first portion of the
+  file;
+- a roughly 3,700-line `@layer legacy` block containing the reset, shell,
+  benchmark report, history, Practice Guide, audit-preparation dialog, and
+  responsive rules.
+
+Core selectors such as `:root`, `sidebar`, `panel`, `page-content`, and
+`audit-hero` are defined in multiple places. An agent must therefore read both
+the owning React markup and a large amount of historical cascade context to
+determine the effective style for one component.
+
+Moving the same rules into arbitrarily named global files would reduce the size
+of `globals.css` without reducing that reasoning cost. This task must establish
+component ownership, remove historical duplication, and make the small
+remaining global surface enforceable.
+
+The React ownership boundary also needs clarification. `app/page.tsx` is more
+than 2,000 lines and currently owns the benchmark report, history, Practice
+Guide, application shell, and empty states. Styles cannot be made genuinely
+local while those unrelated surfaces share one presentation owner.
+
+### Goal
+
+Turn `app/globals.css` into a small import manifest for documented global
+foundations. Move product-surface styles into CSS Modules colocated with focused
+React owners, and remove the legacy cascade after its effective behavior has
+been preserved.
+
+An agent changing the audit-preparation dialog, general audit, benchmark
+report, history, Practice Guide, or shell should need to inspect only:
+
+1. the owning component;
+2. its CSS Module;
+3. the short style ownership map;
+4. a shared primitive file only when the component intentionally consumes a
+   documented global primitive.
+
+Token efficiency comes from this bounded ownership path, not from minimizing
+the aggregate number of CSS files.
+
+### Target ownership map
+
+Use these boundaries unless implementation evidence supports a similarly
+explicit alternative:
+
+```text
+app/
+  globals.css
+  styles/
+    tokens.css
+    base.css
+    primitives.css
+    STYLE_MAP.md
+  shell.tsx
+  shell.module.css
+  benchmark-audit-view.tsx
+  benchmark-audit-view.module.css
+  history-view.tsx
+  history-view.module.css
+  practice-guide-view.tsx
+  practice-guide-view.module.css
+  general-audit-view.tsx
+  general-audit-view.module.css
+  general-audit-graphics.tsx
+  general-audit-graphics.module.css
+  general-audit-investigation-graphics.tsx
+  general-audit-investigation-graphics.module.css
+  prepare-audit-dialog.tsx
+  prepare-audit-dialog.module.css
+```
+
+Responsibilities:
+
+- `globals.css`
+  - ordered imports only, plus a short ownership comment if useful;
+  - no product-feature selectors.
+- `styles/tokens.css`
+  - the single canonical `:root` declaration for colors, typography, spacing,
+    and other shared custom properties.
+- `styles/base.css`
+  - box sizing, document/body defaults, native control inheritance, and global
+    focus-visible behavior.
+- `styles/primitives.css`
+  - the small allowlisted set of genuinely shared global classes;
+  - each primitive must have at least three independent component consumers or
+    a documented accessibility/layout reason to remain global.
+- component CSS Modules
+  - all feature layout, states, variants, tables, dialogs, and responsive rules
+    owned by that component.
+- focused React view components
+  - presentation ownership for the shell, benchmark audit, history, and
+    Practice Guide currently embedded in `app/page.tsx`;
+  - receive data and callbacks from the existing page coordinator without
+    taking over service reads or product logic.
+
+Prefer smaller named subcomponents and modules when one of these owners would
+otherwise remain substantially above roughly 500–600 stylesheet lines. Do not
+create generic style files named `dashboard`, `common`, `misc`, `overrides`, or
+`legacy`.
+
+### Required changes
+
+1. Lock the current rendered behavior before changing cascade ownership:
+   - retain the existing rendered HTML and interaction tests;
+   - identify representative complete, active, partial, failed, empty, and
+     unavailable-data states;
+   - record desktop and approximately `390px` visual references for the
+     benchmark report, general audit, history, Practice Guide, request dialog,
+     and shell;
+   - identify current horizontal-scroll owners and document-width behavior.
+2. Add a temporary selector ownership inventory:
+   - map feature selector prefixes and unprefixed selectors to their React
+     consumers;
+   - identify selectors with no consumer, selectors used by multiple owners,
+     dynamically constructed state classes, and selectors repeated across the
+     unlayered and legacy sections;
+   - treat dynamic selectors as used only when their construction is explicit
+     in source or an ownership note.
+3. Establish the global foundation:
+   - create `tokens.css`, `base.css`, and `primitives.css`;
+   - collapse duplicate `:root` declarations into one canonical token set;
+   - move only reset, document, native-control, focus, and documented shared
+     primitive rules into these files;
+   - make `globals.css` an ordered import manifest.
+4. Extract feature styles by React owner, not by their current position in the
+   stylesheet:
+   - move the complete audit-preparation dialog surface;
+   - move the remaining general-audit view and summary-graphics surfaces;
+   - extract benchmark audit, history, Practice Guide, and shell presentation
+     owners from `app/page.tsx`, then colocate their styles;
+   - keep each feature's responsive and reduced-motion behavior in the owning
+     module;
+   - keep the completed NAV-01 investigation module scoped and update only its
+     documented shared imports if the primitive locations change.
+5. Preserve and then remove the historical cascade deliberately:
+   - while a feature still depends on legacy precedence, retain equivalent
+     `@layer legacy` placement inside its module;
+   - move its unlayered overrides with the same owner;
+   - after visual and computed-style equivalence is established, collapse
+     duplicate declarations into one canonical scoped rule;
+   - remove both the legacy and override copies from `globals.css`;
+   - delete the `@layer legacy` declaration after its final consumer is
+     migrated.
+6. Replace global state-class construction with semantic attributes:
+   - use `aria-selected`, `aria-expanded`, `open`, `disabled`, and other native
+     attributes when they already express the state;
+   - use stable `data-state`, `data-status`, `data-availability`, or similarly
+     specific attributes for product states without a native equivalent;
+   - do not retain generic global `active`, `status-*`, `priority-*`, or `is-*`
+     classes solely for styling.
+7. Extend `app/styles/STYLE_MAP.md`:
+   - map every component owner to its module;
+   - list the shared global files and every allowed global class;
+   - document responsive breakpoints and state attributes per owner;
+   - document any intentional cross-owner dependency and why it is not a
+     primitive or component prop.
+8. Add an ownership regression test, preferably
+   `tests/style-ownership.test.mjs`:
+   - fail when `globals.css` gains product selectors or non-import rules;
+   - fail when shared CSS contains a class outside the documented allowlist;
+   - fail when `@layer legacy` is reintroduced;
+   - keep the test implementation dependency-free and understandable from its
+     failure message.
+9. Remove the temporary ownership inventory after its durable information is
+   represented in `STYLE_MAP.md` and the regression test.
+
+### Migration sequence
+
+Use this order to keep each extraction independently verifiable:
+
+1. audit-preparation dialog;
+2. general-audit summary graphics;
+3. remaining general-audit view;
+4. history view;
+5. Practice Guide;
+6. benchmark audit sections, splitting token, evidence, recommendation, or
+   participant presentation further when ownership remains unclear;
+7. shell, navigation, top bar, and empty state;
+8. global foundation consolidation and final legacy-layer removal.
+
+Do not wait until the end to verify. Build, inspect, and remove duplicate
+fallback selectors after each owner is migrated.
+
+### Migration constraints
+
+- Preserve the current visual design, responsive behavior, visible text,
+  keyboard behavior, and interface state transitions.
+- Preserve the current React data flow. Presentation extraction must not move
+  service reads, scoring, projection, provider capability discovery, or audit
+  mutations into view components.
+- Preserve the signal-color meanings defined in `DESIGN.md`.
+- Preserve the observer-only dashboard and preparation-only request dialog.
+- Preserve CSS cascade behavior during extraction. Do not rely on a module's
+  eventual bundle order to reproduce an undocumented global override.
+- Keep shared custom properties global; do not duplicate token values across
+  modules.
+- Keep feature breakpoints beside their owner. Only document-wide responsive
+  behavior may remain in `base.css`.
+- Keep wide tables and maps responsible for their own horizontal scrolling.
+  The document must not gain horizontal overflow.
+- Do not introduce `!important`, CSS-in-JS, Sass, a utility-class migration, a
+  styling library, or a new CSS-processing dependency.
+- Do not minify source or compress multiple declarations onto one line to meet
+  a line-count target.
+- Do not create class-name composition dependencies between CSS Modules.
+- Avoid one-class files and excessive fragmentation. A module should represent
+  a coherent component surface.
+- Preserve unrelated user changes in the existing dirty worktree.
+
+### Likely files
+
+- `app/globals.css`
+- `app/page.tsx`
+- `app/styles/STYLE_MAP.md`
+- New `app/styles/tokens.css`
+- New `app/styles/base.css`
+- New `app/styles/primitives.css`
+- `app/prepare-audit-dialog.tsx`
+- New `app/prepare-audit-dialog.module.css`
+- `app/general-audit-view.tsx`
+- New `app/general-audit-view.module.css`
+- `app/general-audit-graphics.tsx`
+- New `app/general-audit-graphics.module.css`
+- Existing investigation component and module
+- New focused view components and modules for the shell, benchmark audit,
+  history, and Practice Guide
+- New `tests/style-ownership.test.mjs`
+- Existing rendered HTML and UI tests where ownership assertions belong
+
+### Non-goals
+
+- Do not redesign or restyle the interface.
+- Do not change audit report, service, persistence, CLI, scoring, or provider
+  contracts.
+- Do not change which information is visible in any report state.
+- Do not replace Tailwind, introduce a design-system package, or convert the
+  product to a utility-first styling approach.
+- Do not rename user-facing labels.
+- Do not make every repeated declaration a global primitive. Similar-looking
+  feature elements may remain independently owned when their behavior differs.
+- Do not optimize for the fewest possible files or the fewest possible source
+  lines. Optimize for the smallest reliable context an agent must inspect for
+  one change.
+
+### Acceptance criteria
+
+- `app/globals.css` is an import-only manifest with no product-feature
+  selectors.
+- Tokens have one canonical definition, and `@layer legacy` no longer exists.
+- Every feature selector is scoped through an owning CSS Module.
+- Every remaining global class is explicitly allowlisted and documented in
+  `STYLE_MAP.md`.
+- `app/page.tsx` is a composition and state-coordination owner rather than the
+  markup owner for benchmark audit, history, Practice Guide, and shell
+  presentation.
+- An unfamiliar agent can locate the stylesheet, states, breakpoints, and
+  shared dependencies for any major interface surface from `STYLE_MAP.md`
+  without searching all CSS files.
+- No owner module exceeds roughly 600 lines without a documented reason and a
+  clear internal section map.
+- No migrated selector has a duplicate fallback in shared or global CSS.
+- The ownership regression test prevents feature rules or a legacy override
+  layer from accumulating in `globals.css`.
+- Desktop and narrow rendering match the current interface for complete,
+  active, partial, failed, empty, incompatible-history, unavailable-token, and
+  preparation-dialog states.
+- All interactive controls retain their accessible names, native semantics,
+  focus visibility, and keyboard behavior.
+- At approximately `390px`, `document.body.scrollWidth` does not exceed the
+  viewport; tabs, tables, matrices, and maps scroll only within their intended
+  containers.
+
+### Verification
+
+- Run `npm run build` after each owner migration.
+- Run `npm test`.
+- Run `npm run lint`.
+- Run the focused style-ownership and rendered HTML tests.
+- Confirm `rg "@layer legacy|\\.active|\\.is-|\\.status-" app/globals.css
+  app/styles` returns only documented semantic exceptions, ideally none.
+- Confirm no product prefix documented in `STYLE_MAP.md` remains in
+  `globals.css`, `tokens.css`, `base.css`, or outside its owning module.
+- Visually inspect at desktop width:
+  - active and completed benchmark reports;
+  - general-audit progress, evidence, recommendation, summary-graphics, and
+    investigation tabs;
+  - history;
+  - Practice Guide;
+  - empty and failed states;
+  - the complete audit-preparation dialog flow.
+- Visually inspect the same owners at approximately `390px`, including all
+  intentional horizontal-scroll containers.
+- Confirm browser diagnostics contain no new errors or warnings.
+- Confirm the production CSS contains the expected module rules once, without
+  legacy fallback copies.
 
 ---

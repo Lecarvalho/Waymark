@@ -5,6 +5,7 @@ import { useState } from "react";
 import type { GeneralEvidenceCitation } from "../src/domain/general-audit.mjs";
 import type { WaymarkDimensionId } from "../src/domain/general-audit.mjs";
 import type { GeneralAuditServiceSnapshot } from "./use-waymark-live";
+import styles from "./general-audit-investigation-graphics.module.css";
 
 type InvestigationGraphic =
   | "paths"
@@ -73,7 +74,7 @@ function CitationList({
   }
 
   return (
-    <ul className="investigation-citation-list">
+    <ul className={styles["investigation-citation-list"]}>
       {citations.map((citation, index) => (
         <li
           key={`${citation.path}-${citation.startLine}-${citation.endLine}-${index}`}
@@ -115,7 +116,7 @@ function BehaviorPathGraphic({
 
   return (
     <section aria-labelledby="behavior-path-graphic-title">
-      <div className="investigation-graphic-heading">
+      <div className={styles["investigation-graphic-heading"]}>
         <div>
           <h3 id="behavior-path-graphic-title">Focused behavior navigation map</h3>
           <p>
@@ -140,14 +141,14 @@ function BehaviorPathGraphic({
         ) : null}
       </div>
 
-      <div className="behavior-path-context">
+      <div className={styles["behavior-path-context"]}>
         <strong>{selectedPath.name}</strong>
         <span>Observed {formatDate(selectedPath.observedAt)}</span>
       </div>
-      <div className="behavior-path-scroll">
+      <div className={styles["behavior-path-scroll"]}>
         <ol
           aria-label={`Navigation path for ${selectedPath.name}`}
-          className="behavior-path-map"
+          className={styles["behavior-path-map"]}
         >
           {selectedPath.groups.map((group, groupIndex) => {
             const edge =
@@ -156,7 +157,8 @@ function BehaviorPathGraphic({
               <li key={group.kind}>
                 {edge ? (
                   <details
-                    className={`behavior-path-edge state-${edge.evidenceState}`}
+                    className={styles["behavior-path-edge"]}
+                    data-state={edge.evidenceState}
                   >
                     <summary>
                       <span aria-hidden="true">→</span>
@@ -167,11 +169,12 @@ function BehaviorPathGraphic({
                     <CitationList citations={edge.citations} />
                   </details>
                 ) : null}
-                <div className="behavior-path-group">
+                <div className={styles["behavior-path-group"]}>
                   <h4>{group.label}</h4>
                   {group.nodes.map((node) => (
                     <details
-                      className={`behavior-path-node state-${node.evidenceState}`}
+                      className={styles["behavior-path-node"]}
+                      data-state={node.evidenceState}
                       key={node.nodeId}
                     >
                       <summary>
@@ -188,9 +191,12 @@ function BehaviorPathGraphic({
           })}
         </ol>
       </div>
-      <div className="investigation-legend" aria-label="Path state legend">
+      <div
+        className={styles["investigation-legend"]}
+        aria-label="Path state legend"
+      >
         {Object.entries(pathStateLabels).map(([state, label]) => (
-          <span className={`state-${state}`} key={state}>
+          <span data-state={state} key={state}>
             {label}
           </span>
         ))}
@@ -212,7 +218,7 @@ function DiscoveryJourneyGraphic({
 
   return (
     <section aria-labelledby="discovery-journey-title">
-      <div className="investigation-graphic-heading">
+      <div className={styles["investigation-graphic-heading"]}>
         <div>
           <h3 id="discovery-journey-title">Measured discovery journeys</h3>
           <p>
@@ -221,10 +227,10 @@ function DiscoveryJourneyGraphic({
           </p>
         </div>
       </div>
-      <div className="discovery-journey-list">
+      <div className={styles["discovery-journey-list"]}>
         {report.discoveryJourneys.map((journey) => (
           <details
-            className={journey.locatedLate ? "is-located-late" : undefined}
+            data-state={journey.locatedLate ? "located_late" : undefined}
             key={journey.findingId}
             open={journey.locatedLate || undefined}
           >
@@ -239,10 +245,10 @@ function DiscoveryJourneyGraphic({
                   : "Cost measurement unavailable"}
               </span>
             </summary>
-            <ol className="discovery-journey-steps">
+            <ol className={styles["discovery-journey-steps"]}>
               {journey.steps.map((step, index) => (
                 <li
-                  className={`availability-${step.availability}`}
+                  data-availability={step.availability}
                   key={step.kind}
                 >
                   <span aria-hidden="true">
@@ -256,12 +262,12 @@ function DiscoveryJourneyGraphic({
               ))}
             </ol>
             {journey.amendmentReason ? (
-              <p className="journey-amendment">
+              <p className={styles["journey-amendment"]}>
                 <strong>Why the interpretation changed:</strong>{" "}
                 {journey.amendmentReason}
               </p>
             ) : null}
-            <dl className="journey-measurements">
+            <dl className={styles["journey-measurements"]}>
               <div>
                 <dt>File hops</dt>
                 <dd>
@@ -292,7 +298,7 @@ function DiscoveryJourneyGraphic({
                 </dd>
               </div>
             </dl>
-            <div className="journey-located-evidence">
+            <div className={styles["journey-located-evidence"]}>
               <h4>Evidence at the located target</h4>
               <CitationList citations={journey.locatedByCitations} />
             </div>
@@ -322,7 +328,7 @@ function FindingEvolutionGraphic({
 
   return (
     <section aria-labelledby="finding-evolution-title">
-      <div className="investigation-graphic-heading">
+      <div className={styles["investigation-graphic-heading"]}>
         <div>
           <h3 id="finding-evolution-title">Finding evolution timeline</h3>
           <p>
@@ -331,7 +337,7 @@ function FindingEvolutionGraphic({
           </p>
         </div>
       </div>
-      <div className="finding-evolution-list">
+      <div className={styles["finding-evolution-list"]}>
         {displayedFindings.map((finding) => (
           <details
             key={finding.findingId}
@@ -349,21 +355,23 @@ function FindingEvolutionGraphic({
                 Current: {findingStateLabels[finding.currentRevision.state]}
               </span>
             </summary>
-            <ol className="finding-evolution-timeline">
+            <ol className={styles["finding-evolution-timeline"]}>
               {finding.revisions.map((revision, index) => (
                 <li
-                  className={`state-${revision.state} ${
-                    index === finding.revisions.length - 1
-                      ? "is-current"
-                      : ""
-                  }`}
+                  data-current={
+                    index === finding.revisions.length - 1 || undefined
+                  }
+                  data-state={revision.state}
                   key={revision.revisionId}
                 >
-                  <div className="evolution-marker" aria-hidden="true">
+                  <div
+                    className={styles["evolution-marker"]}
+                    aria-hidden="true"
+                  >
                     {revision.revisionNumber}
                   </div>
                   <div>
-                    <div className="evolution-heading">
+                    <div className={styles["evolution-heading"]}>
                       <strong>
                         {findingStateLabels[revision.state]}
                         {index === finding.revisions.length - 1
@@ -374,12 +382,12 @@ function FindingEvolutionGraphic({
                     </div>
                     <p>{revision.conclusion}</p>
                     {revision.provenance.amendmentReason ? (
-                      <p className="evolution-reason">
+                      <p className={styles["evolution-reason"]}>
                         <strong>Reason:</strong>{" "}
                         {revision.provenance.amendmentReason}
                       </p>
                     ) : null}
-                    <details className="evolution-evidence">
+                    <details className={styles["evolution-evidence"]}>
                       <summary>
                         Evidence causing this interpretation ·{" "}
                         {
@@ -419,7 +427,7 @@ function RecommendationPriorityGraphic({
 
   return (
     <section aria-labelledby="recommendation-priority-title">
-      <div className="investigation-graphic-heading">
+      <div className={styles["investigation-graphic-heading"]}>
         <div>
           <h3 id="recommendation-priority-title">
             Recommendation impact / effort
@@ -430,8 +438,8 @@ function RecommendationPriorityGraphic({
           </p>
         </div>
       </div>
-      <div className="recommendation-priority-scroll">
-        <table className="recommendation-priority-table">
+      <div className={styles["recommendation-priority-scroll"]}>
+        <table className={styles["recommendation-priority-table"]}>
           <caption>
             Evidence-linked recommendation scope compared with recorded
             implementation effort
@@ -510,7 +518,7 @@ function HistoricalTrendGraphic({
 
   return (
     <section aria-labelledby="dimension-trend-title">
-      <div className="investigation-graphic-heading">
+      <div className={styles["investigation-graphic-heading"]}>
         <div>
           <h3 id="dimension-trend-title">Compatible dimension history</h3>
           <p>
@@ -537,11 +545,11 @@ function HistoricalTrendGraphic({
           </select>
         </label>
       </div>
-      <div className="dimension-trend-chart">
+      <div className={styles["dimension-trend-chart"]}>
         <ol aria-label={`${dimensionLabels[dimensionId]} audit history`}>
           {points.map(({ run, dimension }) => (
-            <li className={run.partial ? "is-partial" : ""} key={run.runId}>
-              <div className="trend-run-meta">
+            <li data-partial={run.partial || undefined} key={run.runId}>
+              <div className={styles["trend-run-meta"]}>
                 <time>{formatDate(run.auditedAt)}</time>
                 <code>{run.commitSha.slice(0, 12)}</code>
                 <span>
@@ -555,7 +563,7 @@ function HistoricalTrendGraphic({
                     ? `${dimensionLabels[dimensionId]} was not assessed`
                     : `${dimensionLabels[dimensionId]} scored ${dimension.score} out of 100`
                 }
-                className="trend-score"
+                className={styles["trend-score"]}
                 role="img"
               >
                 {dimension?.score !== null &&
@@ -571,7 +579,7 @@ function HistoricalTrendGraphic({
                   ? "Not assessed"
                   : `${dimension.score}/100`}
               </strong>
-              <span className="trend-coverage">
+              <span className={styles["trend-coverage"]}>
                 {dimension?.evidenceCoverage.distinctCitationCount ?? 0} cited{" "}
                 {(dimension?.evidenceCoverage.distinctCitationCount ?? 0) === 1
                   ? "source"
@@ -583,7 +591,7 @@ function HistoricalTrendGraphic({
         </ol>
       </div>
       {report.history.excluded.length > 0 ? (
-        <details className="incompatible-history">
+        <details className={styles["incompatible-history"]}>
           <summary>
             {report.history.excluded.length} incompatible{" "}
             {report.history.excluded.length === 1 ? "run" : "runs"} excluded
@@ -611,7 +619,7 @@ export function GeneralAuditInvestigationGraphics({
   return (
     <section
       aria-labelledby="investigation-graphics-title"
-      className="panel investigation-graphics-panel"
+      className={`panel ${styles["investigation-graphics-panel"]}`}
     >
       <div className="panel-heading">
         <div>
@@ -624,7 +632,7 @@ export function GeneralAuditInvestigationGraphics({
       </div>
       <div
         aria-label="Investigation graphic"
-        className="investigation-graphic-tabs"
+        className={styles["investigation-graphic-tabs"]}
         role="tablist"
       >
         {(Object.keys(graphicLabels) as InvestigationGraphic[]).map(
@@ -632,7 +640,6 @@ export function GeneralAuditInvestigationGraphics({
             <button
               aria-controls={`investigation-${item}-panel`}
               aria-selected={graphic === item}
-              className={graphic === item ? "is-active" : ""}
               id={`investigation-${item}-tab`}
               key={item}
               onClick={() => setGraphic(item)}
@@ -646,7 +653,7 @@ export function GeneralAuditInvestigationGraphics({
       </div>
       <div
         aria-labelledby={`investigation-${graphic}-tab`}
-        className="investigation-graphic-body"
+        className={styles["investigation-graphic-body"]}
         id={`investigation-${graphic}-panel`}
         role="tabpanel"
       >
