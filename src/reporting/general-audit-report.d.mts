@@ -6,6 +6,8 @@ import type {
   DimensionEvidenceCoverage,
   GeneralAuditReadModel,
   GeneralAuditStatus,
+  GeneralEvidenceCitation,
+  GeneralEvidenceSource,
   GeneralFindingLedgerEntry,
   GeneralRecommendation,
   GeneralSurfaceInspection,
@@ -29,6 +31,14 @@ export interface GeneralReportDimension {
   limitations: readonly string[];
 }
 
+export interface GeneralEvidenceMatrixCell {
+  source: GeneralEvidenceSource;
+  status: "not_inspected" | "inspected_no_finding" | "cited";
+  citedEvidenceCount: number;
+  findingIds: readonly string[];
+  citations: readonly GeneralEvidenceCitation[];
+}
+
 export interface GeneralAuditReport {
   schemaVersion: typeof GENERAL_REPORT_SCHEMA_VERSION;
   mode: "general";
@@ -47,6 +57,10 @@ export interface GeneralAuditReport {
   behaviorPaths: readonly RepresentativeBehaviorPath[];
   surfaces: readonly GeneralSurfaceInspection[];
   evidenceCoverage: GeneralAuditReadModel["evidenceCoverage"];
+  evidenceMatrix: Record<
+    WaymarkDimensionId,
+    Record<GeneralEvidenceSource, GeneralEvidenceMatrixCell>
+  >;
   dimensions: readonly GeneralReportDimension[];
   recommendations: readonly GeneralRecommendation[];
   tokens: {

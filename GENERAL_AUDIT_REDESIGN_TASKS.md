@@ -899,6 +899,8 @@ results while retaining the existing benchmark interface for other modes.
 
 **Dependencies:** GA-08 and GA-09.
 
+**Status:** Completed.
+
 ### Context
 
 The most important general-report graphics are not decorative charts. They must

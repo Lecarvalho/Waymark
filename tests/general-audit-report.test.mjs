@@ -190,6 +190,18 @@ test("a complete all-positive ledger produces a fixed auditor-assessed result", 
   assert.equal(report.tokens.hardLimitTokens, null);
   assert.equal(report.tokens.tokenEfficiencyScore, null);
   assert.equal(report.findings.length, 6);
+  assert.equal(
+    report.evidenceMatrix.discoveryEfficiency.workflow.status,
+    "cited",
+  );
+  assert.equal(
+    report.evidenceMatrix.discoveryEfficiency.workflow.citedEvidenceCount,
+    1,
+  );
+  assert.equal(
+    report.evidenceMatrix.discoveryEfficiency.production_code.status,
+    "not_inspected",
+  );
 });
 
 test("four assessed dimensions retain exact weight and never produce an overall result", () => {
@@ -209,10 +221,15 @@ test("four assessed dimensions retain exact weight and never produce an overall 
 });
 
 test("documentation-only code evidence stays not assessed in the report", () => {
-  const occurredAt = "2026-07-25T16:02:00.000Z";
+  const occurredAt = "2026-07-25T16:03:00.000Z";
   const report = reportFrom([
     started(),
-    event(2, "general.finding.recorded", {
+    event(2, "general.surface.inspected", {
+      surface: "production_code",
+      summary: "Inspected source without locating ownership evidence.",
+      citations: [],
+    }),
+    event(3, "general.finding.recorded", {
       revision: findingRevision({
         findingId: "documented-owner",
         dimensionId: "ownershipClarity",
@@ -221,7 +238,7 @@ test("documentation-only code evidence stays not assessed in the report", () => 
         occurredAt,
       }),
     }),
-    event(3, "general.dimension.progress", {
+    event(4, "general.dimension.progress", {
       dimensionId: "ownershipClarity",
       confidence: 0.6,
       supportingPositiveFindingIds: ["documented-owner"],
@@ -237,6 +254,18 @@ test("documentation-only code evidence stays not assessed in the report", () => 
   assert.equal(ownership.score, null);
   assert.equal(ownership.evidenceCoverage.requirementSatisfied, false);
   assert.equal(report.result, null);
+  assert.equal(
+    report.evidenceMatrix.ownershipClarity.documentation.status,
+    "cited",
+  );
+  assert.equal(
+    report.evidenceMatrix.ownershipClarity.production_code.status,
+    "inspected_no_finding",
+  );
+  assert.equal(
+    report.evidenceMatrix.ownershipClarity.test.status,
+    "not_inspected",
+  );
 });
 
 test("mixed assessments require cited friction while strong positive assessments do not", () => {

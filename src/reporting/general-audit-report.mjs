@@ -13,6 +13,26 @@ const TOKEN_SOURCES = [
   "measured",
   "estimated",
 ];
+const EVIDENCE_SOURCES = [
+  "production_code",
+  "test",
+  "configuration",
+  "workflow",
+  "documentation",
+  "instruction",
+  "generated",
+  "external",
+];
+const SOURCE_SURFACES = {
+  production_code: ["production_code"],
+  test: ["tests"],
+  configuration: ["configuration"],
+  workflow: ["workflows"],
+  documentation: ["documentation"],
+  instruction: ["instructions"],
+  generated: ["generated_external"],
+  external: ["generated_external"],
+};
 
 function unique(values) {
   return [...new Set(values)];
@@ -33,6 +53,78 @@ function currentFindingIsSupported(entry) {
     entry !== undefined &&
     !INACTIVE_FINDING_STATES.has(entry.currentRevision.state) &&
     entry.currentRevision.citations.length > 0
+  );
+}
+
+function citationKey(citation) {
+  return [
+    citation.path,
+    citation.startLine,
+    citation.endLine,
+    citation.symbol ?? "",
+    citation.source,
+  ].join("\u0000");
+}
+
+function assembleEvidenceMatrix(ledger) {
+  const inspectedSurfaces = new Set(
+    ledger.surfaces.map(({ surface }) => surface),
+  );
+
+  return Object.fromEntries(
+    WAYMARK_DIMENSION_IDS.map((dimensionId) => {
+      const revisions = ledger.findingOrder
+        .map((findingId) => ledger.findings[findingId])
+        .filter((entry) => currentFindingIsSupported(entry))
+        .map((entry) => entry.currentRevision)
+        .filter((revision) => revision.dimensionIds.includes(dimensionId));
+
+      const bySource = Object.fromEntries(
+        EVIDENCE_SOURCES.map((source) => {
+          const findingIds = [];
+          const citations = [];
+          const seenCitations = new Set();
+
+          for (const revision of revisions) {
+            const matchingCitations = revision.citations.filter(
+              (citation) => citation.source === source,
+            );
+            if (matchingCitations.length > 0) {
+              findingIds.push(revision.findingId);
+            }
+            for (const citation of matchingCitations) {
+              const key = citationKey(citation);
+              if (!seenCitations.has(key)) {
+                seenCitations.add(key);
+                citations.push(citation);
+              }
+            }
+          }
+
+          const inspected = SOURCE_SURFACES[source].some((surface) =>
+            inspectedSurfaces.has(surface),
+          );
+
+          return [
+            source,
+            {
+              source,
+              status:
+                citations.length > 0
+                  ? "cited"
+                  : inspected
+                    ? "inspected_no_finding"
+                    : "not_inspected",
+              citedEvidenceCount: citations.length,
+              findingIds: unique(findingIds),
+              citations,
+            },
+          ];
+        }),
+      );
+
+      return [dimensionId, bySource];
+    }),
   );
 }
 
@@ -242,6 +334,7 @@ export function assembleGeneralAuditReport({ run, ledger, tokens }) {
     behaviorPaths,
     surfaces: ledger.surfaces,
     evidenceCoverage: ledger.evidenceCoverage,
+    evidenceMatrix: assembleEvidenceMatrix(ledger),
     dimensions,
     recommendations,
     tokens: assembleTokens(tokens),

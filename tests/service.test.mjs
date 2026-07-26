@@ -910,6 +910,15 @@ test("general snapshots expose partial evidence and reconstruct identically afte
       .production_code,
     1,
   );
+  assert.equal(
+    firstSnapshot.generalAudit.evidenceMatrix.ownershipClarity.production_code
+      .status,
+    "cited",
+  );
+  assert.equal(
+    firstSnapshot.generalAudit.evidenceMatrix.ownershipClarity.test.status,
+    "not_inspected",
+  );
   assert.equal(firstSnapshot.generalAudit.completeness.assessedWeight, 0);
   assert.equal(firstSnapshot.generalAudit.result, null);
   assert.equal(firstSnapshot.generalAudit.reportComplete, false);

@@ -3,21 +3,13 @@
 import { useState } from "react";
 
 import type { WaymarkRunSnapshot } from "./use-waymark-live";
+import { GeneralAuditGraphics } from "./general-audit-graphics";
 
 type GeneralAuditViewProps = {
   snapshot: WaymarkRunSnapshot;
 };
 
 type GeneralTab = "progress" | "evidence" | "recommendations";
-
-const dimensionLabels = {
-  discoveryEfficiency: "Discovery efficiency",
-  ownershipClarity: "Ownership clarity",
-  dependencyClarity: "Dependency clarity",
-  changeSurfaceRecall: "Change-surface recall",
-  verificationDiscoverability: "Verification discoverability",
-  instructionQuality: "Instruction quality",
-} as const;
 
 const findingStateLabels = {
   provisional: "Provisional",
@@ -354,46 +346,7 @@ export function GeneralAuditView({ snapshot }: GeneralAuditViewProps) {
             </article>
           </section>
 
-          <section className="panel general-dimension-panel">
-            <div className="panel-heading">
-              <div>
-                <span className="section-kicker">Weighted assessment</span>
-                <h2>Dimension coverage</h2>
-              </div>
-              <span className="muted-action">
-                {report.completeness.assessedWeight}% assessed weight
-              </span>
-            </div>
-            <div className="general-dimension-list">
-              {report.dimensions.map((dimension) => (
-                <div
-                  className={`status-${dimension.assessmentState}`}
-                  key={dimension.dimensionId}
-                >
-                  <div>
-                    <strong>{dimensionLabels[dimension.dimensionId]}</strong>
-                    <small>{dimension.weight}% fixed weight</small>
-                  </div>
-                  <span>{dimension.assessmentState.replace("_", " ")}</span>
-                  <strong>
-                    {dimension.score === null ? "—" : `${dimension.score}/100`}
-                  </strong>
-                  <div aria-hidden="true">
-                    <i
-                      style={{
-                        width:
-                          dimension.assessmentState === "assessed"
-                            ? "100%"
-                            : dimension.assessmentState === "in_progress"
-                              ? "50%"
-                              : "0%",
-                      }}
-                    />
-                  </div>
-                </div>
-              ))}
-            </div>
-          </section>
+          <GeneralAuditGraphics report={report} />
         </div>
       ) : null}
 
