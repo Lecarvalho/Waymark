@@ -326,7 +326,31 @@ test("located-late timelines remain evidence and unsupported recommendations are
     started(),
     event(2, "general.finding.recorded", { revision: initial }),
     event(3, "general.finding.revised", { revision: locatedLate }),
-    event(4, "general.dimension.assessed", {
+    event(4, "general.behavior_path.recorded", {
+      pathId: "late-owner-path",
+      name: "Locate the payment owner",
+      entryPoint: {
+        status: "known",
+        label: "Payment route",
+        citations: [citation()],
+      },
+      owner: {
+        status: "known",
+        label: "PaymentOwner",
+        citations: [citation()],
+      },
+      dependencies: [
+        {
+          status: "unknown",
+          label: "Provider boundary",
+          reason: "The boundary was not inspected.",
+          citations: [],
+        },
+      ],
+      consumers: [],
+      tests: [],
+    }),
+    event(5, "general.dimension.assessed", {
       dimensionId: "ownershipClarity",
       score: 65,
       confidence: 0.75,
@@ -334,7 +358,7 @@ test("located-late timelines remain evidence and unsupported recommendations are
       supportingFrictionFindingIds: ["late-owner"],
       limitations: ["Ownership was discoverable only through a consumer trace."],
     }),
-    event(5, "general.recommendation.recorded", {
+    event(6, "general.recommendation.recorded", {
       recommendationId: "name-owner",
       title: "Expose the payment owner",
       rationale: "Reduce repeated ownership searches.",
@@ -348,6 +372,51 @@ test("located-late timelines remain evidence and unsupported recommendations are
   assert.equal(report.findings[0].currentRevision.state, "located_late");
   assert.equal(report.findings[0].navigationCostHistory.length, 1);
   assert.equal(report.recommendations.length, 1);
+  assert.equal(report.discoveryJourneys.length, 1);
+  assert.equal(report.discoveryJourneys[0].locatedLate, true);
+  assert.deepEqual(
+    report.discoveryJourneys[0].steps.map(
+      ({ kind, valueLabel, availability }) => ({
+        kind,
+        valueLabel,
+        availability,
+      }),
+    ),
+    [
+      { kind: "searches", valueLabel: "3 searches", availability: "measured" },
+      { kind: "files_opened", valueLabel: "4 files", availability: "measured" },
+      { kind: "dead_ends", valueLabel: "1 dead end", availability: "measured" },
+      {
+        kind: "target_located",
+        valueLabel: revisedAt,
+        availability: "recorded",
+      },
+    ],
+  );
+  assert.equal(
+    report.behaviorPathViews[0].groups[0].nodes[0].evidenceState,
+    "difficult_to_discover",
+  );
+  assert.equal(
+    report.behaviorPathViews[0].groups[2].nodes[0].evidenceState,
+    "pending",
+  );
+  assert.equal(
+    report.behaviorPathViews[0].groups[3].nodes[0].status,
+    "uninspected",
+  );
+  assert.equal(
+    report.recommendationPriorities[0].impact.affectedWeight,
+    17,
+  );
+  assert.equal(
+    report.recommendationPriorities[0].impact.projectedScoreGain,
+    null,
+  );
+  assert.equal(
+    report.recommendationPriorities[0].effort.status,
+    "unavailable",
+  );
   assert.equal(report.completeness.synthesisComplete, false);
   assert.match(report.limitations.at(-1), /synthesis has not been recorded/);
 });

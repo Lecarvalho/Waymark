@@ -8,6 +8,7 @@ import type {
   GeneralAuditStatus,
   GeneralEvidenceCitation,
   GeneralEvidenceSource,
+  GeneralFindingState,
   GeneralFindingLedgerEntry,
   GeneralRecommendation,
   GeneralSurfaceInspection,
@@ -39,6 +40,79 @@ export interface GeneralEvidenceMatrixCell {
   citations: readonly GeneralEvidenceCitation[];
 }
 
+export type GeneralPathEvidenceState =
+  | "verified_current"
+  | "difficult_to_discover"
+  | "pending"
+  | "contradicted";
+
+export interface GeneralBehaviorPathNodeView {
+  nodeId: string;
+  kind: "entry_point" | "owner" | "dependency" | "consumer" | "test";
+  status: "known" | "unknown" | "uninspected";
+  evidenceState: GeneralPathEvidenceState;
+  label: string;
+  reason: string | null;
+  citations: readonly GeneralEvidenceCitation[];
+}
+
+export interface GeneralBehaviorPathView {
+  pathId: string;
+  name: string;
+  observedAt: string;
+  groups: readonly {
+    kind: GeneralBehaviorPathNodeView["kind"];
+    label: string;
+    nodes: readonly GeneralBehaviorPathNodeView[];
+  }[];
+  edges: readonly {
+    edgeId: string;
+    fromKind: GeneralBehaviorPathNodeView["kind"];
+    toKind: GeneralBehaviorPathNodeView["kind"];
+    evidenceState: GeneralPathEvidenceState;
+    citations: readonly GeneralEvidenceCitation[];
+  }[];
+}
+
+export interface GeneralDiscoveryJourney {
+  findingId: string;
+  title: string;
+  state: GeneralFindingState;
+  locatedLate: boolean;
+  measurementRevisionId: string | null;
+  locatedAt: string;
+  locatedByCitations: readonly GeneralEvidenceCitation[];
+  amendmentReason: string | null;
+  steps: readonly {
+    kind: "searches" | "files_opened" | "dead_ends" | "target_located";
+    label: string;
+    value: number | null;
+    valueLabel: string;
+    availability: "measured" | "unavailable" | "recorded";
+  }[];
+  additionalMeasurements: {
+    fileHops: number | null;
+    commands: number | null;
+    processedTokens: number | null;
+    elapsedMs: number | null;
+  };
+}
+
+export interface GeneralRecommendationPriority extends GeneralRecommendation {
+  impact: {
+    linkedFindingCount: number;
+    affectedDimensionCount: number;
+    affectedWeight: number;
+    projectedScoreGain: null;
+    label: "Evidence-linked scope";
+  };
+  effort: {
+    status: "unavailable";
+    label: "Not recorded";
+    reason: string;
+  };
+}
+
 export interface GeneralAuditReport {
   schemaVersion: typeof GENERAL_REPORT_SCHEMA_VERSION;
   mode: "general";
@@ -55,6 +129,8 @@ export interface GeneralAuditReport {
   generatedFromSequence: number;
   findings: readonly GeneralFindingLedgerEntry[];
   behaviorPaths: readonly RepresentativeBehaviorPath[];
+  behaviorPathViews: readonly GeneralBehaviorPathView[];
+  discoveryJourneys: readonly GeneralDiscoveryJourney[];
   surfaces: readonly GeneralSurfaceInspection[];
   evidenceCoverage: GeneralAuditReadModel["evidenceCoverage"];
   evidenceMatrix: Record<
@@ -63,6 +139,7 @@ export interface GeneralAuditReport {
   >;
   dimensions: readonly GeneralReportDimension[];
   recommendations: readonly GeneralRecommendation[];
+  recommendationPriorities: readonly GeneralRecommendationPriority[];
   tokens: {
     phase: "general_research";
     measurements: readonly TokenMeasurement[];

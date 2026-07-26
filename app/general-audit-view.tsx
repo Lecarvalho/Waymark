@@ -4,6 +4,7 @@ import { useState } from "react";
 
 import type { WaymarkRunSnapshot } from "./use-waymark-live";
 import { GeneralAuditGraphics } from "./general-audit-graphics";
+import { GeneralAuditInvestigationGraphics } from "./general-audit-investigation-graphics";
 
 type GeneralAuditViewProps = {
   snapshot: WaymarkRunSnapshot;
@@ -347,6 +348,7 @@ export function GeneralAuditView({ snapshot }: GeneralAuditViewProps) {
           </section>
 
           <GeneralAuditGraphics report={report} />
+          <GeneralAuditInvestigationGraphics report={report} />
         </div>
       ) : null}
 

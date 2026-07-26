@@ -5,6 +5,7 @@ import { join } from "node:path";
 import test from "node:test";
 
 import {
+  buildGeneralAuditHistory,
   startWaymarkServer,
   toRunSnapshot,
 } from "../server/waymark-server.mjs";
@@ -98,6 +99,53 @@ function generalCheckpoint(run, key, payload, occurredAt) {
     idempotencyKey: key,
     payload,
     occurredAt,
+  };
+}
+
+function generalHistoryReport({
+  id,
+  commitSha,
+  rubricVersion = "waymark-navigability/1.0.0",
+  reportComplete,
+  score,
+  createdAt,
+}) {
+  const dimensionIds = [
+    ["discoveryEfficiency", 20],
+    ["ownershipClarity", 17],
+    ["dependencyClarity", 17],
+    ["changeSurfaceRecall", 20],
+    ["verificationDiscoverability", 16],
+    ["instructionQuality", 10],
+  ];
+  return {
+    run: {
+      id,
+      repositoryIdentity: "team/payments",
+      commitSha,
+      rubricVersion,
+      status: reportComplete ? "completed" : "partial",
+      createdAt,
+      finishedAt: createdAt,
+      runConditions: { auditMode: "general" },
+    },
+    generalReport: {
+      schemaVersion: "general-report/1.0.0",
+      ledgerStatus: reportComplete ? "completed" : "partial",
+      findings: [],
+      dimensions: dimensionIds.map(([dimensionId, weight]) => ({
+        dimensionId,
+        weight,
+        score: score,
+        assessmentState: score === null ? "not_assessed" : "assessed",
+        evidenceCoverage: {
+          state: score === null ? "insufficient" : "adequate",
+          distinctCitationCount: score === null ? 0 : 2,
+          requirementSatisfied: score !== null,
+        },
+      })),
+      completeness: { reportComplete },
+    },
   };
 }
 
@@ -937,6 +985,61 @@ test("general snapshots expose partial evidence and reconstruct identically afte
   await restartedService.close();
 
   assert.deepEqual(restartedSnapshot.generalAudit, firstSnapshot.generalAudit);
+});
+
+test("general history includes only compatible dimension definitions and marks partial runs", () => {
+  const current = generalHistoryReport({
+    id: "general-current",
+    commitSha: "cccccccccccccccc",
+    reportComplete: true,
+    score: 84,
+    createdAt: "2026-07-25T20:00:00.000Z",
+  });
+  const partial = generalHistoryReport({
+    id: "general-partial",
+    commitSha: "bbbbbbbbbbbbbbbb",
+    reportComplete: false,
+    score: null,
+    createdAt: "2026-07-24T20:00:00.000Z",
+  });
+  const incompatible = generalHistoryReport({
+    id: "general-old-rubric",
+    commitSha: "aaaaaaaaaaaaaaaa",
+    rubricVersion: "waymark-navigability/0.9.0",
+    reportComplete: true,
+    score: 90,
+    createdAt: "2026-07-23T20:00:00.000Z",
+  });
+
+  const history = buildGeneralAuditHistory(current, [
+    current,
+    partial,
+    incompatible,
+  ]);
+
+  assert.deepEqual(
+    history.compatible.map(({ runId, partial: isPartial }) => ({
+      runId,
+      partial: isPartial,
+    })),
+    [
+      { runId: "general-partial", partial: true },
+      { runId: "general-current", partial: false },
+    ],
+  );
+  assert.equal(history.compatible[0].dimensions[0].score, null);
+  assert.equal(
+    history.compatible[0].dimensions[0].assessmentState,
+    "not_assessed",
+  );
+  assert.deepEqual(history.excluded, [
+    {
+      runId: "general-old-rubric",
+      commitSha: "aaaaaaaaaaaaaaaa",
+      auditedAt: "2026-07-23T20:00:00.000Z",
+      reasons: ["rubric version differs"],
+    },
+  ]);
 });
 
 test("SSE publishes incremental general findings and a later revision", async (t) => {

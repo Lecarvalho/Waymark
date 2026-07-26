@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 
 import type { GeneralAuditReport } from "../src/reporting/general-audit-report.mjs";
+import type { WaymarkDimensionId } from "../src/domain/general-audit.mjs";
 
 export type GeneralAuditServiceSnapshot = GeneralAuditReport & {
   status: "running" | "completed" | "partial" | "failed" | "cancelled";
@@ -38,6 +39,33 @@ export type GeneralAuditServiceSnapshot = GeneralAuditReport & {
   };
   latestCheckpointSequence: number;
   reportComplete: boolean;
+  history: {
+    compatible: Array<{
+      runId: string;
+      commitSha: string;
+      auditedAt: string | null;
+      rubricVersion: string;
+      reportSchemaVersion: string;
+      status: "running" | "completed" | "partial" | "failed" | "cancelled";
+      partial: boolean;
+      dimensions: Array<{
+        dimensionId: WaymarkDimensionId;
+        score: number | null;
+        assessmentState: "not_assessed" | "in_progress" | "assessed";
+        evidenceCoverage: {
+          state: "adequate" | "insufficient";
+          distinctCitationCount: number;
+          requirementSatisfied: boolean;
+        };
+      }>;
+    }>;
+    excluded: Array<{
+      runId: string;
+      commitSha: string;
+      auditedAt: string | null;
+      reasons: string[];
+    }>;
+  };
 };
 
 export type WaymarkRunSnapshot = {

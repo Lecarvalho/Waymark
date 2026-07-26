@@ -558,7 +558,107 @@ function generalProviderSession(events, status) {
   };
 }
 
-function generalAuditSnapshot(report, participantSnapshots, status) {
+function generalDimensionSignature(report) {
+  return JSON.stringify(
+    report.generalReport?.dimensions.map(({ dimensionId, weight }) => [
+      dimensionId,
+      weight,
+    ]) ?? [],
+  );
+}
+
+export function buildGeneralAuditHistory(currentReport, reports) {
+  if (!currentReport.generalReport) {
+    return { compatible: [], excluded: [] };
+  }
+
+  const currentRepository = currentReport.run.repositoryIdentity;
+  const currentRubric = currentReport.run.rubricVersion;
+  const currentSchema = currentReport.generalReport.schemaVersion;
+  const currentDimensions = generalDimensionSignature(currentReport);
+  const compatible = [];
+  const excluded = [];
+
+  for (const report of reports) {
+    if (
+      report.run.repositoryIdentity !== currentRepository ||
+      report.run.runConditions?.auditMode !== "general" ||
+      !report.generalReport
+    ) {
+      continue;
+    }
+
+    const reasons = [];
+    if (report.run.rubricVersion !== currentRubric) {
+      reasons.push("rubric version differs");
+    }
+    if (report.generalReport.schemaVersion !== currentSchema) {
+      reasons.push("report schema differs");
+    }
+    if (generalDimensionSignature(report) !== currentDimensions) {
+      reasons.push("dimension definitions differ");
+    }
+
+    const point = {
+      runId: report.run.id,
+      commitSha: report.run.commitSha,
+      auditedAt:
+        report.run.finishedAt ??
+        report.run.createdAt ??
+        report.generalReport.findings.at(-1)?.currentRevision.provenance
+          .occurredAt ??
+        null,
+      rubricVersion: report.run.rubricVersion,
+      reportSchemaVersion: report.generalReport.schemaVersion,
+      status: generalRunStatus(
+        report.generalReport,
+        report.run.status,
+      ),
+      partial: !report.generalReport.completeness.reportComplete,
+      dimensions: report.generalReport.dimensions.map((dimension) => ({
+        dimensionId: dimension.dimensionId,
+        score:
+          dimension.assessmentState === "assessed"
+            ? dimension.score
+            : null,
+        assessmentState: dimension.assessmentState,
+        evidenceCoverage: {
+          state: dimension.evidenceCoverage.state,
+          distinctCitationCount:
+            dimension.evidenceCoverage.distinctCitationCount,
+          requirementSatisfied:
+            dimension.evidenceCoverage.requirementSatisfied,
+        },
+      })),
+    };
+
+    if (reasons.length === 0) {
+      compatible.push(point);
+    } else {
+      excluded.push({
+        runId: point.runId,
+        commitSha: point.commitSha,
+        auditedAt: point.auditedAt,
+        reasons,
+      });
+    }
+  }
+
+  const byDate = (left, right) =>
+    String(left.auditedAt ?? "").localeCompare(
+      String(right.auditedAt ?? ""),
+    );
+  compatible.sort(byDate);
+  excluded.sort(byDate);
+  return { compatible, excluded };
+}
+
+function generalAuditSnapshot(
+  report,
+  participantSnapshots,
+  status,
+  historyReports,
+) {
   if (!report.generalReport) return null;
   const auditor = report.run.participants.find(
     (participant) => participant.role === "auditor",
@@ -584,6 +684,7 @@ function generalAuditSnapshot(report, participantSnapshots, status) {
     providerSession: generalProviderSession(report.events, status),
     latestCheckpointSequence: report.generalReport.generatedFromSequence,
     reportComplete: report.generalReport.completeness.reportComplete,
+    history: buildGeneralAuditHistory(report, historyReports),
   };
 }
 
@@ -605,7 +706,7 @@ function humanizeReason(value) {
     : "unknown failure";
 }
 
-export function toRunSnapshot(report, runCount) {
+export function toRunSnapshot(report, runCount, historyReports = [report]) {
   const { run, events, aggregates } = report;
   const auditMode = run.runConditions?.auditMode ?? "task_specific";
   const authoritativeScoreEvent = lastDefinedEvent(
@@ -1166,6 +1267,7 @@ export function toRunSnapshot(report, runCount) {
     report,
     participantSnapshots,
     status,
+    historyReports,
   );
 
   return {
@@ -1521,11 +1623,12 @@ export async function startWaymarkServer({
 
       if (url.pathname === "/api/runs/summaries") {
         const runs = store.listRuns({ limit: 100 });
+        const reports = runs.map((run) => store.readReport(run.id));
         json(
           response,
           200,
-          runs.map((run) =>
-            toRunSnapshot(store.readReport(run.id), runs.length),
+          reports.map((report) =>
+            toRunSnapshot(report, runs.length, reports),
           ),
         );
         return;
@@ -1537,10 +1640,11 @@ export async function startWaymarkServer({
           json(response, 404, { error: "no_runs" });
           return;
         }
+        const reports = runs.map((run) => store.readReport(run.id));
         json(
           response,
           200,
-          toRunSnapshot(store.readReport(runs[0].id), runs.length),
+          toRunSnapshot(reports[0], runs.length, reports),
         );
         return;
       }

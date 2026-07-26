@@ -66,6 +66,236 @@ function citationKey(citation) {
   ].join("\u0000");
 }
 
+function citationsMatch(left, right) {
+  return citationKey(left) === citationKey(right);
+}
+
+function findingStateForCitations(ledger, citations) {
+  const matchingStates = ledger.findingOrder
+    .map((findingId) => ledger.findings[findingId]?.currentRevision)
+    .filter(
+      (revision) =>
+        revision !== undefined &&
+        revision.citations.some((findingCitation) =>
+          citations.some((citation) =>
+            citationsMatch(findingCitation, citation),
+          ),
+        ),
+    )
+    .map((revision) => revision.state);
+
+  if (
+    matchingStates.some(
+      (state) => state === "contradicted" || state === "retracted",
+    )
+  ) {
+    return "contradicted";
+  }
+  if (matchingStates.includes("located_late")) {
+    return "difficult_to_discover";
+  }
+  return "verified_current";
+}
+
+function assemblePathNode(ledger, node, kind, index) {
+  if (node.status === "unknown") {
+    return {
+      nodeId: `${kind}-${index}`,
+      kind,
+      status: "unknown",
+      evidenceState: "pending",
+      label: node.label,
+      reason: node.reason,
+      citations: [],
+    };
+  }
+
+  return {
+    nodeId: `${kind}-${index}`,
+    kind,
+    status: "known",
+    evidenceState: findingStateForCitations(ledger, node.citations),
+    label: node.label,
+    reason: null,
+    citations: node.citations,
+  };
+}
+
+function uninspectedPathNode(kind, label) {
+  return {
+    nodeId: `${kind}-uninspected`,
+    kind,
+    status: "uninspected",
+    evidenceState: "pending",
+    label: `No ${label.toLowerCase()} recorded`,
+    reason: `The behavior-path checkpoint did not record a ${label.toLowerCase()} node.`,
+    citations: [],
+  };
+}
+
+function pathGroup(ledger, kind, label, nodes) {
+  const projected = nodes.map((node, index) =>
+    assemblePathNode(ledger, node, kind, index),
+  );
+  return {
+    kind,
+    label,
+    nodes:
+      projected.length > 0
+        ? projected
+        : [uninspectedPathNode(kind, label)],
+  };
+}
+
+function pathEdgeState(nodes) {
+  const states = nodes.map(({ evidenceState }) => evidenceState);
+  if (states.includes("contradicted")) return "contradicted";
+  if (states.includes("difficult_to_discover")) {
+    return "difficult_to_discover";
+  }
+  if (states.includes("pending")) return "pending";
+  return "verified_current";
+}
+
+function assembleBehaviorPathViews(ledger, behaviorPaths) {
+  return behaviorPaths.map((path) => {
+    const groups = [
+      pathGroup(ledger, "entry_point", "Entry point", [path.entryPoint]),
+      pathGroup(ledger, "owner", "Owner", [path.owner]),
+      pathGroup(ledger, "dependency", "Dependencies", path.dependencies),
+      pathGroup(ledger, "consumer", "Consumers", path.consumers),
+      pathGroup(ledger, "test", "Tests", path.tests),
+    ];
+    const edges = groups.slice(1).map((group, index) => {
+      const citations = unique(
+        group.nodes.flatMap(({ citations: nodeCitations }) =>
+          nodeCitations.map(citationKey),
+        ),
+      ).map((key) =>
+        group.nodes
+          .flatMap(({ citations: nodeCitations }) => nodeCitations)
+          .find((citation) => citationKey(citation) === key),
+      );
+      return {
+        edgeId: `${groups[index].kind}-to-${group.kind}`,
+        fromKind: groups[index].kind,
+        toKind: group.kind,
+        evidenceState: pathEdgeState(group.nodes),
+        citations,
+      };
+    });
+
+    return {
+      pathId: path.pathId,
+      name: path.name,
+      observedAt: path.observedAt,
+      groups,
+      edges,
+    };
+  });
+}
+
+function measuredJourneyStep(kind, label, value, unit, pluralUnit = `${unit}s`) {
+  return {
+    kind,
+    label,
+    value,
+    valueLabel:
+      value === null
+        ? "Unavailable"
+        : `${value.toLocaleString()} ${value === 1 ? unit : pluralUnit}`,
+    availability: value === null ? "unavailable" : "measured",
+  };
+}
+
+function assembleDiscoveryJourneys(findings) {
+  return findings
+    .filter(
+      ({ currentRevision, navigationCostHistory }) =>
+        currentRevision.state === "located_late" ||
+        navigationCostHistory.length > 0,
+    )
+    .map((finding) => {
+      const latestObservation = finding.navigationCostHistory.at(-1) ?? null;
+      const cost = latestObservation?.observation ?? null;
+      const revision = finding.currentRevision;
+      return {
+        findingId: finding.findingId,
+        title: revision.title,
+        state: revision.state,
+        locatedLate: revision.state === "located_late",
+        measurementRevisionId: latestObservation?.revisionId ?? null,
+        locatedAt: revision.provenance.occurredAt,
+        locatedByCitations:
+          revision.provenance.causedByCitations.length > 0
+            ? revision.provenance.causedByCitations
+            : revision.citations,
+        amendmentReason: revision.provenance.amendmentReason,
+        steps: [
+          measuredJourneyStep(
+            "searches",
+            "Searches",
+            cost?.searches ?? null,
+            "search",
+            "searches",
+          ),
+          measuredJourneyStep(
+            "files_opened",
+            "Files opened",
+            cost?.filesOpened ?? null,
+            "file",
+          ),
+          measuredJourneyStep(
+            "dead_ends",
+            "Dead ends",
+            cost?.deadEnds ?? null,
+            "dead end",
+          ),
+          {
+            kind: "target_located",
+            label: revision.state === "located_late"
+              ? "Target located late"
+              : "Target interpretation",
+            value: null,
+            valueLabel: new Date(
+              revision.provenance.occurredAt,
+            ).toISOString(),
+            availability: "recorded",
+          },
+        ],
+        additionalMeasurements: {
+          fileHops: cost?.fileHops ?? null,
+          commands: cost?.commands ?? null,
+          processedTokens: cost?.processedTokens ?? null,
+          elapsedMs: cost?.elapsedMs ?? null,
+        },
+      };
+    });
+}
+
+function assembleRecommendationPriorities(recommendations) {
+  return recommendations.map((recommendation) => ({
+    ...recommendation,
+    impact: {
+      linkedFindingCount: recommendation.findingIds.length,
+      affectedDimensionCount: recommendation.dimensionIds.length,
+      affectedWeight: recommendation.dimensionIds.reduce(
+        (total, dimensionId) =>
+          total + GENERAL_DIMENSION_WEIGHTS[dimensionId],
+        0,
+      ),
+      projectedScoreGain: null,
+      label: "Evidence-linked scope",
+    },
+    effort: {
+      status: "unavailable",
+      label: "Not recorded",
+      reason:
+        "The general-audit checkpoint contract does not record implementation-effort estimates.",
+    },
+  }));
+}
+
 function assembleEvidenceMatrix(ledger) {
   const inspectedSurfaces = new Set(
     ledger.surfaces.map(({ surface }) => surface),
@@ -332,11 +562,15 @@ export function assembleGeneralAuditReport({ run, ledger, tokens }) {
     generatedFromSequence: ledger.lastSequence,
     findings,
     behaviorPaths,
+    behaviorPathViews: assembleBehaviorPathViews(ledger, behaviorPaths),
+    discoveryJourneys: assembleDiscoveryJourneys(findings),
     surfaces: ledger.surfaces,
     evidenceCoverage: ledger.evidenceCoverage,
     evidenceMatrix: assembleEvidenceMatrix(ledger),
     dimensions,
     recommendations,
+    recommendationPriorities:
+      assembleRecommendationPriorities(recommendations),
     tokens: assembleTokens(tokens),
     completeness: {
       assessedDimensionCount: assessedDimensions.length,

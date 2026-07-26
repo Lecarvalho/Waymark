@@ -992,6 +992,8 @@ dimension bars and an evidence-coverage matrix.
 
 **Dependencies:** GA-08, GA-09, and GA-10.
 
+**Status:** Completed.
+
 ### Context
 
 Dimension bars and the evidence matrix summarize the report, but they do not
