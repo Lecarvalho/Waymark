@@ -1973,6 +1973,12 @@ export async function runInvestigationPhase({
       `Run ${runId} is ${run.status}; investigation requires an active run`,
     );
   }
+  if (run.runConditions.auditMode === "general") {
+    throw new OrchestrationError(
+      "GENERAL_AUDIT_REQUIRES_SINGLE_AUDITOR",
+      `Run ${runId} is a general audit; launch it with the general audit command`,
+    );
+  }
   const priorLaunch = store
     .readEvents(runId, { limit: 10_000 })
     .find(({ type }) =>

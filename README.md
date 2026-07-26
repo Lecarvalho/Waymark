@@ -4,9 +4,16 @@ Waymark is a local-first audit tool for measuring how efficiently and reliably
 coding agents navigate a repository.
 
 The audit request is made in a paired agent session such as Codex or Claude
-Code. Waymark records the work, verifies claims, computes a versioned score, and
-presents the report. The web application is an observer; it does not prompt or
-control the agent.
+Code. Waymark records the work and presents the report. The web application is
+an observer; it does not prompt or control the agent.
+
+Waymark has two execution contracts:
+
+- `general` runs one most-capable auditor for broad, evidence-led repository
+  research. Its weighted result is auditor-assessed from cited evidence.
+- `task_specific` and `system_explanation` run the reproducible candidate,
+  independent-research, orchestration, deterministic-verification, and scoring
+  benchmark pipeline.
 
 ## What Waymark measures
 
@@ -15,8 +22,12 @@ control the agent.
 - change-surface recall
 - verification discoverability
 - instruction quality
-- token efficiency after adequacy gates
-- reliability of the audit itself
+- measured token usage
+- report completeness and reliability
+
+Token efficiency after adequacy gates and authoritative deterministic scoring
+apply only to benchmark modes. General audits have no Waymark hard token limit
+or token-efficiency score.
 
 Waymark does not score security or general software quality.
 
@@ -51,18 +62,20 @@ it never creates a replacement database silently.
 Use the secondary **Prepare audit request** action in the observer interface to
 assemble a compact handoff for the paired coding-agent session. It contains only
 runtime inputs; the repository-local audit skill supplies the fixed workflow,
-safety, and scoring protocol. Provider, model, and reasoning choices come from
-the read-only local adapter capability endpoint. The form can also declare
-phase token targets and hard limits.
+safety, and mode-specific assessment or scoring protocol. Provider, model, and
+reasoning choices come from the read-only local adapter capability endpoint.
+General mode selects one auditor and may set a non-stopping soft usage notice;
+benchmark modes select their measured roles and declare phase token targets and
+hard limits.
 
 The generated request records the running service URL and its exact SQLite path.
 The paired agent must append a new run to that journal and must not start a
 second service or create a database for the audit.
 
-General audits need only declare `Mode: general`. The skill resolves and
-persists the current versioned navigation suite. Audit names, run policies,
-protocol versions, and rubric versions are likewise resolved from the current
-Waymark checkout instead of being repeated in the prompt.
+General audits declare `Mode: general`, one auditor identity, and
+`tokenPolicy: unbounded_by_waymark`. They do not use a benchmark task suite.
+Audit names, run policies, protocol versions, and rubric versions are resolved
+from the current Waymark checkout instead of being repeated in the prompt.
 
 Opening, editing, or copying a prepared request does not create a run, invoke a
 model, or write to SQLite. Only the explicit **Copy audit request** action writes
@@ -86,8 +99,31 @@ npm run waymark -- help
 Mutation commands accept JSON with `--input-json`, standard input, or
 `--input-file`. Every command emits one JSON line suitable for automation.
 
-After creating an active run with candidate and orchestrator participants
-(and, normally, an independent participant), launch the isolated investigation:
+After creating a general run with one auditor, launch the single-auditor
+workflow:
+
+```bash
+npm run waymark -- general audit --run <run-id>
+```
+
+The general runner appends validated findings, revisions, behavior paths,
+dimension progress, recommendations, and synthesis checkpoints while research
+is active. Acknowledged evidence survives provider, service, and UI restarts.
+Provider failure or cancellation retains useful cited evidence; incomplete
+coverage becomes a `partial` report, while `failed` is reserved for runs with
+no usable report evidence. Context continuation uses the persisted ledger and
+open coverage rather than inherited operator conversation. Replayed
+checkpoints are idempotent, and repeated no-progress activity stops cleanly
+without discarding evidence.
+
+General completion is driven by adequate evidence across all six fixed-weight
+dimensions. The report shows an `Auditor-assessed` weighted result only when
+all dimensions are assessed. Otherwise it shows the exact assessed weight and
+leaves missing dimensions `not_assessed`.
+
+For `task_specific` and `system_explanation`, create an active run with
+candidate and orchestrator participants (and, normally, an independent
+participant), then launch the isolated benchmark investigation:
 
 ```bash
 npm run waymark -- investigation run --run <run-id>
@@ -113,7 +149,7 @@ Automatic phase targets start from the safe rubric defaults. At least three
 same-mode completed samples are required before a lower historical average may
 reduce a target; historical usage never raises the automatic default.
 
-## Audited roles
+## Benchmark roles
 
 Each role runs in a fresh, assignment-only process so its evidence and token
 cost remain separate.
@@ -135,9 +171,10 @@ cost remain separate.
   the authoritative score.
 
 After these roles finish, Waymark verifies the claims and its deterministic
-scorer computes the authoritative score and reliability.
+scorer computes the authoritative score and reliability. These roles and that
+scorer are never used for a general audit.
 
-## Reliability model
+## Benchmark reliability model
 
 The candidate never assigns the final score. Waymark derives authority from:
 

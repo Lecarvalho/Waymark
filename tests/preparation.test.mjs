@@ -14,6 +14,10 @@ import {
   createInvestigationAssignments,
   renderAssignmentPrompt,
 } from "../src/orchestration/templates.mjs";
+import {
+  createGeneralAuditorAssignment,
+  renderGeneralAuditorPrompt,
+} from "../src/orchestration/general-auditor-template.mjs";
 import { AuditStore } from "../src/persistence/index.mjs";
 
 function createFakeCodexEntry(directory) {
@@ -416,34 +420,32 @@ test("the audit skill owns the single-auditor general contract", () => {
   assert.match(protocol, /scorer do\s+not score general mode/);
 });
 
-test("general mode reaches fresh roles as a seven-principle assessment", () => {
-  const [assignment] = createInvestigationAssignments({
-    runId: "general-run",
-    auditMode: "general",
-    target: {
-      path: "C:\\work\\target",
-      identity: "target",
+test("general mode reaches one fresh auditor as a seven-principle assessment", () => {
+  const assignment = createGeneralAuditorAssignment({
+    run: {
+      id: "general-run",
+      targetRepositoryPath: "C:\\work\\target",
+      repositoryIdentity: "target",
       commitSha: "0123456789abcdef",
-      readOnly: true,
+      task: "Broad evidence-led repository navigability assessment",
+      toolPolicy: { target: "read-only" },
+      runConditions: { auditorReasoningEffort: "high" },
     },
-    task: "Versioned general repository suite",
-    candidate: {
-      role: "candidate",
+    auditor: {
+      role: "auditor",
       provider: "openai",
-      model: "candidate-model",
+      model: "auditor-model",
     },
-    capabilities: {
-      parallelAgents: false,
-      independentResearcher: null,
-    },
+    continuation: null,
   });
 
-  const prompt = renderAssignmentPrompt(assignment);
-  assert.match(prompt, /Audit mode: general/);
-  assert.match(prompt, /cold, repository-wide agent-readiness assessment/);
-  assert.match(prompt, /all seven Practice Guide principles/);
-  assert.match(prompt, /exactly one practiceAssessments item/);
-  assert.match(prompt, /generated\/external code boundaries/);
+  const prompt = renderGeneralAuditorPrompt(assignment);
+  assert.match(prompt, /sole Waymark general-audit auditor/);
+  assert.match(prompt, /only model role/);
+  assert.match(prompt, /Do not launch candidate, independent, orchestrator/);
+  assert.match(prompt, /Practice Guide:/);
+  assert.match(prompt, /separate generated and external code/);
+  assert.match(prompt, /general\.finding\.revised/);
 });
 
 test("prepared system explanations measure finding cost instead of prose depth", () => {

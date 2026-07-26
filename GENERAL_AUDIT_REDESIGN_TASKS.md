@@ -1098,6 +1098,8 @@ recommendation prioritization, and historical dimension changes.
 
 **Dependencies:** GA-01 through GA-11.
 
+**Status:** Completed.
+
 ### Context
 
 The complete redesigned path now includes mode-aware preparation, one general

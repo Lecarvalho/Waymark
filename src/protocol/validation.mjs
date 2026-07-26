@@ -188,11 +188,17 @@ export function validateCreateRun(value, { now, createId }) {
   });
 
   const runConditions = object(input.runConditions, "runConditions");
-  const isSingleAuditorGeneralRun =
-    runConditions.auditMode === "general" &&
-    participants.length === 1 &&
-    participants[0].role === "auditor";
-  if (!isSingleAuditorGeneralRun) {
+  if (runConditions.auditMode === "general") {
+    if (
+      participants.length !== 1 ||
+      participants[0].role !== "auditor"
+    ) {
+      fail(
+        "participants",
+        "general audits require exactly one auditor role",
+      );
+    }
+  } else {
     for (const requiredRole of ["candidate", "orchestrator"]) {
       if (!participants.some(({ role }) => role === requiredRole)) {
         fail("participants", `must include a ${requiredRole} role`);

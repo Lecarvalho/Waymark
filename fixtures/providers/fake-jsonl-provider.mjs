@@ -460,67 +460,14 @@ if (
   process.exitCode = 7;
 } else {
   let claimId = suppliedClaimId;
-  let suppliedClaimIds = suppliedClaimId ? [suppliedClaimId] : [];
   if (role === "orchestrator") {
     const marker = "Assignment evidence (JSON):\n";
     const markerIndex = prompt.indexOf(marker);
     if (markerIndex >= 0) {
       const context = JSON.parse(prompt.slice(markerIndex + marker.length));
       claimId ??= context.claims?.[0]?.id;
-      suppliedClaimIds = (context.claims ?? []).map(({ id }) => id);
     }
   }
-  const generalMode = prompt.includes("Audit mode: general");
-  const generalPracticeIds = ["01", "02", "03", "04", "05", "06", "07"];
-  const benchmarkGeneralDimensions = [
-    "discoveryEfficiency",
-    "dependencyClarity",
-    "discoveryEfficiency",
-    "verificationDiscoverability",
-    "instructionQuality",
-    "verificationDiscoverability",
-    "ownershipClarity",
-  ];
-  const generalFindings = generalPracticeIds.map((practiceId, index) => ({
-    kind: "navigation_fact",
-    dimension: benchmarkGeneralDimensions[index],
-    subject: `general practice ${practiceId}`,
-    assertion: `The controlled fixture exposes cited evidence for Practice Guide ${practiceId}.`,
-    friction: `The fixture retains one bounded navigation gap for practice ${practiceId}.`,
-    confidence: 0.9,
-    criticality: "high",
-    practiceIds: [practiceId],
-    citations: [
-      {
-        path: "package.json",
-        startLine: 1,
-        endLine: 20,
-        symbol: null,
-      },
-    ],
-  }));
-  const generalRecommendations = generalPracticeIds.map(
-    (practiceId, index) => ({
-      id: `fake-general-recommendation-${practiceId}`,
-      priority: index < 2 ? "P1" : "P2",
-      title: `Improve Practice Guide ${practiceId}`,
-      problem: `The controlled fixture retains navigation friction for practice ${practiceId}.`,
-      change: `Add a repository-specific navigation signal for practice ${practiceId}.`,
-      repositoryChanges: [
-        `Document and index the fixture evidence for practice ${practiceId}.`,
-      ],
-      claimIds: [suppliedClaimIds[index]],
-      practiceIds: [practiceId],
-      affectedDimensions: [benchmarkGeneralDimensions[index]],
-      tokenMechanism:
-        "A direct repository signal replaces repeated bounded searches.",
-      validationChecks: [
-        `Repeat the general audit and confirm practice ${practiceId} is found directly.`,
-      ],
-      limitations: ["This is deterministic fake-provider evidence."],
-      effort: null,
-    }),
-  );
   const result =
     role === "orchestrator"
       ? {
@@ -543,10 +490,8 @@ if (
               checks: ["Confirm the cited file and symbol exist."],
             },
           ],
-          recommendations: generalMode
-            ? generalRecommendations
-            : [
-              {
+          recommendations: [
+            {
               id: "fake-recommendation-1",
               priority: "P1",
               title: "Index the test change surface",
@@ -571,105 +516,58 @@ if (
               limitations: ["The fake provider does not execute a probe."],
               effort: null,
             },
-            ],
-          practiceProfile: generalMode
-            ? generalPracticeIds.map((practiceId, index) => ({
-                practiceId,
-                status: "mixed",
-                assessment: `Practice ${practiceId} has useful signals and one verified navigation gap.`,
-                tokenImpact:
-                  "The remaining gap causes one additional bounded search.",
-                claimIds: [suppliedClaimIds[index]],
-                recommendationIds: [
-                  `fake-general-recommendation-${practiceId}`,
-                ],
-                limitations: ["The controlled fixture is intentionally small."],
-              }))
-            : [],
+          ],
+          practiceProfile: [],
         }
       : {
           summary: `${role} inspected an assignment-only prompt`,
-          findings: generalMode
-            ? mode === "report-only-empty-general"
-              ? []
-              : generalFindings
-            : [
+          findings: [
+            {
+              kind:
+                mode === "invalid-finding-kind"
+                  ? "proposed_change"
+                  : "navigation_fact",
+              dimension: "verificationDiscoverability",
+              subject: "script discoverability",
+              assertion:
+                "package.json exposes the repository's named verification scripts in one discoverable entry point.",
+              friction:
+                "Without this single index, an agent would need to search neighboring configuration files for the canonical verification command.",
+              confidence: 0.95,
+              criticality: "critical",
+              citations: [
                 {
-                  kind:
-                    mode === "invalid-finding-kind"
-                      ? "proposed_change"
-                      : "navigation_fact",
-                  dimension: "verificationDiscoverability",
-                  subject: "script discoverability",
-                  assertion:
-                    "package.json exposes the repository's named verification scripts in one discoverable entry point.",
-                  friction:
-                    "Without this single index, an agent would need to search neighboring configuration files for the canonical verification command.",
-                  confidence: 0.95,
-                  criticality: "critical",
-                  citations: [
-                    {
-                      path: "package.json",
-                      startLine: 1,
-                      endLine: 20,
-                      symbol: null,
-                    },
-                  ],
+                  path: "package.json",
+                  startLine: 1,
+                  endLine: 20,
+                  symbol: null,
                 },
-                ...(mode === "mixed-valid-and-invalid-findings"
-                  ? [
-                      {
-                        kind: "proposed_change",
-                        dimension: "discoveryEfficiency",
-                        subject: "invalid proposed change",
-                        assertion:
-                          "This item is intentionally not a navigation fact.",
-                        friction: "This fixture item must be rejected.",
-                        confidence: 0.5,
-                        criticality: "low",
-                        citations: [
-                          {
-                            path: "package.json",
-                            startLine: 1,
-                            endLine: 1,
-                            symbol: null,
-                          },
-                        ],
-                      },
-                    ]
-                  : []),
               ],
-          practiceAssessments: generalMode
-            ? mode === "report-only-empty-general"
-              ? []
-              : generalPracticeIds
-                  .filter(
-                    (practiceId) =>
-                      mode !== "missing-practice-assessment-general" ||
-                      practiceId !== "06",
-                  )
-                  .map((practiceId) => {
-                    const index = generalPracticeIds.indexOf(practiceId);
-                    return {
-                      practiceId,
-                      status: "mixed",
-                      summary: `Practice ${practiceId} is only partly explicit in the controlled fixture.`,
-                      findingIndexes:
-                        mode === "invalid-practice-references-general"
-                          ? practiceId === "01"
-                            ? [0, 4]
-                            : practiceId === "05"
-                              ? [0]
-                              : practiceId === "07"
-                                ? [6, 99]
-                                : [index]
-                          : [index],
-                      limitations: [
-                        "The fixture contains one representative path.",
-                      ],
-                    };
-                  })
-            : [],
+            },
+            ...(mode === "mixed-valid-and-invalid-findings"
+              ? [
+                  {
+                    kind: "proposed_change",
+                    dimension: "discoveryEfficiency",
+                    subject: "invalid proposed change",
+                    assertion:
+                      "This item is intentionally not a navigation fact.",
+                    friction: "This fixture item must be rejected.",
+                    confidence: 0.5,
+                    criticality: "low",
+                    citations: [
+                      {
+                        path: "package.json",
+                        startLine: 1,
+                        endLine: 1,
+                        symbol: null,
+                      },
+                    ],
+                  },
+                ]
+              : []),
+          ],
+          practiceAssessments: [],
           probeResult: {
             status: prompt.includes("Budget wrap-up directive")
               ? "partial"

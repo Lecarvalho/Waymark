@@ -56,6 +56,30 @@ test("the same evidence reproduces the exact same score", async () => {
   assert.deepEqual(scoreAudit(input), scoreAudit(structuredClone(input)));
 });
 
+test("task-specific and system-explanation modes retain benchmark score behavior", async () => {
+  const input = (await fixture("navigable")).input;
+  const taskSpecific = scoreAudit({
+    ...input,
+    auditMode: "task_specific",
+  });
+  const systemExplanation = scoreAudit({
+    ...input,
+    auditMode: "system_explanation",
+  });
+
+  assert.equal(taskSpecific.overall.score, systemExplanation.overall.score);
+  assert.equal(
+    taskSpecific.reliability.score,
+    systemExplanation.reliability.score,
+  );
+  assert.equal(
+    taskSpecific.tokenEfficiency.score,
+    systemExplanation.tokenEfficiency.score,
+  );
+  assert.equal(taskSpecific.rubricVersion, RUBRIC_VERSION);
+  assert.deepEqual(taskSpecific, systemExplanation);
+});
+
 test("candidate-provided values cannot influence authoritative scores", async () => {
   const input = (await fixture("navigable")).input;
   const low = scoreAudit({

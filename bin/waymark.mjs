@@ -22,12 +22,13 @@ const COMMANDS = {
   "run read": "Read run metadata",
   "run finish": "Append a terminal event and finish a run",
   "investigation run":
-    "Run fresh candidate, independent, and orchestrator provider processes",
+    "Run the task-specific or system-explanation benchmark roles",
   "general audit":
     "Run one general auditor with semantic checkpoints and coverage-driven completion",
   "event append": "Append an ordered audit event",
   "event read": "Read ordered events",
-  "general start": "Start the semantic ledger for a general audit",
+  "general start":
+    "Diagnostic/recovery command: start a general-audit semantic ledger",
   "general surface": "Record a general-audit surface inspection",
   "general path": "Record a representative general-audit behavior path",
   "general finding": "Record a new general-audit finding",
@@ -41,7 +42,8 @@ const COMMANDS = {
   "claim submit": "Submit an evidence claim",
   "verification record": "Append a verification verdict",
   "token record": "Append a token measurement",
-  "score calculate": "Calculate and persist an authoritative score",
+  "score calculate":
+    "Calculate and persist an authoritative benchmark-mode score",
   "report recommend":
     "Append supplied evidence-linked recommendations",
   "report finalize":

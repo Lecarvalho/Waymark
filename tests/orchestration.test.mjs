@@ -517,6 +517,30 @@ test("the CLI routes a general run only through the single-auditor runner", () =
   const run = createGeneralRunnerRun(store, "cli-general-run");
   store.close();
 
+  const rejectedBenchmarkLaunch = spawnSync(
+    process.execPath,
+    [
+      "bin/waymark.mjs",
+      "--db",
+      databasePath,
+      "investigation",
+      "run",
+      "--run",
+      run.id,
+      "--codex-entry",
+      fakeProviderPath,
+    ],
+    {
+      cwd: repositoryRoot,
+      encoding: "utf8",
+    },
+  );
+  assert.equal(rejectedBenchmarkLaunch.status, 1);
+  assert.equal(
+    JSON.parse(rejectedBenchmarkLaunch.stdout).error.code,
+    "GENERAL_AUDIT_REQUIRES_SINGLE_AUDITOR",
+  );
+
   const cli = spawnSync(
     process.execPath,
     [
@@ -854,61 +878,33 @@ test("fresh candidate and independent processes stream evidence and keep a succe
   );
 });
 
-test("general audits require and finalize a verified seven-principle profile", async (t) => {
-  const directory = mkdtempSync(join(tmpdir(), "waymark-general-profile-"));
+test("the benchmark runner rejects general audits before launching roles", async (t) => {
+  const directory = mkdtempSync(join(tmpdir(), "waymark-general-route-guard-"));
   const store = new AuditStore({ databasePath: join(directory, "audit.sqlite") });
   t.after(() => store.close());
-  const run = createRun(store, {
-    auditMode: "general",
-    candidateHardLimit: 1_000,
-  });
+  const run = createGeneralRunnerRun(store, "general-route-guard");
 
-  const result = await runInvestigationPhase({
-    store,
-    runId: run.id,
-    adapters: [fakeAdapter()],
-  });
+  await assert.rejects(
+    () =>
+      runInvestigationPhase({
+        store,
+        runId: run.id,
+        adapters: [fakeAdapter()],
+      }),
+    (error) => error.code === "GENERAL_AUDIT_REQUIRES_SINGLE_AUDITOR",
+  );
+  assert.equal(store.readEvents(run.id, { limit: 10 }).length, 0);
+});
 
-  assert.equal(result.status, "active");
-  let report = store.readReport(run.id);
-  assert.equal(report.claims.length, 7);
-  assert.equal(result.orchestrationProjection.practiceProfileCount, 7);
+test("general runs reject benchmark participant sets at creation", (t) => {
+  const directory = mkdtempSync(join(tmpdir(), "waymark-general-role-guard-"));
+  const store = new AuditStore({ databasePath: join(directory, "audit.sqlite") });
+  t.after(() => store.close());
+
   assert.throws(
-    () => finalizeDraftRecommendations({ store, runId: run.id }),
-    (error) => error.code === "GENERAL_PRACTICE_CLAIM_NOT_VERIFIED",
+    () => createRun(store, { auditMode: "general" }),
+    /general audits require exactly one auditor role/,
   );
-
-  for (const claim of report.claims) {
-    store.recordVerification({
-      runId: run.id,
-      claimId: claim.id,
-      verifier: "orchestrator",
-      method: "static_inspection",
-      verdict: "verified",
-      evidence: {
-        citationStatus: "valid",
-        independentAssessment: "agree",
-      },
-    });
-  }
-
-  finalizeDraftRecommendations({ store, runId: run.id });
-  report = store.readReport(run.id);
-  const profileEvents = report.events.filter(
-    ({ type }) => type === "report.practice_profile",
-  );
-  assert.equal(profileEvents.length, 1);
-  assert.deepEqual(
-    profileEvents[0].payload.items.map(({ practiceId }) => practiceId),
-    ["01", "02", "03", "04", "05", "06", "07"],
-  );
-  const snapshot = toRunSnapshot(report, 1);
-  assert.equal(snapshot.auditMode, "general");
-  assert.equal(snapshot.practiceProfile.available, true);
-  assert.equal(snapshot.practiceProfile.assessedCount, 7);
-  assert.equal(snapshot.practiceProfile.items.length, 7);
-  assert.equal(snapshot.practiceProfile.items[0].evidence[0].verdict, "verified");
-  assert.equal(snapshot.practiceProfile.items[0].recommendations.length, 1);
 });
 
 test("live provider usage and command progress reach the journal before completion", async (t) => {
@@ -1632,7 +1628,6 @@ test("completed candidate evidence survives an independent policy failure", asyn
   const run = createRun(store, {
     independent: true,
     independentCommandBudget: 1,
-    auditMode: "general",
   });
 
   const result = await runInvestigationPhase({
@@ -1666,64 +1661,6 @@ test("completed candidate evidence survives an independent policy failure", asyn
         payload.unavailableRoles[0].role === "independent",
     ),
     true,
-  );
-  assert.equal(
-    report.events.some(
-      ({ actor, type }) =>
-        actor === "orchestrator" && type === "orchestration.completed",
-    ),
-    true,
-  );
-});
-
-test("a general audit continues when degraded independent evidence omits the practice profile", async (t) => {
-  const directory = mkdtempSync(
-    join(tmpdir(), "waymark-independent-partial-general-"),
-  );
-  const store = new AuditStore({ databasePath: join(directory, "audit.sqlite") });
-  t.after(() => store.close());
-  const run = createRun(store, {
-    independent: true,
-    independentCommandBudget: 1,
-    auditMode: "general",
-  });
-
-  const result = await runInvestigationPhase({
-    store,
-    runId: run.id,
-    adapters: [
-      fakeAdapter(
-        { independent: "command-over-budget-await" },
-        "post_completion",
-        null,
-        true,
-        "report-only-empty-general",
-      ),
-    ],
-    killGraceMs: 100,
-  });
-
-  assert.equal(result.status, "active");
-  assert.equal(result.results[0].status, "completed");
-  assert.equal(result.results[1].status, "completed_partial_policy");
-  const report = store.readReport(run.id);
-  assert.equal(report.run.status, "active");
-  assert.equal(report.claims.length, 7);
-  assert.equal(
-    report.events.some(
-      ({ actor, type, payload }) =>
-        actor === "workflow" &&
-        type === "investigation.degraded" &&
-        payload.calibrationEligible === false &&
-        payload.unavailableRoles[0].role === "independent" &&
-        payload.unavailableRoles[0].reason ===
-          "shell_command_budget_exceeded",
-    ),
-    true,
-  );
-  assert.equal(
-    report.events.filter(({ type }) => type === "probe.result").length,
-    2,
   );
   assert.equal(
     report.events.some(
@@ -1801,112 +1738,6 @@ test("candidate evidence import retains valid findings when a sibling finding is
   assert.equal(snapshot.calibration.eligible, false);
   assert.equal(snapshot.calibration.status, "diagnostic_only");
   assert.equal(snapshot.calibration.issues[0].type, "evidence_degraded");
-});
-
-test("general evidence import removes only invalid practice references", async (t) => {
-  const directory = mkdtempSync(
-    join(tmpdir(), "waymark-partial-practice-references-"),
-  );
-  const store = new AuditStore({ databasePath: join(directory, "audit.sqlite") });
-  t.after(() => store.close());
-  const run = createRun(store, {
-    auditMode: "general",
-    candidateHardLimit: 1_000,
-  });
-
-  const result = await runInvestigationPhase({
-    store,
-    runId: run.id,
-    adapters: [
-      fakeAdapter({ candidate: "invalid-practice-references-general" }),
-    ],
-  });
-
-  assert.equal(result.status, "active");
-  const report = store.readReport(run.id);
-  assert.equal(report.claims.length, 7);
-  assert.equal(
-    report.events.some(
-      ({ type }) => type === "orchestration.completed",
-    ),
-    true,
-  );
-  const degraded = report.events.find(
-    ({ type, payload }) =>
-      type === "investigation.degraded" &&
-      payload.reason === "evidence_normalization_required",
-  );
-  assert.ok(degraded);
-  assert.equal(degraded.payload.issueCount, 3);
-  assert.deepEqual(
-    degraded.payload.issues.map(({ practiceId, findingIndex, code }) => ({
-      practiceId,
-      findingIndex,
-      code,
-    })),
-    [
-      {
-        practiceId: "01",
-        findingIndex: 4,
-        code: "GENERAL_PRACTICE_FINDING_MISMATCH",
-      },
-      {
-        practiceId: "05",
-        findingIndex: 0,
-        code: "GENERAL_PRACTICE_FINDING_MISMATCH",
-      },
-      {
-        practiceId: "07",
-        findingIndex: 99,
-        code: "GENERAL_PRACTICE_FINDING_OUT_OF_RANGE",
-      },
-    ],
-  );
-  assert.equal(toRunSnapshot(report, 1).calibration.eligible, false);
-});
-
-test("general evidence import fills a missing practice as not assessed", async (t) => {
-  const directory = mkdtempSync(
-    join(tmpdir(), "waymark-missing-practice-assessment-"),
-  );
-  const store = new AuditStore({ databasePath: join(directory, "audit.sqlite") });
-  t.after(() => store.close());
-  const run = createRun(store, {
-    auditMode: "general",
-    candidateHardLimit: 1_000,
-  });
-
-  const result = await runInvestigationPhase({
-    store,
-    runId: run.id,
-    adapters: [
-      fakeAdapter({ candidate: "missing-practice-assessment-general" }),
-    ],
-  });
-
-  assert.equal(result.status, "active");
-  const report = store.readReport(run.id);
-  assert.equal(report.claims.length, 7);
-  const degraded = report.events.find(
-    ({ type, payload }) =>
-      type === "investigation.degraded" &&
-      payload.reason === "evidence_normalization_required",
-  );
-  assert.ok(degraded);
-  assert.equal(
-    degraded.payload.issues.some(
-      ({ practiceId, code }) =>
-        practiceId === "06" &&
-        code === "GENERAL_PRACTICE_ASSESSMENT_MISSING",
-    ),
-    true,
-  );
-  assert.equal(
-    report.events.some(
-      ({ type }) => type === "orchestration.completed",
-    ),
-    true,
-  );
 });
 
 test("a completion-only token overrun remains valid evidence and continues", async (t) => {
