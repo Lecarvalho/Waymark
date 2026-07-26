@@ -85,11 +85,8 @@ service. Never present fallback values as live measurements.
 - `bin/waymark.mjs`: stable JSON command-line protocol
 - `.agents/skills/waymark-audit/`: repository-local audit skill
 - `fixtures/benchmarks/`: controlled calibration cases
-- `worker/index.ts`: Vinext worker entry point
 - `tests/rendered-html.test.mjs`: rendered application smoke test
 - `public/og.png`: Waymark social-preview asset
-- `.openai/hosting.json`: hosting capability declaration; the product remains
-  local unless the user explicitly requests deployment
 
 ## Commands
 
@@ -104,14 +101,12 @@ npm run build
 npm test
 npm run lint
 npm run waymark -- help
-npm run db:generate
 ```
 
 - Run `npm run build` after UI or application changes.
 - Run `npm test` after protocol, persistence, scoring, service, rendered
   content, routing, or server changes.
 - Run `npm run lint` for TypeScript or React changes when practical.
-- Run `npm run db:generate` only after an intentional schema change.
 
 ## Architecture Direction
 
@@ -192,7 +187,6 @@ must remain explainable from stored run data.
 - Avoid generic modules named `utils`, `helpers`, `common`, or `manager`.
 - Keep provider adapters, scoring, persistence, and presentation in separate
   modules.
-- Do not hand-edit generated migrations.
 - Do not add secrets, tokens, repository contents, or sensitive source snippets
   to committed fixtures.
 
