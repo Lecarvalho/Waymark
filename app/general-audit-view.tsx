@@ -5,6 +5,24 @@ import { useState } from "react";
 import type { WaymarkRunSnapshot } from "./use-waymark-live";
 import { GeneralAuditGraphics } from "./general-audit-graphics";
 import { GeneralAuditInvestigationGraphics } from "./general-audit-investigation-graphics";
+import styles from "./general-audit-view.module.css";
+import findingStyles from "./general-audit-findings.module.css";
+import recommendationStyles from "./general-audit-recommendations.module.css";
+
+const styleMaps = [styles, findingStyles, recommendationStyles];
+
+function classes(value: string) {
+  return value
+    .split(/\s+/)
+    .filter(Boolean)
+    .flatMap((name) => {
+      const matches = styleMaps
+        .map((styleMap) => styleMap[name as keyof typeof styleMap])
+        .filter((match): match is string => Boolean(match));
+      return matches.length > 0 ? matches : [name];
+    })
+    .join(" ");
+}
 
 type GeneralAuditViewProps = {
   snapshot: WaymarkRunSnapshot;
@@ -120,11 +138,12 @@ export function GeneralAuditView({ snapshot }: GeneralAuditViewProps) {
   return (
     <>
       <section
-        className={`general-audit-hero status-${snapshot.status}`}
+        className={classes("general-audit-hero")}
+        data-status={snapshot.status}
         aria-labelledby="general-audit-title"
       >
         <div>
-          <div className="audit-context">
+          <div className={classes("audit-context")}>
             <span>General repository audit</span>
             <span aria-hidden="true">/</span>
             <strong>{auditStatusLabels[snapshot.status]}</strong>
@@ -134,14 +153,14 @@ export function GeneralAuditView({ snapshot }: GeneralAuditViewProps) {
             One auditor is tracing how agents discover behavior, ownership,
             dependencies, change surfaces, verification, and instructions.
           </p>
-          <div className="general-hero-meta">
+          <div className={classes("general-hero-meta")}>
             <span>Read-only target</span>
             <span>Checkpoint {report.latestCheckpointSequence}</span>
             <span>{snapshot.progress}% coverage progress</span>
           </div>
         </div>
         <div
-          className="general-progress"
+          className={classes("general-progress")}
           aria-label={`General audit ${snapshot.progress} percent complete`}
         >
           <span>Evidence coverage progress</span>
@@ -157,7 +176,8 @@ export function GeneralAuditView({ snapshot }: GeneralAuditViewProps) {
 
       {snapshot.status !== "running" ? (
         <section
-          className={`general-outcome status-${snapshot.status}`}
+          className={classes("general-outcome")}
+          data-status={snapshot.status}
           role="status"
         >
           <strong>{auditStatusLabels[snapshot.status]}</strong>
@@ -183,7 +203,7 @@ export function GeneralAuditView({ snapshot }: GeneralAuditViewProps) {
         </section>
       ) : null}
 
-      <section className="general-metric-strip" aria-label="General audit metrics">
+      <section className={classes("general-metric-strip")} aria-label="General audit metrics">
         <article>
           <span>Assessed weight</span>
           <strong>{report.completeness.assessedWeight}%</strong>
@@ -200,7 +220,7 @@ export function GeneralAuditView({ snapshot }: GeneralAuditViewProps) {
               : "No overall score until all six dimensions are assessed"}
           </small>
         </article>
-        <article className="is-activity">
+        <article data-kind="activity">
           <span>Auditor tokens</span>
           <strong>{formatTokenCount(auditorTokens)}</strong>
           <small>{formatTokenSource(report.auditor?.tokenSource ?? null)}</small>
@@ -218,9 +238,9 @@ export function GeneralAuditView({ snapshot }: GeneralAuditViewProps) {
         </article>
       </section>
 
-      <section className="general-auditor-strip" aria-label="General audit owner">
+      <section className={classes("general-auditor-strip")} aria-label="General audit owner">
         <div>
-          <span className="general-auditor-mark" aria-hidden="true">
+          <span className={classes("general-auditor-mark")} aria-hidden="true">
             A
           </span>
           <div>
@@ -236,18 +256,17 @@ export function GeneralAuditView({ snapshot }: GeneralAuditViewProps) {
           <span>Role status</span>
           <strong>{report.auditor?.status ?? "Not reported"}</strong>
         </div>
-        <div className="is-activity">
+        <div data-kind="activity">
           <span>Live measurement</span>
           <strong>{formatTokenCount(auditorTokens)} tokens</strong>
         </div>
       </section>
 
-      <div className="general-report-tabs" role="tablist" aria-label="General audit report">
+      <div className={classes("general-report-tabs")} role="tablist" aria-label="General audit report">
         {(["progress", "evidence", "recommendations"] as const).map((item) => (
           <button
             aria-controls={`general-${item}-panel`}
             aria-selected={tab === item}
-            className={tab === item ? "is-active" : ""}
             id={`general-${item}-tab`}
             key={item}
             onClick={() => setTab(item)}
@@ -266,19 +285,19 @@ export function GeneralAuditView({ snapshot }: GeneralAuditViewProps) {
       {tab === "progress" ? (
         <div
           aria-labelledby="general-progress-tab"
-          className="general-tab-panel"
+          className={classes("general-tab-panel")}
           id="general-progress-panel"
           role="tabpanel"
         >
-          <section className="panel general-flow-panel">
-            <div className="panel-heading">
+          <section className={classes("panel general-flow-panel")}>
+            <div className={classes("panel-heading")}>
               <div>
-                <span className="section-kicker">General flow</span>
+                <span className={classes("section-kicker")}>General flow</span>
                 <h2>Coverage-led audit stages</h2>
               </div>
-              <span className="muted-action">{snapshot.phase}</span>
+              <span className={classes("muted-action")}>{snapshot.phase}</span>
             </div>
-            <ol className="general-stage-list">
+            <ol className={classes("general-stage-list")}>
               {stages.map((stage, index) => {
                 const state = stage.complete
                   ? "complete"
@@ -289,7 +308,7 @@ export function GeneralAuditView({ snapshot }: GeneralAuditViewProps) {
                       ? "failed"
                       : "queued";
                 return (
-                  <li className={`status-${state}`} key={stage.label}>
+                  <li data-status={state} key={stage.label}>
                     <span aria-hidden="true">
                       {state === "complete" ? "✓" : index + 1}
                     </span>
@@ -304,9 +323,9 @@ export function GeneralAuditView({ snapshot }: GeneralAuditViewProps) {
             </ol>
           </section>
 
-          <section className="general-activity-grid">
-            <article className="panel">
-              <span className="section-kicker">Raw activity</span>
+          <section className={classes("general-activity-grid")}>
+            <article className={classes("panel")}>
+              <span className={classes("section-kicker")}>Raw activity</span>
               <h2>Observable provider stream</h2>
               <p>{snapshot.latestEvent || "No provider activity reported yet."}</p>
               <dl>
@@ -322,8 +341,8 @@ export function GeneralAuditView({ snapshot }: GeneralAuditViewProps) {
                 </div>
               </dl>
             </article>
-            <article className="panel is-semantic">
-              <span className="section-kicker">Semantic checkpoints</span>
+            <article className={classes("panel")} data-kind="semantic">
+              <span className={classes("section-kicker")}>Semantic checkpoints</span>
               <h2>Durable report evidence</h2>
               <p>
                 {report.findings.length} findings and{" "}
@@ -355,26 +374,26 @@ export function GeneralAuditView({ snapshot }: GeneralAuditViewProps) {
       {tab === "evidence" ? (
         <section
           aria-labelledby="general-evidence-tab"
-          className="panel general-tab-panel general-finding-panel"
+          className={classes("panel general-tab-panel general-finding-panel")}
           id="general-evidence-panel"
           role="tabpanel"
         >
-          <div className="panel-heading">
+          <div className={classes("panel-heading")}>
             <div>
-              <span className="section-kicker">Semantic finding ledger</span>
+              <span className={classes("section-kicker")}>Semantic finding ledger</span>
               <h2>Evidence as it was learned</h2>
             </div>
-            <span className="muted-action">
+            <span className={classes("muted-action")}>
               Ordered by checkpoint sequence
             </span>
           </div>
           {report.findings.length === 0 ? (
-            <div className="empty-report-state">
+            <div className={classes("empty-report-state")}>
               No semantic findings have been acknowledged yet. Raw activity does
               not become report evidence until a checkpoint is recorded.
             </div>
           ) : (
-            <div className="general-finding-list">
+            <div className={classes("general-finding-list")}>
               {report.findings.map((finding, index) => {
                 const revision = finding.currentRevision;
                 const cost = revision.navigationCost;
@@ -392,24 +411,26 @@ export function GeneralAuditView({ snapshot }: GeneralAuditViewProps) {
                   : [];
                 return (
                   <details
-                    className={`general-finding state-${revision.state} signal-${revision.signal}`}
+                    className={classes("general-finding")}
+                    data-signal={revision.signal}
+                    data-state={revision.state}
                     key={finding.findingId}
                   >
                     <summary>
-                      <span className="general-checkpoint-number">
+                      <span className={classes("general-checkpoint-number")}>
                         {String(index + 1).padStart(2, "0")}
                       </span>
                       <div>
                         <strong>{revision.title}</strong>
                         <p>{revision.conclusion}</p>
                       </div>
-                      <span className="general-finding-state">
+                      <span className={classes("general-finding-state")}>
                         {findingStateLabels[revision.state]}
                       </span>
                       <span aria-hidden="true">+</span>
                     </summary>
-                    <div className="general-finding-detail">
-                      <section className="general-amendment">
+                    <div className={classes("general-finding-detail")}>
+                      <section className={classes("general-amendment")}>
                         <h3>Current state</h3>
                         <p>
                           {formatFindingState(
@@ -427,7 +448,7 @@ export function GeneralAuditView({ snapshot }: GeneralAuditViewProps) {
                       <section>
                         <h3>Citations</h3>
                         {revision.citations.length > 0 ? (
-                          <ul className="general-citation-list">
+                          <ul className={classes("general-citation-list")}>
                             {revision.citations.map((citation, citationIndex) => (
                               <li
                                 key={`${citation.path}-${citation.startLine}-${citationIndex}`}
@@ -452,7 +473,7 @@ export function GeneralAuditView({ snapshot }: GeneralAuditViewProps) {
                       <section>
                         <h3>Navigation cost</h3>
                         {costLabels.length > 0 ? (
-                          <ul className="general-cost-list">
+                          <ul className={classes("general-cost-list")}>
                             {costLabels.map((label) => (
                               <li key={label}>{label}</li>
                             ))}
@@ -463,7 +484,7 @@ export function GeneralAuditView({ snapshot }: GeneralAuditViewProps) {
                       </section>
                       <section>
                         <h3>Revision history</h3>
-                        <ol className="general-revision-list">
+                        <ol className={classes("general-revision-list")}>
                           {finding.revisions.map((item) => (
                             <li key={item.revisionId}>
                               <div>
@@ -499,26 +520,26 @@ export function GeneralAuditView({ snapshot }: GeneralAuditViewProps) {
       {tab === "recommendations" ? (
         <section
           aria-labelledby="general-recommendations-tab"
-          className="panel general-tab-panel general-recommendation-panel"
+          className={classes("panel general-tab-panel general-recommendation-panel")}
           id="general-recommendations-panel"
           role="tabpanel"
         >
-          <div className="panel-heading">
+          <div className={classes("panel-heading")}>
             <div>
-              <span className="section-kicker">Evidence-linked improvements</span>
+              <span className={classes("section-kicker")}>Evidence-linked improvements</span>
               <h2>Recommendations</h2>
             </div>
-            <span className="muted-action">
+            <span className={classes("muted-action")}>
               {report.recommendations.length} available
             </span>
           </div>
           {report.recommendations.length === 0 ? (
-            <div className="empty-report-state">
+            <div className={classes("empty-report-state")}>
               Recommendations appear only after the auditor links a repository
               improvement to durable findings.
             </div>
           ) : (
-            <div className="general-recommendation-list">
+            <div className={classes("general-recommendation-list")}>
               {report.recommendations.map((recommendation, index) => (
                 <article key={recommendation.recommendationId}>
                   <span>{String(index + 1).padStart(2, "0")}</span>
@@ -538,12 +559,15 @@ export function GeneralAuditView({ snapshot }: GeneralAuditViewProps) {
             </div>
           )}
           {report.synthesis ? (
-            <aside className="general-synthesis">
+            <aside className={classes("general-synthesis")}>
               <strong>Auditor synthesis</strong>
               <p>{report.synthesis.summary}</p>
             </aside>
           ) : (
-            <aside className="general-synthesis is-incomplete">
+            <aside
+              className={classes("general-synthesis")}
+              data-status="incomplete"
+            >
               <strong>Synthesis incomplete</strong>
               <p>
                 Current findings remain usable, but the auditor has not recorded

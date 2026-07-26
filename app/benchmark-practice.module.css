@@ -1,0 +1,259 @@
+.practice-profile-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin-top: 18px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+}
+
+.practice-profile-summary > span {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  min-width: 0;
+  padding: 14px 16px;
+  border-left: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 12px;
+  text-transform: capitalize;
+}
+
+.practice-profile-summary > span:first-child {
+  border-left: 0;
+}
+
+.practice-profile-summary strong {
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.practice-profile-summary [data-status="strong"] strong,
+.practice-profile-item[data-status="strong"] .practice-profile-status {
+  color: var(--lime);
+}
+
+.practice-profile-summary [data-status="mixed"] strong,
+.practice-profile-item[data-status="mixed"] .practice-profile-status {
+  color: var(--amber);
+}
+
+.practice-profile-summary [data-status="weak"] strong,
+.practice-profile-item[data-status="weak"] .practice-profile-status {
+  color: var(--red);
+}
+
+.practice-profile-summary [data-status="not_assessed"] strong,
+.practice-profile-item[data-status="not_assessed"] .practice-profile-status {
+  color: var(--muted-bright);
+}
+
+.practice-profile-list {
+  margin-top: 8px;
+}
+
+.practice-profile-item {
+  border-top: 1px solid var(--line);
+}
+
+.practice-profile-item:first-child {
+  border-top: 0;
+}
+
+.practice-profile-item > summary {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr) auto 18px;
+  gap: 14px;
+  align-items: center;
+  padding: 18px 0;
+  cursor: pointer;
+  list-style: none;
+}
+
+.practice-profile-item > summary::-webkit-details-marker {
+  display: none;
+}
+
+.practice-profile-number {
+  color: var(--muted);
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 12px;
+}
+
+.practice-profile-copy {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.practice-profile-copy strong {
+  color: var(--text);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.practice-profile-copy small {
+  color: var(--muted-bright);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.practice-profile-status {
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 11px;
+  text-transform: uppercase;
+}
+
+.practice-profile-item[open] > summary > span:last-child {
+  transform: rotate(45deg);
+}
+
+.practice-profile-detail {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 28px;
+  padding: 2px 0 22px 50px;
+}
+
+.practice-profile-detail section {
+  min-width: 0;
+  padding: 15px 0;
+  border-top: 1px solid var(--line);
+}
+
+.practice-profile-detail h3 {
+  margin: 0 0 7px;
+  color: var(--muted);
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 11px;
+  font-weight: 500;
+  text-transform: uppercase;
+}
+
+.practice-profile-detail p,
+.practice-profile-detail li {
+  color: var(--muted-bright);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.practice-profile-detail p,
+.practice-profile-detail ul {
+  margin: 0;
+}
+
+.practice-profile-detail ul {
+  padding-left: 18px;
+}
+
+.practice-profile-evidence {
+  display: grid;
+  gap: 10px;
+  padding-left: 0;
+  list-style: none;
+}
+
+.practice-profile-evidence li {
+  display: grid;
+  gap: 4px;
+}
+
+.practice-profile-evidence code {
+  overflow-wrap: anywhere;
+  color: var(--blue);
+  font-size: 11px;
+}
+
+.practice-profile-links {
+  display: grid;
+  gap: 7px;
+  padding-left: 0;
+  list-style: none;
+}
+
+.practice-profile-links a {
+  display: flex;
+  gap: 8px;
+  color: var(--text);
+  text-decoration: none;
+}
+
+.practice-profile-links a:hover {
+  color: var(--blue);
+}
+
+.practice-profile-links a span {
+  color: var(--amber);
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 11px;
+}
+
+.practice-profile-legacy {
+  margin-top: 18px;
+  padding: 18px;
+  border: 1px solid rgba(217, 169, 85, 0.35);
+  border-radius: 5px;
+  background: rgba(217, 169, 85, 0.06);
+}
+
+.practice-profile-legacy strong {
+  color: var(--amber);
+}
+
+.practice-profile-legacy p {
+  max-width: 70ch;
+  margin: 7px 0 0;
+  color: var(--muted-bright);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+@media (max-width: 760px) {
+  .practice-profile-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 760px) {
+
+  .practice-profile-summary > span:nth-child(3) {
+    border-left: 0;
+  }
+}
+
+@media (max-width: 760px) {
+
+  .practice-profile-summary > span:nth-child(n + 3) {
+    border-top: 1px solid var(--line);
+  }
+}
+
+@media (max-width: 760px) {
+
+  .practice-profile-item > summary {
+    grid-template-columns: 28px minmax(0, 1fr) 18px;
+  }
+}
+
+@media (max-width: 760px) {
+
+  .practice-profile-status {
+    grid-column: 2;
+  }
+}
+
+@media (max-width: 760px) {
+
+  .practice-profile-item > summary > span:last-child {
+    grid-column: 3;
+    grid-row: 1;
+  }
+}
+
+@media (max-width: 760px) {
+
+  .practice-profile-detail {
+    grid-template-columns: 1fr;
+    padding-left: 42px;
+  }
+}

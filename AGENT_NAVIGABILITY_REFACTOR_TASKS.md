@@ -363,7 +363,7 @@ Do not create generic modules named `utils`, `helpers`, `common`, or `manager`.
 
 **Dependencies:** NAV-01.
 
-**Status:** Not started.
+**Status:** Complete.
 
 ### Context
 

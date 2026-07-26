@@ -17,6 +17,15 @@ import type {
   TokenBudget,
 } from "../src/orchestration/types";
 import { useProviderCapabilities } from "./use-provider-capabilities";
+import styles from "./prepare-audit-dialog.module.css";
+
+function classes(value: string) {
+  return value
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((name) => styles[name as keyof typeof styles] ?? name)
+    .join(" ");
+}
 
 type Role = "auditor" | "candidate" | "independent" | "orchestrator";
 type BenchmarkRole = Exclude<Role, "auditor">;
@@ -394,7 +403,7 @@ export function PrepareAuditDialog() {
   return (
     <>
       <button
-        className="prepare-audit-trigger"
+        className={classes("prepare-audit-trigger")}
         onClick={open}
         ref={trigger}
         type="button"
@@ -404,14 +413,14 @@ export function PrepareAuditDialog() {
 
       <dialog
         aria-labelledby="prepare-audit-title"
-        className="prepare-audit-dialog"
+        className={classes("prepare-audit-dialog")}
         onClose={() => trigger.current?.focus()}
         ref={dialog}
       >
-        <form className="prepare-audit-frame" method="dialog">
-          <header className="prepare-audit-heading">
+        <form className={classes("prepare-audit-frame")} method="dialog">
+          <header className={classes("prepare-audit-heading")}>
             <div>
-              <span className="section-kicker">Preparation only</span>
+              <span className={classes("section-kicker")}>Preparation only</span>
               <h2 id="prepare-audit-title">Prepare an audit request</h2>
               <p>
                 Build a prompt for your paired coding agent. Nothing here
@@ -420,7 +429,7 @@ export function PrepareAuditDialog() {
             </div>
             <button
               aria-label="Close audit request"
-              className="prepare-audit-close"
+              className={classes("prepare-audit-close")}
               onClick={close}
               type="button"
             >
@@ -428,20 +437,20 @@ export function PrepareAuditDialog() {
             </button>
           </header>
 
-          <div className="prepare-audit-scroll">
+          <div className={classes("prepare-audit-scroll")}>
             <section
               aria-labelledby="audit-request-scope"
-              className="prepare-section"
+              className={classes("prepare-section")}
             >
-              <div className="prepare-section-heading">
+              <div className={classes("prepare-section-heading")}>
                 <span>01</span>
                 <div>
                   <h3 id="audit-request-scope">Scope</h3>
                   <p>Identify the immutable target before role work begins.</p>
                 </div>
               </div>
-              <div className="prepare-field-grid">
-                <label className="prepare-field is-wide">
+              <div className={classes("prepare-field-grid")}>
+                <label className={classes("prepare-field")} data-span="wide">
                   <span>Target repository path</span>
                   <input
                     autoComplete="off"
@@ -455,12 +464,12 @@ export function PrepareAuditDialog() {
                   />
                 </label>
                 {databasePath && (
-                  <p className="prepare-mode-note">
+                  <p className={classes("prepare-mode-note")}>
                     This request will reuse the running service at {serviceUrl}
                     {" "}and append its run to <code>{databasePath}</code>.
                   </p>
                 )}
-                <label className="prepare-field is-wide">
+                <label className={classes("prepare-field")} data-span="wide">
                   <span>Audit mode</span>
                   <select
                     onChange={(event) => {
@@ -491,7 +500,7 @@ export function PrepareAuditDialog() {
                   </select>
                 </label>
                 {auditMode !== "general" ? (
-                  <label className="prepare-field is-wide">
+                  <label className={classes("prepare-field")} data-span="wide">
                     <span>
                       {selectedAuditMode?.probeLabel ??
                         (auditMode === "system_explanation"
@@ -533,7 +542,7 @@ export function PrepareAuditDialog() {
                     </small>
                   </label>
                 ) : (
-                  <p className="prepare-mode-note">
+                  <p className={classes("prepare-mode-note")}>
                     {selectedAuditMode?.description ??
                       "Broad, evidence-led repository research by one auditor."}{" "}
                     No feature request or benchmark task suite is needed.
@@ -544,9 +553,9 @@ export function PrepareAuditDialog() {
 
             <section
               aria-labelledby="audit-request-participants"
-              className="prepare-section"
+              className={classes("prepare-section")}
             >
-              <div className="prepare-section-heading">
+              <div className={classes("prepare-section-heading")}>
                 <span>02</span>
                 <div>
                   <h3 id="audit-request-participants">Participants</h3>
@@ -557,18 +566,26 @@ export function PrepareAuditDialog() {
                 </div>
               </div>
               {capabilityState === "loading" ? (
-                <p className="prepare-capability-state" role="status">
+                <p className={classes("prepare-capability-state")} role="status">
                   Reading local adapter capabilities…
                 </p>
               ) : capabilityState === "unavailable" ? (
-                <p className="prepare-capability-state is-error" role="status">
+                <p
+                  className={classes("prepare-capability-state")}
+                  data-status="error"
+                  role="status"
+                >
                   Local adapter capabilities are unavailable. Start the Waymark
                   local service to prepare a request.
                 </p>
               ) : capabilities?.providers.some(
                   (provider) => provider.available,
                 ) !== true ? (
-                <div className="prepare-capability-state is-error" role="status">
+                <div
+                  className={classes("prepare-capability-state")}
+                  data-status="error"
+                  role="status"
+                >
                   <strong>No provider adapter is ready.</strong>
                   {capabilities?.providers.map((provider) => (
                     <span key={provider.id}>
@@ -577,7 +594,7 @@ export function PrepareAuditDialog() {
                   ))}
                 </div>
               ) : (
-                <div className="participant-config-list">
+                <div className={classes("participant-config-list")}>
                   {activeRoles.map((role) => {
                     const selection = resolvedParticipants[role];
                     const provider = selectedProvider(
@@ -586,9 +603,9 @@ export function PrepareAuditDialog() {
                     );
                     const model = selectedModel(provider, selection);
                     return (
-                      <fieldset className="participant-config" key={role}>
+                      <fieldset className={classes("participant-config")} key={role}>
                         <legend>{roleLabels[role]}</legend>
-                        <label className="prepare-field">
+                        <label className={classes("prepare-field")}>
                           <span>Provider</span>
                           <select
                             onChange={(event) =>
@@ -609,7 +626,7 @@ export function PrepareAuditDialog() {
                             )}
                           </select>
                         </label>
-                        <label className="prepare-field">
+                        <label className={classes("prepare-field")}>
                           <span>Model</span>
                           <select
                             onChange={(event) =>
@@ -628,7 +645,7 @@ export function PrepareAuditDialog() {
                             ))}
                           </select>
                         </label>
-                        <label className="prepare-field">
+                        <label className={classes("prepare-field")}>
                           <span>Reasoning</span>
                           <select
                             onChange={(event) =>
@@ -656,20 +673,20 @@ export function PrepareAuditDialog() {
 
             <section
               aria-labelledby="audit-request-budget"
-              className="prepare-section"
+              className={classes("prepare-section")}
             >
               {auditMode === "general" ? (
-                <div className="prepare-advanced general-token-policy">
+                <div className={classes("prepare-advanced general-token-policy")}>
                   <div id="audit-request-budget">
                     <strong>Auditor token usage</strong>
                     <span>Measured without a Waymark stopping threshold</span>
                   </div>
-                  <p className="budget-config-note">
+                  <p className={classes("budget-config-note")}>
                     General research is unbounded by Waymark. You may set a
                     soft notice for visibility; it does not stop the auditor or
                     determine report validity.
                   </p>
-                  <label className="prepare-field">
+                  <label className={classes("prepare-field")}>
                     <span>Optional soft usage notice</span>
                     <input
                       min={1}
@@ -689,21 +706,21 @@ export function PrepareAuditDialog() {
                   </label>
                 </div>
               ) : (
-                <details className="prepare-advanced">
+                <details className={classes("prepare-advanced")}>
                 <summary id="audit-request-budget">
                   Advanced token budgets
                   <span>Automatic targets · editable hard limits</span>
                 </summary>
                 {resolvedTokenBudgets && (
                   <div>
-                    <p className="budget-config-note">
+                    <p className={classes("budget-config-note")}>
                       Targets may decrease from completed audits of this probe
                       type, but history never raises the safe rubric defaults.
                       Waymark reserves enough room to replay the current
                       context and return a partial report if exploration runs
                       long.
                     </p>
-                    <div className="budget-config-list">
+                    <div className={classes("budget-config-list")}>
                       {(
                         Object.entries(resolvedTokenBudgets) as Array<
                           [keyof AuditTokenBudgets, TokenBudget]
@@ -711,9 +728,9 @@ export function PrepareAuditDialog() {
                       ).map(([phase, budget]) => {
                         const basis = capabilities?.tokenBudgetBasis[phase];
                         return (
-                          <div className="budget-config-row" key={phase}>
+                          <div className={classes("budget-config-row")} key={phase}>
                             <strong>{phaseLabels[phase]}</strong>
-                            <div className="budget-target-baseline">
+                            <div className={classes("budget-target-baseline")}>
                               <span>Automatic target</span>
                               <strong>
                                 {budget.targetTokens.toLocaleString()}
@@ -732,7 +749,7 @@ export function PrepareAuditDialog() {
                                   : "Default until a completed run is available"}
                               </small>
                             </div>
-                            <label className="prepare-field">
+                            <label className={classes("prepare-field")}>
                               <span>Hard limit · includes report reserve</span>
                               <input
                                 min={budget.targetTokens}
@@ -756,9 +773,9 @@ export function PrepareAuditDialog() {
 
             <section
               aria-labelledby="audit-request-preview"
-              className="prepare-section"
+              className={classes("prepare-section")}
             >
-              <div className="prepare-section-heading">
+              <div className={classes("prepare-section-heading")}>
                 <span>03</span>
                 <div>
                   <h3 id="audit-request-preview">Prompt preview</h3>
@@ -771,7 +788,7 @@ export function PrepareAuditDialog() {
               {errors.length > 0 ? (
                 <div
                   aria-live="polite"
-                  className="prepare-validation"
+                  className={classes("prepare-validation")}
                   role="status"
                 >
                   <strong>Complete the request to generate its prompt.</strong>
@@ -784,7 +801,7 @@ export function PrepareAuditDialog() {
               ) : (
                 <textarea
                   aria-label="Generated audit request"
-                  className="prompt-preview"
+                  className={classes("prompt-preview")}
                   readOnly
                   rows={12}
                   value={prompt}
@@ -793,7 +810,7 @@ export function PrepareAuditDialog() {
             </section>
           </div>
 
-          <footer className="prepare-audit-footer">
+          <footer className={classes("prepare-audit-footer")}>
             <p aria-live="polite">
               {copyState === "copied"
                 ? "Copied. Paste it into the paired coding-agent session; no audit was started."
@@ -803,14 +820,14 @@ export function PrepareAuditDialog() {
             </p>
             <div>
               <button
-                className="prepare-cancel"
+                className={classes("prepare-cancel")}
                 onClick={close}
                 type="button"
               >
                 Cancel
               </button>
               <button
-                className="prepare-copy"
+                className={classes("prepare-copy")}
                 disabled={prompt === ""}
                 onClick={copyPrompt}
                 type="button"

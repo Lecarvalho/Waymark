@@ -1,0 +1,155 @@
+.tree-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.tree-card {
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: rgba(23, 28, 36, 0.82);
+}
+
+.tree-card > div {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  column-gap: 9px;
+  align-items: center;
+  margin-bottom: 17px;
+}
+
+.tree-mark {
+  display: grid;
+  grid-row: 1 / 3;
+  width: 29px;
+  height: 29px;
+  place-items: center;
+  border-radius: 8px;
+  font-family: var(--font-geist-mono), monospace;
+}
+
+.recommended-tree .tree-mark {
+  background: rgba(185, 244, 123, 0.1);
+  color: var(--lime);
+}
+
+.hostile-tree .tree-mark {
+  background: rgba(255, 141, 129, 0.1);
+  color: var(--red);
+}
+
+.tree-card h3 {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 580;
+}
+
+.tree-card small {
+  color: var(--muted);
+  font-size: 8px;
+}
+
+.tree-card pre {
+  min-height: 330px;
+  padding: 16px;
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #10141a;
+  font-size: 8px;
+  line-height: 1.65;
+}
+
+.guide-close {
+  padding: 27px 4px 2px;
+  border-top: 1px solid var(--line-strong);
+}
+
+.guide-close h2 {
+  max-width: 720px;
+  margin-top: 9px;
+  font-size: 26px;
+}
+
+.target-points {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: 18px;
+}
+
+.target-points span {
+  padding: 7px 9px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.02);
+  color: var(--muted-bright);
+  font-size: 8px;
+}
+
+@media (max-width: 900px) {
+
+  .tree-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.structure-switcher {
+  display: inline-flex;
+  gap: 4px;
+  margin-bottom: 14px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #14171c;
+}
+
+.structure-switcher button {
+  min-height: 38px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.single-tree {
+  grid-template-columns: minmax(0, 760px);
+}
+
+.tree-card {
+  padding: 24px;
+}
+
+.tree-card h3 {
+  font-size: 17px;
+}
+
+.tree-card small {
+  font-size: 13px;
+}
+
+.tree-card pre {
+  min-height: 0;
+  padding: 20px;
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.target-points {
+  gap: 10px;
+}
+
+.target-points span {
+  padding: 8px 11px;
+  font-size: 13px;
+}
+
+.structure-switcher button[aria-pressed="true"] {
+  background: #242a32;
+  color: var(--text);
+}

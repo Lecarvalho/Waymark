@@ -1,0 +1,19 @@
+:root {
+    --ink: #101216;
+    --ink-soft: #14171c;
+    --panel: #191d23;
+    --panel-raised: #1e232b;
+    --line: #2a3039;
+    --line-strong: #38414c;
+    --text: #f1f3ee;
+    --muted: #9ca5b3;
+    --muted-bright: #c0c6cf;
+    --lime: #a9d86e;
+    --lime-dark: #7ea64f;
+    --blue: #82aeef;
+    --amber: #d9a955;
+    --red: #e5796e;
+    --font-geist-sans: "Segoe UI Variable Text", "Segoe UI", system-ui,
+    sans-serif;
+    --font-geist-mono: "Cascadia Code", "SFMono-Regular", Consolas, monospace
+}

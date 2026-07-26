@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import styles from "./general-audit-graphics.module.css";
 
 import type {
   GeneralAuditReport,
@@ -11,6 +12,14 @@ import type {
   GeneralEvidenceSource,
   WaymarkDimensionId,
 } from "../src/domain/general-audit.mjs";
+
+function classes(value: string) {
+  return value
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((name) => styles[name as keyof typeof styles] ?? name)
+    .join(" ");
+}
 
 type GeneralAuditGraphicsProps = {
   report: GeneralAuditReport;
@@ -132,17 +141,17 @@ export function GeneralAuditGraphics({
   return (
     <>
       <section
-        className="panel general-dimension-panel"
+        className={classes("panel general-dimension-panel")}
         aria-labelledby="weighted-dimensions-title"
       >
-        <div className="panel-heading">
+        <div className={classes("panel-heading")}>
           <div>
-            <span className="section-kicker">Weighted assessment</span>
+            <span className={classes("section-kicker")}>Weighted assessment</span>
             <h2 id="weighted-dimensions-title">
               Navigability by dimension
             </h2>
           </div>
-          <div className="dimension-result-summary">
+          <div className={classes("dimension-result-summary")}>
             <span>
               {report.completeness.assessedWeight}% of 100% assessed
             </span>
@@ -153,26 +162,27 @@ export function GeneralAuditGraphics({
             </strong>
           </div>
         </div>
-        <p className="general-graphic-intro">
+        <p className={classes("general-graphic-intro")}>
           Bars show the auditor score only after adequate evidence. Unassessed
           dimensions remain blank rather than appearing as zero.
         </p>
-        <div className="weighted-dimension-list">
+        <div className={classes("weighted-dimension-list")}>
           {report.dimensions.map((dimension) => {
             const supportingFindings = findSupportingFindings(report, dimension);
             const citationCount =
               dimension.evidenceCoverage.distinctCitationCount;
             return (
               <details
-                className={`weighted-dimension status-${dimension.assessmentState}`}
+                className={classes("weighted-dimension")}
+                data-state={dimension.assessmentState}
                 key={dimension.dimensionId}
               >
                 <summary>
-                  <div className="weighted-dimension-title">
+                  <div className={classes("weighted-dimension-title")}>
                     <strong>{dimensionLabels[dimension.dimensionId]}</strong>
                     <span>{dimension.weight}% fixed weight</span>
                   </div>
-                  <div className="weighted-dimension-state">
+                  <div className={classes("weighted-dimension-state")}>
                     <strong>
                       {formatAssessmentState(dimension.assessmentState)}
                     </strong>
@@ -181,7 +191,7 @@ export function GeneralAuditGraphics({
                     </span>
                   </div>
                   <div
-                    className="weighted-dimension-bar"
+                    className={classes("weighted-dimension-bar")}
                     aria-label={
                       dimension.score === null
                         ? `${dimensionLabels[dimension.dimensionId]} has no score`
@@ -196,21 +206,21 @@ export function GeneralAuditGraphics({
                       />
                     ) : null}
                   </div>
-                  <strong className="weighted-dimension-score">
+                  <strong className={classes("weighted-dimension-score")}>
                     {dimension.score === null
                       ? "No score"
                       : `${dimension.score}/100`}
                   </strong>
-                  <span className="weighted-dimension-coverage">
+                  <span className={classes("weighted-dimension-coverage")}>
                     {citationCount} cited{" "}
                     {citationCount === 1 ? "citation" : "citations"} ·{" "}
                     {dimension.evidenceCoverage.state}
                   </span>
-                  <span className="weighted-dimension-toggle" aria-hidden="true">
+                  <span className={classes("weighted-dimension-toggle")} aria-hidden="true">
                     +
                   </span>
                 </summary>
-                <div className="weighted-dimension-detail">
+                <div className={classes("weighted-dimension-detail")}>
                   <section>
                     <h3>Supporting findings</h3>
                     {supportingFindings.length > 0 ? (
@@ -257,25 +267,25 @@ export function GeneralAuditGraphics({
       </section>
 
       <section
-        className="panel evidence-matrix-panel"
+        className={classes("panel evidence-matrix-panel")}
         aria-labelledby="evidence-matrix-title"
       >
-        <div className="panel-heading">
+        <div className={classes("panel-heading")}>
           <div>
-            <span className="section-kicker">Evidence coverage</span>
+            <span className={classes("section-kicker")}>Evidence coverage</span>
             <h2 id="evidence-matrix-title">Coverage by source</h2>
           </div>
-          <span className="muted-action">
+          <span className={classes("muted-action")}>
             {report.findings.length} current findings
           </span>
         </div>
-        <p className="general-graphic-intro">
+        <p className={classes("general-graphic-intro")}>
           Select a cell to inspect its linked findings and citations. A checked
           surface without dimension evidence is kept distinct from an
           uninspected surface.
         </p>
-        <div className="evidence-matrix-scroll">
-          <table className="evidence-matrix">
+        <div className={classes("evidence-matrix-scroll")}>
+          <table className={classes("evidence-matrix")}>
             <caption>
               Evidence coverage across six navigability dimensions and eight
               repository source types
@@ -302,8 +312,8 @@ export function GeneralAuditGraphics({
                   cells.test.citedEvidenceCount === 0;
                 return (
                   <tr
-                    className={
-                      documentationOnly ? "is-documentation-only" : undefined
+                    data-coverage={
+                      documentationOnly ? "documentation-only" : "supported"
                     }
                     key={dimension.dimensionId}
                   >
@@ -324,7 +334,7 @@ export function GeneralAuditGraphics({
                         selectedCell.source === source;
                       return (
                         <td
-                          className={`matrix-status-${cell.status}`}
+                          data-status={cell.status}
                           key={source}
                         >
                           <button
@@ -357,16 +367,17 @@ export function GeneralAuditGraphics({
             </tbody>
           </table>
         </div>
-        <div className="evidence-matrix-legend" aria-label="Coverage legend">
-          <span className="matrix-status-cited">Cited evidence</span>
-          <span className="matrix-status-inspected_no_finding">
+        <div className={classes("evidence-matrix-legend")} aria-label="Coverage legend">
+          <span data-status="cited">Cited evidence</span>
+          <span data-status="inspected_no_finding">
             Inspected · no linked finding
           </span>
-          <span className="matrix-status-not_inspected">Not inspected</span>
+          <span data-status="not_inspected">Not inspected</span>
         </div>
         <aside
           aria-live="polite"
-          className={`evidence-matrix-detail ${selected ? "has-selection" : ""}`}
+          className={classes("evidence-matrix-detail")}
+          data-state={selected ? "selected" : "empty"}
           id="evidence-matrix-detail"
         >
           {selected && selectedCell ? (
