@@ -28,6 +28,7 @@ function createFakeCodexEntry(directory) {
 
 function preparedInput() {
   return {
+    observerUrl: "http://localhost:3001",
     targetRepositoryPath: "C:\\work\\target",
     journalPath: "C:\\work\\waymark\\.waymark\\waymark.sqlite",
     serviceUrl: "http://127.0.0.1:4318",
@@ -77,6 +78,7 @@ function preparedInput() {
 
 function preparedGeneralInput() {
   return {
+    observerUrl: "http://localhost:3001",
     targetRepositoryPath: "C:\\work\\target",
     journalPath: "C:\\work\\waymark\\.waymark\\waymark.sqlite",
     serviceUrl: "http://127.0.0.1:4318",
@@ -331,6 +333,7 @@ test("prepared audit prompts are deterministic, concise, and preparation-only", 
   assert.match(first, /Run \$waymark-audit/);
   assert.match(first, /C:\\\\work\\\\target/);
   assert.match(first, /Expected journal:/);
+  assert.match(first, /Observer: http:\/\/localhost:3001/);
   assert.match(
     first,
     /Task: "Add partial refunds with manager approval and idempotency\."/,
@@ -467,7 +470,7 @@ test("general mode reaches one fresh auditor as a seven-principle assessment", (
   assert.match(prompt, /Do not launch candidate, independent, orchestrator/);
   assert.match(prompt, /Practice Guide:/);
   assert.match(prompt, /separate generated and external code/);
-  assert.match(prompt, /general\.finding\.revised/);
+  assert.match(prompt, /revise_finding/);
 });
 
 test("prepared system explanations measure finding cost instead of prose depth", () => {

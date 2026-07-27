@@ -19,7 +19,7 @@ report at once.
 - Muted text: `#9CA5B3`
 - Active or verified: `#A9D86E`
 - Candidate measurement: `#82AEEF`
-- Disputed or pending: `#D9A955`
+- Disputed, pending, or navigation friction that needs attention: `#D9A955`
 - Contradicted or failed: `#E5796E`
 
 Color is semantic. Do not use signal colors as ambient decoration or glow.

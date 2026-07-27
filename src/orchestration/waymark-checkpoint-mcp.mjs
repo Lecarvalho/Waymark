@@ -5,6 +5,8 @@ import {
   GENERAL_EVIDENCE_SOURCES,
   GENERAL_FINDING_SIGNALS,
   GENERAL_FINDING_STATES,
+  GENERAL_FRICTION_DISPOSITIONS,
+  GENERAL_PRACTICE_ASSESSMENTS,
   PRACTICE_GUIDE_IDS,
   WAYMARK_DIMENSION_IDS,
 } from "../domain/general-audit.mjs";
@@ -128,6 +130,8 @@ const UNKNOWN_PATH_NODE_SCHEMA = strictObject({
 
 const PATH_NODE_SCHEMA = {
   oneOf: [KNOWN_PATH_NODE_SCHEMA, UNKNOWN_PATH_NODE_SCHEMA],
+  description:
+    "One path node. Known: {status:'known', label, citations:[at least one]}. Unknown: {status:'unknown', label, reason, citations:[]}.",
 };
 
 function pathNodes() {
@@ -135,6 +139,7 @@ function pathNodes() {
     type: "array",
     maxItems: 100,
     items: PATH_NODE_SCHEMA,
+    description: "Array of behavior-path nodes, never a generic object.",
   };
 }
 
@@ -172,6 +177,23 @@ const PAYLOAD_SCHEMAS = Object.freeze({
     ...DIMENSION_PROGRESS_PROPERTIES,
     score: { type: "number", minimum: 0, maximum: 100 },
   }),
+  "general.practice.assessed": strictObject({
+    principleId: { type: "string", enum: PRACTICE_GUIDE_IDS },
+    assessment: { type: "string", enum: GENERAL_PRACTICE_ASSESSMENTS },
+    summary: STRING,
+    surfacesInspected: {
+      type: "array",
+      uniqueItems: true,
+      items: { type: "string", enum: GENERAL_AUDIT_SURFACES },
+    },
+    supportingPositiveFindingIds: stringArray(),
+    supportingFrictionFindingIds: stringArray(),
+    limitations: stringArray(),
+    navigationTokenMechanism: STRING,
+    recommendationIds: stringArray(),
+    workflowEntryPoints: stringArray(),
+    workflowConclusion: NULLABLE_STRING,
+  }),
   "general.recommendation.recorded": strictObject({
     recommendationId: STRING,
     title: STRING,
@@ -183,6 +205,21 @@ const PAYLOAD_SCHEMAS = Object.freeze({
       uniqueItems: true,
       items: { type: "string", enum: WAYMARK_DIMENSION_IDS },
     },
+    practiceGuideIds: {
+      type: "array",
+      maxItems: PRACTICE_GUIDE_IDS.length,
+      uniqueItems: true,
+      items: { type: "string", enum: PRACTICE_GUIDE_IDS },
+    },
+    tokenMechanism: STRING,
+    validationCheck: STRING,
+    limitations: stringArray(),
+  }),
+  "general.friction.disposition.recorded": strictObject({
+    findingId: STRING,
+    disposition: { type: "string", enum: GENERAL_FRICTION_DISPOSITIONS },
+    recommendationId: NULLABLE_STRING,
+    reason: NULLABLE_STRING,
   }),
   "general.synthesis.completed": strictObject({
     outcome: { type: "string", enum: ["completed", "partial"] },
@@ -225,6 +262,40 @@ const CHECKPOINT_TOOL = Object.freeze({
     ),
   },
 });
+
+const TOOL_EVENT_TYPES = Object.freeze({
+  record_surface: "general.surface.inspected",
+  record_behavior_path: "general.behavior_path.recorded",
+  record_finding: "general.finding.recorded",
+  revise_finding: "general.finding.revised",
+  record_dimension_progress: "general.dimension.progress",
+  assess_dimension: "general.dimension.assessed",
+  assess_practice: "general.practice.assessed",
+  record_recommendation: "general.recommendation.recorded",
+  record_friction_disposition: "general.friction.disposition.recorded",
+  complete_synthesis: "general.synthesis.completed",
+});
+
+function eventTool(name, type) {
+  return Object.freeze({
+    name,
+    description: `Persist ${type}. The semantic payload fields are top-level after idempotencyKey and occurredAt.`,
+    annotations: CHECKPOINT_TOOL.annotations,
+    inputSchema: strictObject({
+      idempotencyKey: STRING,
+      occurredAt: {
+        type: ["string", "null"],
+        description: "ISO-8601 timestamp, or null to use the checkpoint server time.",
+      },
+      ...PAYLOAD_SCHEMAS[type].properties,
+    }),
+  });
+}
+
+const CHECKPOINT_TOOLS = Object.freeze([
+  ...Object.entries(TOOL_EVENT_TYPES).map(([name, type]) => eventTool(name, type)),
+  CHECKPOINT_TOOL,
+]);
 
 function requiredEnvironment(name) {
   const value = process.env[name];
@@ -339,6 +410,13 @@ async function recordCheckpoint(value) {
   return toolResult(body);
 }
 
+async function recordEventTool(name, value) {
+  const type = TOOL_EVENT_TYPES[name];
+  const input = isObject(value) ? value : {};
+  const { idempotencyKey, occurredAt, ...payload } = input;
+  return recordCheckpoint({ idempotencyKey, occurredAt, type, payload });
+}
+
 async function handle(message) {
   if (
     message === null ||
@@ -367,11 +445,14 @@ async function handle(message) {
     return;
   }
   if (method === "tools/list") {
-    success(id, { tools: [CHECKPOINT_TOOL] });
+    success(id, { tools: CHECKPOINT_TOOLS });
     return;
   }
   if (method === "tools/call") {
-    if (params?.name !== CHECKPOINT_TOOL.name) {
+    if (
+      params?.name !== CHECKPOINT_TOOL.name &&
+      !(params?.name in TOOL_EVENT_TYPES)
+    ) {
       success(
         id,
         toolResult(
@@ -388,7 +469,12 @@ async function handle(message) {
       return;
     }
     try {
-      success(id, await recordCheckpoint(params.arguments));
+      success(
+        id,
+        params.name === CHECKPOINT_TOOL.name
+          ? await recordCheckpoint(params.arguments)
+          : await recordEventTool(params.name, params.arguments),
+      );
     } catch (error) {
       success(
         id,

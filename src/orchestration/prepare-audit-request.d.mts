@@ -10,6 +10,7 @@ export interface PreparedAuditParticipant {
 interface PreparedAuditRequestBase {
   targetRepositoryPath: string;
   journalPath: string;
+  observerUrl: string;
   serviceUrl: string;
   task: string;
 }
@@ -38,6 +39,12 @@ export interface PreparedBenchmarkAuditRequest
 export type PreparedAuditRequest =
   | PreparedGeneralAuditRequest
   | PreparedBenchmarkAuditRequest;
+
+export const GENERAL_SOFT_USAGE_NOTICE_POLICY: Readonly<{
+  id: "general-soft-notice/1.0.0";
+  recommendedTokens: 500000;
+  basis: string;
+}>;
 
 export function validatePreparedAuditRequest(
   input: PreparedAuditRequest,

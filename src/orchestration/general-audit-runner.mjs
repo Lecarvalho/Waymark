@@ -354,6 +354,22 @@ export async function runGeneralAudit({
     auditorId: auditor.id,
     provider: auditor.provider,
   });
+  if (typeof adapter.describeGeneralPreflight === "function") {
+    const preflightAssignment = createGeneralAuditorAssignment({
+      run,
+      auditor,
+      continuation: null,
+    });
+    store.appendEvent({
+      runId,
+      actor: auditor.id,
+      type: "provider.preflight.completed",
+      payload: adapter.describeGeneralPreflight(
+        preflightAssignment,
+        transport,
+      ),
+    });
+  }
   const resolvedSoftNotice =
     softUsageNoticeTokens ??
     run.runConditions.softUsageNoticeTokens ??
@@ -397,6 +413,9 @@ export async function runGeneralAudit({
       let processControl = null;
       let continuationRequested = false;
       let latestLiveUsageSignature = null;
+      let lastSemanticSequence = auditProjection(store, runId).lastSequence;
+      let tokensAtLastSemanticCheckpoint = aggregateTokens;
+      let marginalNoticeSequence = null;
 
       const observeUsage = (usage, rollout = null) => {
         if (
@@ -406,12 +425,23 @@ export async function runGeneralAudit({
           latestUsage = usage;
         }
         if (usage && rollout) {
+          const semanticSequence = auditProjection(store, runId).lastSequence;
+          const observedTotal = aggregateTokens + usage.totalTokens;
+          if (semanticSequence !== lastSemanticSequence) {
+            lastSemanticSequence = semanticSequence;
+            tokensAtLastSemanticCheckpoint = observedTotal;
+            marginalNoticeSequence = null;
+          }
+          const marginalTokensWithoutEvidence =
+            observedTotal - tokensAtLastSemanticCheckpoint;
           const livePayload = {
             phase: "general_research",
             cumulative: usage,
             context: rollout.context,
             contextWindowTokens: rollout.contextWindowTokens ?? null,
             contextPercent: rollout.contextPercent ?? null,
+            semanticCheckpointSequence: semanticSequence,
+            marginalTokensWithoutEvidence,
             message: `auditor: ${usage.totalTokens.toLocaleString("en-US")} cumulative tokens`,
           };
           const signature = JSON.stringify(livePayload);
@@ -423,6 +453,30 @@ export async function runGeneralAudit({
               type: "provider.usage.updated",
               payload: livePayload,
             });
+          }
+          if (
+            marginalTokensWithoutEvidence >= 500_000 &&
+            marginalNoticeSequence !== semanticSequence
+          ) {
+            marginalNoticeSequence = semanticSequence;
+            store.appendEvent({
+              runId,
+              actor: auditor.id,
+              type: "usage.high_marginal_without_checkpoint",
+              payload: {
+                phase: "general_research",
+                semanticCheckpointSequence: semanticSequence,
+                marginalTokens: marginalTokensWithoutEvidence,
+                informationalOnly: true,
+              },
+            });
+          }
+          if (
+            marginalTokensWithoutEvidence >= 1_500_000 &&
+            !continuationRequested
+          ) {
+            continuationRequested = true;
+            processControl?.terminate("semantic_no_progress");
           }
         }
         const attemptTokens = usage?.totalTokens ?? 0;

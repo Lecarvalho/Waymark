@@ -4,7 +4,7 @@ import {
   WAYMARK_DIMENSION_IDS,
 } from "../domain/general-audit.mjs";
 
-export const GENERAL_REPORT_SCHEMA_VERSION = "general-report/1.0.0";
+export const GENERAL_REPORT_SCHEMA_VERSION = "general-report/1.1.0";
 export { GENERAL_STRONG_SCORE_MINIMUM };
 
 const INACTIVE_FINDING_STATES = new Set(["contradicted", "retracted"]);
@@ -473,6 +473,64 @@ function assembleTokens(tokens) {
   };
 }
 
+function assemblePracticeProfile(ledger) {
+  return Object.values(ledger.practices).sort((left, right) =>
+    left.uiId.localeCompare(right.uiId),
+  );
+}
+
+function assembleRecommendationCoverage(ledger, recommendations) {
+  const currentFrictionIds = ledger.findingOrder.filter((findingId) => {
+    const revision = ledger.findings[findingId].currentRevision;
+    return (
+      revision.signal === "friction" &&
+      !["contradicted", "retracted"].includes(revision.state)
+    );
+  });
+  const dispositions = currentFrictionIds
+    .map((findingId) => ledger.frictionDispositions[findingId])
+    .filter(Boolean);
+  const covered = dispositions.filter(({ disposition }) =>
+    ["covered", "consolidated"].includes(disposition),
+  );
+  const deferred = dispositions.filter(({ disposition }) =>
+    ["accepted_limitation", "deferred"].includes(disposition),
+  );
+  const recommendationIds = new Set(
+    covered.map(({ recommendationId }) => recommendationId),
+  );
+  return {
+    currentFrictionFindingCount: currentFrictionIds.length,
+    coveredFrictionFindingCount: covered.length,
+    deferredOrLimitedFindingCount: deferred.length,
+    undisposedFrictionFindingIds: currentFrictionIds.filter(
+      (findingId) => !ledger.frictionDispositions[findingId],
+    ),
+    dispositions,
+    recommendationsWithEvidenceCount: recommendations.length,
+    orphanRecommendationIds: recommendations
+      .filter(({ recommendationId }) => !recommendationIds.has(recommendationId))
+      .map(({ recommendationId }) => recommendationId),
+  };
+}
+
+function assembleCostDiagnostics(ledger, tokenReport, reportComplete) {
+  if (!reportComplete) return null;
+  const acceptedCheckpointCount = ledger.lastSequence;
+  const findingCount = ledger.findingOrder.length;
+  const processedTokens = tokenReport.totals.totalTokens;
+  return {
+    label: "Descriptive cost observation",
+    tokenEfficiencyScore: null,
+    processedTokensPerAcceptedCheckpoint:
+      acceptedCheckpointCount === 0
+        ? null
+        : Math.round(processedTokens / acceptedCheckpointCount),
+    processedTokensPerFinding:
+      findingCount === 0 ? null : Math.round(processedTokens / findingCount),
+  };
+}
+
 /**
  * Assemble the report-facing general-audit contract from the durable semantic
  * ledger. This performs fixed arithmetic and consistency filtering only; it
@@ -546,6 +604,18 @@ export function assembleGeneralAuditReport({ run, ledger, tokens }) {
         ]),
   ]);
 
+  const practiceProfile = assemblePracticeProfile(ledger);
+  const practiceProfileComplete = practiceProfile.every(
+    ({ dispositionRecorded }) => dispositionRecorded,
+  );
+  const reportComplete =
+    coverageComplete && synthesisComplete && practiceProfileComplete;
+  const tokenReport = assembleTokens(tokens);
+  const recommendationCoverage = assembleRecommendationCoverage(
+    ledger,
+    recommendations,
+  );
+
   return {
     schemaVersion: GENERAL_REPORT_SCHEMA_VERSION,
     mode: "general",
@@ -568,10 +638,17 @@ export function assembleGeneralAuditReport({ run, ledger, tokens }) {
     evidenceCoverage: ledger.evidenceCoverage,
     evidenceMatrix: assembleEvidenceMatrix(ledger),
     dimensions,
+    practiceProfile,
     recommendations,
+    recommendationCoverage,
     recommendationPriorities:
       assembleRecommendationPriorities(recommendations),
-    tokens: assembleTokens(tokens),
+    tokens: tokenReport,
+    costDiagnostics: assembleCostDiagnostics(
+      ledger,
+      tokenReport,
+      reportComplete,
+    ),
     completeness: {
       assessedDimensionCount: assessedDimensions.length,
       requiredDimensionCount: WAYMARK_DIMENSION_IDS.length,
@@ -579,7 +656,8 @@ export function assembleGeneralAuditReport({ run, ledger, tokens }) {
       requiredWeight: 100,
       coverageComplete,
       synthesisComplete,
-      reportComplete: coverageComplete && synthesisComplete,
+      practiceProfileComplete,
+      reportComplete,
     },
     weightedPoints,
     result,

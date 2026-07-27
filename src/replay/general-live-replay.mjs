@@ -338,6 +338,25 @@ export async function runGeneralLiveReplay({
         exitCode: 0,
       });
     });
+    await emit("Recorded recoverable checkpoint rejection", () =>
+      store.appendGeneralCheckpointDiagnostic({
+        runId: run.id,
+        actor,
+        type: "provider.checkpoint.rejected",
+        payload: {
+          provider: "synthetic_fixture",
+          providerSessionId,
+          idempotencyKey: "replay-invalid-path",
+          semanticType: "general.behavior_path.recorded",
+          error: {
+            code: "INVALID_INPUT",
+            message: "payload.entryPoint.status: must be known or unknown",
+            path: "payload.entryPoint.status",
+            expectedShape: "must be known or unknown",
+          },
+        },
+      }),
+    );
     await emit("Inspected repository surface", () =>
       checkpoint("general.surface.inspected", "replay-surface-code", {
         surface: "production_code",
@@ -525,9 +544,70 @@ export async function runGeneralLiveReplay({
             "The synthetic located-late finding demonstrates how an evidence-linked recommendation appears live.",
           findingIds: ["replay-owner-discovery"],
           dimensionIds: ["discoveryEfficiency", "ownershipClarity"],
+          practiceGuideIds: [
+            "organizeAroundBehavior",
+            "explicitDependencyDirection",
+            "conceptOwningNames",
+            "canonicalWorkflow",
+            "proximateInstructions",
+            "testsMirrorBehavior",
+            "separateGeneratedExternal",
+          ],
+          tokenMechanism: "Removes a repeated owner search and file hop.",
+          validationCheck:
+            "Repeat both synthetic behavior traces and compare discovery steps.",
+          limitations: ["Synthetic fixture recommendation."],
         },
       ),
     );
+    await emit("Disposed friction finding", () =>
+      checkpoint(
+        "general.friction.disposition.recorded",
+        "replay-friction-disposition",
+        {
+          findingId: "replay-owner-discovery",
+          disposition: "covered",
+          recommendationId: "replay-document-owner-edge",
+          reason: null,
+        },
+      ),
+    );
+    for (const principle of [
+      "organizeAroundBehavior",
+      "explicitDependencyDirection",
+      "conceptOwningNames",
+      "canonicalWorkflow",
+      "proximateInstructions",
+      "testsMirrorBehavior",
+      "separateGeneratedExternal",
+    ]) {
+      await emit(`Assessed ${principle}`, () =>
+        checkpoint(
+          "general.practice.assessed",
+          `replay-practice-${principle}`,
+          {
+            principleId: principle,
+            assessment: "mixed",
+            summary: `Synthetic repository-specific assessment for ${principle}.`,
+            surfacesInspected: ["production_code", "tests", "workflows"],
+            supportingPositiveFindingIds: ["replay-canonical-workflow"],
+            supportingFrictionFindingIds: ["replay-owner-discovery"],
+            limitations: ["All evidence in this run is explicitly synthetic."],
+            navigationTokenMechanism:
+              "The explicit owner and verification path reduces repeated retrieval.",
+            recommendationIds: ["replay-document-owner-edge"],
+            workflowEntryPoints:
+              principle === "canonicalWorkflow"
+                ? ["README: npm test", "package.json: npm test"]
+                : [],
+            workflowConclusion:
+              principle === "canonicalWorkflow"
+                ? "The synthetic workflow entry points converge."
+                : null,
+          },
+        ),
+      );
+    }
     await emit("Updated final live token usage", () =>
       providerEvent(
         "provider.usage.updated",

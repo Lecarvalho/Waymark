@@ -35,7 +35,9 @@ const COMMANDS = {
   "general revise": "Append a revision to a general-audit finding",
   "general progress": "Record progress for a general-audit dimension",
   "general assess": "Record an assessed general-audit dimension",
+  "general practice": "Record a repository-specific Practice Guide assessment",
   "general recommend": "Record a general-audit recommendation",
+  "general disposition": "Record a current friction-finding disposition",
   "general continue": "Record a provider-context continuation checkpoint",
   "general synthesize": "Record completed or partial general-audit synthesis",
   "general interrupt": "Record a general-audit interruption",
@@ -481,10 +483,24 @@ async function execute(store, positionals, options) {
           generalCheckpointInput(options),
         ),
       };
+    case "general practice":
+      return {
+        command,
+        data: store.assessGeneralPractice(
+          generalCheckpointInput(options),
+        ),
+      };
     case "general recommend":
       return {
         command,
         data: store.recordGeneralRecommendation(
+          generalCheckpointInput(options),
+        ),
+      };
+    case "general disposition":
+      return {
+        command,
+        data: store.recordGeneralFrictionDisposition(
           generalCheckpointInput(options),
         ),
       };

@@ -317,6 +317,62 @@ if (
         },
       });
     }
+    await postCheckpoint({
+      ...generalCheckpointBase(),
+      idempotencyKey: "fake-recommendation",
+      type: "general.recommendation.recorded",
+      occurredAt: "2026-07-25T15:09:00.000Z",
+      payload: {
+        recommendationId: "fake-recommendation",
+        title: "Make the indirect edge explicit",
+        rationale: "The cited hop requires extra repository navigation.",
+        findingIds: ["fake-general-friction"],
+        dimensionIds: generalDimensions,
+        practiceGuideIds: generalPractices,
+        tokenMechanism: "Removes a repeated file hop and search.",
+        validationCheck: "Repeat both behavior paths and compare navigation steps.",
+        limitations: ["Controlled fixture recommendation."],
+      },
+    });
+    await postCheckpoint({
+      ...generalCheckpointBase(),
+      idempotencyKey: "fake-friction-disposition",
+      type: "general.friction.disposition.recorded",
+      occurredAt: "2026-07-25T15:09:30.000Z",
+      payload: {
+        findingId: "fake-general-friction",
+        disposition: "covered",
+        recommendationId: "fake-recommendation",
+        reason: null,
+      },
+    });
+    for (const [index, principleId] of generalPractices.entries()) {
+      await postCheckpoint({
+        ...generalCheckpointBase(),
+        idempotencyKey: `fake-practice-${principleId}`,
+        type: "general.practice.assessed",
+        occurredAt: `2026-07-25T15:${10 + index}:00.000Z`,
+        payload: {
+          principleId,
+          assessment: "mixed",
+          summary: `Controlled repository-specific assessment for ${principleId}.`,
+          surfacesInspected: ["production_code", "tests", "workflows"],
+          supportingPositiveFindingIds: ["fake-general-positive"],
+          supportingFrictionFindingIds: ["fake-general-friction"],
+          limitations: ["Controlled fake-provider evidence."],
+          navigationTokenMechanism: "The explicit path reduces repeated retrieval.",
+          recommendationIds: ["fake-recommendation"],
+          workflowEntryPoints:
+            principleId === "canonicalWorkflow"
+              ? ["README: npm test", "package.json: npm test"]
+              : [],
+          workflowConclusion:
+            principleId === "canonicalWorkflow"
+              ? "The documented entry points converge on npm test."
+              : null,
+        },
+      });
+    }
     const knownNode = (label) => ({
       status: "known",
       label,

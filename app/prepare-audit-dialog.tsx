@@ -6,7 +6,10 @@ import {
   useState,
   type ChangeEvent,
 } from "react";
-import { buildPreparedAuditRequest } from "../src/orchestration/prepare-audit-request.mjs";
+import {
+  buildPreparedAuditRequest,
+  GENERAL_SOFT_USAGE_NOTICE_POLICY,
+} from "../src/orchestration/prepare-audit-request.mjs";
 import type {
   ProviderCapabilities,
   ProviderCapability,
@@ -201,7 +204,9 @@ export function PrepareAuditDialog() {
   const [tokenBudgets, setTokenBudgets] =
     useState<AuditTokenBudgets | null>(null);
   const [softUsageNoticeTokens, setSoftUsageNoticeTokens] =
-    useState<number | null>(null);
+    useState<number | null>(
+      GENERAL_SOFT_USAGE_NOTICE_POLICY.recommendedTokens,
+    );
   const [auditorPermissionMode, setAuditorPermissionMode] =
     useState<AuditorPermissionMode>("read_only");
   const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">(
@@ -288,6 +293,8 @@ export function PrepareAuditDialog() {
     const base = {
       targetRepositoryPath,
       journalPath: databasePath ?? "",
+      observerUrl:
+        typeof window === "undefined" ? "http://localhost:3000" : window.location.origin,
       serviceUrl,
       task,
     };
@@ -481,10 +488,15 @@ export function PrepareAuditDialog() {
                   <span>Audit mode</span>
                   <select
                     onChange={(event) => {
+                      const nextAuditMode = event.target.value as AuditMode;
                       setCopyState("idle");
                       setTokenBudgets(null);
-                      setSoftUsageNoticeTokens(null);
-                      setAuditMode(event.target.value as AuditMode);
+                      setSoftUsageNoticeTokens(
+                        nextAuditMode === "general"
+                          ? GENERAL_SOFT_USAGE_NOTICE_POLICY.recommendedTokens
+                          : null,
+                      );
+                      setAuditMode(nextAuditMode);
                     }}
                     value={auditMode}
                   >
@@ -739,6 +751,11 @@ export function PrepareAuditDialog() {
                       type="number"
                       value={softUsageNoticeTokens ?? ""}
                     />
+                    <small>
+                      Recommended by {GENERAL_SOFT_USAGE_NOTICE_POLICY.id}; clear
+                      the value to explicitly choose none. Notices never stop or
+                      score a general audit.
+                    </small>
                   </label>
                 </div>
               ) : (

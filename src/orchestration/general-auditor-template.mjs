@@ -109,26 +109,69 @@ export function renderGeneralAuditorPrompt(assignment) {
     "- Checkpoint after each defensible semantic finding or meaningful revision, not after each file read.",
     "- Revisit provisional findings. If later evidence locates or changes one, append a located_late or reframed revision with the observed navigation cost.",
     "- Assess a dimension only after its evidence requirements were attempted. Preserve not_assessed when evidence remains insufficient.",
+    "- Record one cited repository-specific assessment for every Practice Guide principle. Each must list inspected surfaces, positive evidence, friction, unknowns/limitations, and the navigation-token mechanism.",
+    "- For canonicalWorkflow, enumerate actual README commands, package scripts, CI commands, developer wrappers, stack-specific harnesses, and agent instructions, then state whether they converge, are equivalent wrappers, or conflict.",
+    "- For organizeAroundBehavior and conceptOwningNames, connect representative behavior names and concept-owning files to entry points, owners, consumers, and tests; a filename search alone is inadequate.",
+    "- Every current friction finding requires an explicit disposition: covered/consolidated into a recommendation, accepted as a limitation, or deferred for insufficient evidence.",
+    "- Every mixed or weak Practice Guide assessment must link a recommendation or state an explicit limitation.",
+    "",
+    "Read-only command recipe:",
+    "- Prefer `rg --files`, one narrow `rg -n` query over selected files, and direct bounded `Get-Content` reads.",
+    "- Avoid PowerShell arrays, loops, dynamic command construction, target-obscuring pipelines, and cross-shell composition.",
+    "- Use the injected Git safe-directory configuration; do not override repository trust globally.",
+    "- Treat search exit 1 with no matches as evidence. Do not repeat the same query unless its scope changes.",
+    "- Split large reads into bounded, independently useful probes.",
     "",
     "Checkpoint channel:",
-    "- Use the Waymark MCP server's `record` tool after each defensible semantic finding or meaningful revision.",
+    "- Use the Waymark MCP server's event-specific tools after each defensible semantic finding or meaningful revision.",
     "- Do not inspect checkpoint environment variables or use shell, PowerShell, curl, or another HTTP client to publish checkpoints.",
-    "- The runner owns run, auditor, authorization, and provider-session identity. Tool input is:",
+    "- The runner owns run, auditor, authorization, and provider-session identity. Each tool takes idempotencyKey, occurredAt, and its semantic fields directly.",
     json({
       idempotencyKey: "<stable unique semantic key>",
-      type: "<general semantic event type>",
       occurredAt: "<ISO-8601 timestamp>",
-      payload: {},
     }),
     "- Treat a checkpoint as durable only when the tool returns `status: acknowledged`. Correct and retry a rejected checkpoint before relying on it.",
     "- The runner has already recorded general.audit.started. Do not send another start event.",
-    "- Supported event types are general.surface.inspected, general.behavior_path.recorded, general.finding.recorded, general.finding.revised, general.dimension.progress, general.dimension.assessed, general.recommendation.recorded, and general.synthesis.completed.",
-    "- The MCP tool's discriminated input schema is the authoritative payload contract. Select the branch matching `type` and do not add fields.",
-    "- Finding payloads wrap their data in `payload.revision`. A revision includes stable findingId/revisionId, revisionNumber, state, signal, title, conclusion, dimensionIds, practiceGuideIds, citations, navigationCost, and provenance linkage.",
+    "- Tools are record_surface, record_behavior_path, record_finding, revise_finding, record_dimension_progress, assess_dimension, assess_practice, record_recommendation, record_friction_disposition, and complete_synthesis.",
+    "- The MCP tool schema is authoritative. Do not add fields.",
+    "- Finding tools take a `revision` object with stable findingId/revisionId, revisionNumber, state, signal, title, conclusion, dimensionIds, practiceGuideIds, citations, navigationCost, and provenance linkage.",
     "- Finding provenance input contains only previousRevisionId, amendmentReason, and causedByCitations. The checkpoint server injects authenticated actor identity and the effective checkpoint timestamp.",
     "- navigationCost is null or measured numeric counters from the tool schema; never use qualitative levels or prose observations there.",
     "- Each citation includes repository-relative path, one-based startLine/endLine, symbol (or null), and evidence source.",
-    "- Finish with general.synthesis.completed. Use completed only when all six dimensions have adequate assessed evidence; otherwise use partial when usable cited evidence exists.",
+    "- Complete behavior-path example:",
+    json({
+      idempotencyKey: "behavior-save-path",
+      occurredAt: null,
+      pathId: "save-path",
+      name: "Save a record",
+      entryPoint: {
+        status: "known",
+        label: "Save command",
+        citations: [{ path: "src/save.ts", startLine: 10, endLine: 14, symbol: "save", source: "production_code" }],
+      },
+      owner: {
+        status: "known",
+        label: "Save service",
+        citations: [{ path: "src/save-service.ts", startLine: 4, endLine: 20, symbol: "SaveService", source: "production_code" }],
+      },
+      dependencies: [{
+        status: "known",
+        label: "Repository",
+        citations: [{ path: "src/repository.ts", startLine: 1, endLine: 12, symbol: "Repository", source: "production_code" }],
+      }],
+      consumers: [{
+        status: "unknown",
+        label: "External consumers",
+        reason: "No caller was found in inspected production surfaces.",
+        citations: [],
+      }],
+      tests: [{
+        status: "known",
+        label: "Save behavior test",
+        citations: [{ path: "tests/save.test.ts", startLine: 8, endLine: 30, symbol: null, source: "test" }],
+      }],
+    }),
+    "- Finish with complete_synthesis only after all seven Practice Guide dispositions and every friction disposition are durable. Use completed only when all six dimensions also have adequate assessed evidence; otherwise use partial when usable cited evidence exists.",
     "",
     "Final fallback:",
     "- Return the required structured object with `unpublishedCheckpoints`.",
@@ -144,9 +187,15 @@ export function projectGeneralContinuation(generalAudit) {
   const remainingDimensionIds = Object.values(generalAudit.dimensions)
     .filter(({ assessmentState }) => assessmentState !== "assessed")
     .map(({ dimensionId }) => dimensionId);
+  const remainingPracticeGuideIds = Object.values(generalAudit.practices)
+    .filter(({ dispositionRecorded }) => !dispositionRecorded)
+    .map(({ principleId }) => principleId);
   const openQuestions = [
     ...remainingDimensionIds.map(
       (dimensionId) => `Complete adequate evidence for ${dimensionId}.`,
+    ),
+    ...remainingPracticeGuideIds.map(
+      (principleId) => `Record a repository-specific disposition for ${principleId}.`,
     ),
     ...(generalAudit.behaviorPathOrder.length < 2
       ? [
@@ -161,6 +210,7 @@ export function projectGeneralContinuation(generalAudit) {
       (surface) => !inspectedSurfaces.includes(surface),
     ),
     remainingDimensionIds,
+    remainingPracticeGuideIds,
     openQuestions,
     findings: generalAudit.findingOrder.map((findingId) => {
       const finding = generalAudit.findings[findingId];
@@ -173,5 +223,7 @@ export function projectGeneralContinuation(generalAudit) {
     behaviorPaths: generalAudit.behaviorPathOrder.map(
       (pathId) => generalAudit.behaviorPaths[pathId],
     ),
+    practices: generalAudit.practices,
+    frictionDispositions: generalAudit.frictionDispositions,
   };
 }

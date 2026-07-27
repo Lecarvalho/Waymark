@@ -280,3 +280,20 @@
     padding: 20px;
   }
 }
+.repository-practice-assessment {
+  margin: 0 20px 16px;
+  padding: 16px 0;
+  border-block: 1px solid var(--line);
+}
+
+.repository-practice-assessment strong {
+  display: block;
+  color: var(--text);
+  text-transform: capitalize;
+}
+
+.repository-practice-assessment p,
+.repository-practice-assessment small,
+.repository-practice-assessment li {
+  color: var(--muted);
+}

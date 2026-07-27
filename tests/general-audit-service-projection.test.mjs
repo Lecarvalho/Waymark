@@ -99,14 +99,54 @@ test("general observation channel separates semantic delivery from provider tool
   ];
 
   assert.deepEqual(generalAuditObservationChannel(events, "running"), {
-    health: "degraded",
+    health: "healthy",
+    semanticDelivery: {
+      status: "healthy",
+      latestAcknowledgementSequence: 2,
+      latestRejectionSequence: null,
+      latestError: null,
+    },
+    providerDiagnostics: {
+      status: "warnings",
+      latestReason: "blocked by policy",
+      latestCommand: null,
+      latestSequence: 3,
+    },
     acceptedSemanticCheckpoints: 1,
     rejectedSemanticCheckpoints: 0,
-    providerTools: { completed: 1, declined: 1, failed: 1 },
-    latestFailureReason: "command execution failed with exit code 1.",
-    latestFailureCommand: "rg missing-term .",
-    latestFailureSequence: 4,
+    providerTools: { completed: 2, declined: 1, failed: 0 },
+    latestFailureReason: "blocked by policy",
+    latestFailureCommand: null,
+    latestFailureSequence: 3,
   });
+});
+
+test("a rejected checkpoint followed by acknowledgement is recovered", () => {
+  const channel = generalAuditObservationChannel(
+    [
+      {
+        sequence: 3,
+        type: "provider.checkpoint.rejected",
+        payload: {
+          semanticType: "general.behavior_path.recorded",
+          error: {
+            message: "payload.entryPoint.status: must be known or unknown",
+            path: "payload.entryPoint.status",
+            expectedShape: "must be known or unknown",
+          },
+        },
+      },
+      {
+        sequence: 5,
+        type: "provider.checkpoint.acknowledged",
+        payload: { semanticType: "general.behavior_path.recorded" },
+      },
+    ],
+    "completed",
+  );
+  assert.equal(channel.semanticDelivery.status, "recovered");
+  assert.equal(channel.providerDiagnostics.status, "clean");
+  assert.equal(channel.semanticDelivery.latestError.path, "payload.entryPoint.status");
 });
 
 test("failed general run with no accepted checkpoint exposes a failed channel", () => {
@@ -148,5 +188,5 @@ test("general status, phase, and progress remain separate projections", () => {
   const status = generalRunStatus(report, partial.run.status);
   assert.equal(status, "partial");
   assert.equal(generalAuditPhase(report, status), "Partial report");
-  assert.equal(generalAuditProgress(report, status), 20);
+  assert.equal(generalAuditProgress(report, status), 18);
 });

@@ -4,6 +4,8 @@ import {
   GENERAL_EVIDENCE_SOURCES,
   GENERAL_FINDING_SIGNALS,
   GENERAL_FINDING_STATES,
+  GENERAL_FRICTION_DISPOSITIONS,
+  GENERAL_PRACTICE_ASSESSMENTS,
   PRACTICE_GUIDE_IDS,
   WAYMARK_DIMENSION_IDS,
 } from "../domain/general-audit.mjs";
@@ -65,6 +67,8 @@ const GENERAL_STATES = new Set(GENERAL_FINDING_STATES);
 const GENERAL_SIGNALS = new Set(GENERAL_FINDING_SIGNALS);
 const GENERAL_DIMENSIONS = new Set(WAYMARK_DIMENSION_IDS);
 const GENERAL_PRACTICES = new Set(PRACTICE_GUIDE_IDS);
+const GENERAL_PRACTICE_STATES = new Set(GENERAL_PRACTICE_ASSESSMENTS);
+const GENERAL_DISPOSITIONS = new Set(GENERAL_FRICTION_DISPOSITIONS);
 const GENERAL_AUDITOR_PERMISSION_MODES = new Set([
   "read_only",
   "unrestricted_no_approval",
@@ -592,6 +596,36 @@ function validateGeneralPayload(type, value, dependencies) {
       return dimensionPayload(value, path);
     case "general.dimension.assessed":
       return dimensionPayload(value, path, { assessed: true });
+    case "general.practice.assessed": {
+      const payload = strictObject(value, path, [
+        "principleId",
+        "assessment",
+        "summary",
+        "surfacesInspected",
+        "supportingPositiveFindingIds",
+        "supportingFrictionFindingIds",
+        "limitations",
+        "navigationTokenMechanism",
+        "recommendationIds",
+        "workflowEntryPoints",
+        "workflowConclusion",
+      ]);
+      return {
+        principleId: enumeration(payload.principleId, GENERAL_PRACTICES, `${path}.principleId`),
+        assessment: enumeration(payload.assessment, GENERAL_PRACTICE_STATES, `${path}.assessment`),
+        summary: string(payload.summary, `${path}.summary`),
+        surfacesInspected: exactStringArray(payload.surfacesInspected, `${path}.surfacesInspected`, GENERAL_SURFACES),
+        supportingPositiveFindingIds: stringArray(payload.supportingPositiveFindingIds, `${path}.supportingPositiveFindingIds`, { maximum: 100 }),
+        supportingFrictionFindingIds: stringArray(payload.supportingFrictionFindingIds, `${path}.supportingFrictionFindingIds`, { maximum: 100 }),
+        limitations: stringArray(payload.limitations, `${path}.limitations`, { maximum: 100 }),
+        navigationTokenMechanism: string(payload.navigationTokenMechanism, `${path}.navigationTokenMechanism`),
+        recommendationIds: stringArray(payload.recommendationIds, `${path}.recommendationIds`, { maximum: 100 }),
+        workflowEntryPoints: payload.workflowEntryPoints === undefined
+          ? []
+          : stringArray(payload.workflowEntryPoints, `${path}.workflowEntryPoints`, { maximum: 100 }),
+        workflowConclusion: optionalString(payload.workflowConclusion, `${path}.workflowConclusion`) ?? null,
+      };
+    }
     case "general.recommendation.recorded": {
       const payload = strictObject(value, path, [
         "recommendationId",
@@ -599,6 +633,10 @@ function validateGeneralPayload(type, value, dependencies) {
         "rationale",
         "findingIds",
         "dimensionIds",
+        "practiceGuideIds",
+        "tokenMechanism",
+        "validationCheck",
+        "limitations",
       ]);
       return {
         recommendationId: string(
@@ -616,6 +654,29 @@ function validateGeneralPayload(type, value, dependencies) {
           GENERAL_DIMENSIONS,
           { maximum: GENERAL_DIMENSIONS.size },
         ),
+        practiceGuideIds: exactStringArray(
+          payload.practiceGuideIds,
+          `${path}.practiceGuideIds`,
+          GENERAL_PRACTICES,
+          { maximum: GENERAL_PRACTICES.size },
+        ),
+        tokenMechanism: string(payload.tokenMechanism, `${path}.tokenMechanism`),
+        validationCheck: string(payload.validationCheck, `${path}.validationCheck`),
+        limitations: stringArray(payload.limitations, `${path}.limitations`, { maximum: 100 }),
+      };
+    }
+    case "general.friction.disposition.recorded": {
+      const payload = strictObject(value, path, [
+        "findingId",
+        "disposition",
+        "recommendationId",
+        "reason",
+      ]);
+      return {
+        findingId: string(payload.findingId, `${path}.findingId`),
+        disposition: enumeration(payload.disposition, GENERAL_DISPOSITIONS, `${path}.disposition`),
+        recommendationId: optionalString(payload.recommendationId, `${path}.recommendationId`) ?? null,
+        reason: optionalString(payload.reason, `${path}.reason`) ?? null,
       };
     }
     case "general.continuation.recorded": {

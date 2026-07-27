@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import type { WaymarkRunSnapshot } from "./use-waymark-live";
 import styles from "./practice-guide-view.module.css";
 import exampleStyles from "./practice-guide-examples.module.css";
 import structureStyles from "./practice-guide-structure.module.css";
@@ -156,7 +157,11 @@ const hostileTree = `project/
 ├── tests.ts
 └── README.md          # stale`;
 
-export function PracticeGuideView() {
+export function PracticeGuideView({
+  snapshot,
+}: {
+  snapshot?: WaymarkRunSnapshot | null;
+}) {
   const [openPractice, setOpenPractice] = useState("01");
   const [structureView, setStructureView] = useState<
     "recommended" | "hostile"
@@ -214,6 +219,9 @@ export function PracticeGuideView() {
         <div className={classes("practice-list")}>
           {practicePairs.map((practice) => {
             const isOpen = openPractice === practice.number;
+            const assessment = snapshot?.generalAudit?.practiceProfile?.find(
+              ({ uiId }) => uiId === practice.number,
+            );
 
             return (
               <article
@@ -235,6 +243,12 @@ export function PracticeGuideView() {
                   <span className={classes("practice-summary")}>
                     <strong>{practice.title}</strong>
                     <span>{practice.principle}</span>
+                    {assessment?.dispositionRecorded ? (
+                      <small>
+                        Assessment for {snapshot?.repository.name}:{" "}
+                        {assessment.assessment.replaceAll("_", " ")}
+                      </small>
+                    ) : null}
                   </span>
                   <span className={classes("practice-toggle-icon")} aria-hidden="true">
                     {isOpen ? "−" : "+"}
@@ -242,11 +256,35 @@ export function PracticeGuideView() {
                 </button>
 
                 {isOpen && (
-                  <div className={classes("practice-comparison")}>
+                  <>
+                  {assessment ? (
+                    <section
+                      aria-label={`Assessment for ${snapshot?.repository.name ?? "selected repository"}`}
+                      className={classes("repository-practice-assessment")}
+                      data-assessment={assessment.assessment}
+                    >
+                      <strong>
+                        Assessment for {snapshot?.repository.name ?? "selected repository"} ·{" "}
+                        {assessment.dispositionRecorded
+                          ? assessment.assessment.replaceAll("_", " ")
+                          : "Not assessed"}
+                      </strong>
+                      <p>{assessment.summary}</p>
+                      <small>{assessment.navigationTokenMechanism}</small>
+                      {assessment.limitations.length > 0 ? (
+                        <ul>
+                          {assessment.limitations.map((limitation) => (
+                            <li key={limitation}>{limitation}</li>
+                          ))}
+                        </ul>
+                      ) : null}
+                    </section>
+                  ) : null}
+                  <div className={classes("practice-comparison")} aria-label="Generic teaching examples">
                     <div className={classes("practice-example good-practice")}>
                       <div className={classes("example-label")}>
                         <span aria-hidden="true">✓</span>
-                        <strong>Good</strong>
+                        <strong>Generic good example</strong>
                         <small>{practice.goodTitle}</small>
                       </div>
                       <pre>{practice.goodExample}</pre>
@@ -254,12 +292,13 @@ export function PracticeGuideView() {
                     <div className={classes("practice-example bad-practice")}>
                       <div className={classes("example-label")}>
                         <span aria-hidden="true">×</span>
-                        <strong>Bad</strong>
+                        <strong>Generic bad example</strong>
                         <small>{practice.badTitle}</small>
                       </div>
                       <pre>{practice.badExample}</pre>
                     </div>
                   </div>
+                  </>
                 )}
               </article>
             );

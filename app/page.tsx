@@ -32,15 +32,17 @@ function GeneralAuditChannelStatus({
   if (!channel) return null;
 
   const healthLabel = {
+    waiting: "Waiting",
     healthy: "Healthy",
-    degraded: "Degraded",
+    degraded: "Warnings",
+    recovered: "Recovered",
     failed: "Failed",
-  }[channel.health];
-  const toolCount =
-    channel.providerTools.completed +
-    channel.providerTools.declined +
-    channel.providerTools.failed;
-
+  }[channel.health as "waiting" | "healthy" | "degraded" | "recovered" | "failed"];
+  const providerDiagnosticsStatus =
+    channel.providerDiagnostics?.status ??
+    (channel.providerTools.declined > 0 || channel.providerTools.failed > 0
+      ? "warnings"
+      : "clean");
   return (
     <section
       aria-label="General audit observation channel"
@@ -49,7 +51,7 @@ function GeneralAuditChannelStatus({
       role="status"
     >
       <div className={channelStyles.summary}>
-        <span>Observation channel</span>
+        <span>Semantic delivery</span>
         <strong>{healthLabel}</strong>
         <small>
           {channel.acceptedSemanticCheckpoints > 0
@@ -64,7 +66,7 @@ function GeneralAuditChannelStatus({
         </div>
         <div>
           <dt>Provider tools</dt>
-          <dd>{toolCount}</dd>
+          <dd>{providerDiagnosticsStatus}</dd>
           <small>
             {channel.providerTools.completed} completed ·{" "}
             {channel.providerTools.declined} declined ·{" "}
@@ -82,6 +84,19 @@ function GeneralAuditChannelStatus({
           <strong>{channel.latestFailureReason}</strong>
           {channel.latestFailureCommand ? (
             <code>{channel.latestFailureCommand}</code>
+          ) : null}
+        </p>
+      ) : null}
+      {channel.semanticDelivery?.latestError ? (
+        <p>
+          <span>
+            Rejected {channel.semanticDelivery.latestError.semanticType ?? "checkpoint"} at{" "}
+            {channel.semanticDelivery.latestError.path ?? "unknown field"} · sequence{" "}
+            {channel.semanticDelivery.latestError.sequence}
+          </span>
+          <strong>{channel.semanticDelivery.latestError.message}</strong>
+          {channel.semanticDelivery.latestError.expectedShape ? (
+            <small>{channel.semanticDelivery.latestError.expectedShape}</small>
           ) : null}
         </p>
       ) : null}
@@ -174,7 +189,7 @@ export default function Home() {
       ) : view === "history" ? (
         <HistoryView history={history} onSelectReport={showSavedReport} />
       ) : (
-        <PracticeGuideView />
+        <PracticeGuideView snapshot={snapshot} />
       )}
     </Shell>
   );

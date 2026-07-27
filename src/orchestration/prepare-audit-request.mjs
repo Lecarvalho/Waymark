@@ -7,6 +7,12 @@ const AUDIT_MODES = new Set([
 ]);
 const BENCHMARK_ROLES = ["candidate", "independent", "orchestrator"];
 const GENERAL_ROLE = "auditor";
+export const GENERAL_SOFT_USAGE_NOTICE_POLICY = Object.freeze({
+  id: "general-soft-notice/1.0.0",
+  recommendedTokens: 500_000,
+  basis:
+    "early operational notice before the first measured live general-audit diagnostic exceeded five million processed tokens",
+});
 const GENERAL_AUDITOR_PERMISSION_MODES = new Set([
   "read_only",
   "unrestricted_no_approval",
@@ -78,6 +84,7 @@ export function validatePreparedAuditRequest(input) {
       "targetRepositoryPath",
     ),
     journalPath: requiredString(input.journalPath, "journalPath"),
+    observerUrl: requiredString(input.observerUrl, "observerUrl"),
     serviceUrl: requiredString(input.serviceUrl, "serviceUrl"),
     auditMode: input.auditMode,
     name: inferAuditName({ auditMode: input.auditMode, task }),
@@ -160,7 +167,7 @@ export function buildPreparedAuditRequest(input) {
           `- Soft usage notice: ${
             request.softUsageNoticeTokens === null
               ? "none"
-              : `${request.softUsageNoticeTokens} tokens`
+              : `${request.softUsageNoticeTokens} tokens (${GENERAL_SOFT_USAGE_NOTICE_POLICY.id})`
           }`,
         ]
       : [
@@ -178,6 +185,7 @@ export function buildPreparedAuditRequest(input) {
     "Run $waymark-audit from the current Waymark checkout with these inputs:",
     "",
     `- Target: ${JSON.stringify(request.targetRepositoryPath)}`,
+    `- Observer: ${request.observerUrl}`,
     `- Service: ${request.serviceUrl}`,
     `- Expected journal: ${JSON.stringify(request.journalPath)}`,
     `- Mode: ${request.auditMode}`,

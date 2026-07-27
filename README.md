@@ -52,6 +52,11 @@ The default URLs are:
 The SQLite database defaults to `.waymark/waymark.sqlite`. Override it with
 `WAYMARK_DB_PATH`.
 
+Use `npm run dev:web` to start only the observer and `npm run dev:service` to
+start only the local service. Vinext may select a fallback observer port when
+the preferred port is occupied; prepared audit requests therefore record the
+exact browser origin instead of asking operators to guess it.
+
 If a Waymark service is already listening on the configured port and reports
 the same database through `/health`, `npm run dev` reuses it instead of starting
 another service. If the journal differs, startup stops with an explicit error;
@@ -86,11 +91,17 @@ assemble a compact handoff for the paired coding-agent session. It contains only
 runtime inputs; the repository-local audit skill supplies the fixed workflow,
 safety, and mode-specific assessment or scoring protocol. Provider, model, and
 reasoning choices come from the read-only local adapter capability endpoint.
-General mode selects one auditor and may set a non-stopping soft usage notice;
+General mode selects one auditor and recommends a non-stopping 500,000
+processed-token soft usage notice under versioned policy
+`general-soft-notice/1.0.0`. The threshold is an early operational signal based
+on the first measured live diagnostic exceeding five million processed tokens;
+users may explicitly choose `none`.
 benchmark modes select their measured roles and declare phase token targets and
 hard limits.
 
-The generated request records the running service URL and its exact SQLite path.
+The generated request records the exact observer origin, running service URL,
+and SQLite path. The observer URL is only a UI-verification aid; the service
+health response and journal path remain the authoritative data pair.
 The paired agent must append a new run to that journal and must not start a
 second service or create a database for the audit.
 

@@ -39,7 +39,25 @@ export type GeneralAuditServiceSnapshot = GeneralAuditReport & {
     latestActivityType: string | null;
   };
   observationChannel: {
-    health: "healthy" | "degraded" | "failed";
+    health: "waiting" | "healthy" | "recovered" | "failed";
+    semanticDelivery: {
+      status: "waiting" | "healthy" | "recovered" | "failed";
+      latestAcknowledgementSequence: number | null;
+      latestRejectionSequence: number | null;
+      latestError: {
+        semanticType: string | null;
+        path: string | null;
+        message: string;
+        expectedShape: string | null;
+        sequence: number;
+      } | null;
+    };
+    providerDiagnostics: {
+      status: "clean" | "warnings" | "failed/interrupted";
+      latestReason: string | null;
+      latestCommand: string | null;
+      latestSequence: number | null;
+    };
     acceptedSemanticCheckpoints: number;
     rejectedSemanticCheckpoints: number;
     providerTools: {

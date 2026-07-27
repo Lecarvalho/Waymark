@@ -61,3 +61,16 @@
   font-size: 13px;
   line-height: 1.55;
 }
+.general-recommendation-coverage {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 8px 24px;
+  padding: 12px 0;
+  border-block: 1px solid var(--line);
+  color: var(--muted);
+}
+
+.general-recommendation-coverage strong {
+  color: var(--text);
+}

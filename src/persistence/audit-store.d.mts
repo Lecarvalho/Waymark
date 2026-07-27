@@ -66,7 +66,9 @@ export class AuditStore {
   reviseGeneralFinding(input: GeneralCheckpointInput): AuditEvent;
   recordGeneralDimensionProgress(input: GeneralCheckpointInput): AuditEvent;
   assessGeneralDimension(input: GeneralCheckpointInput): AuditEvent;
+  assessGeneralPractice(input: GeneralCheckpointInput): AuditEvent;
   recordGeneralRecommendation(input: GeneralCheckpointInput): AuditEvent;
+  recordGeneralFrictionDisposition(input: GeneralCheckpointInput): AuditEvent;
   recordGeneralContinuation(input: GeneralCheckpointInput): AuditEvent;
   completeGeneralSynthesis(input: GeneralCheckpointInput): AuditEvent;
   interruptGeneralAudit(input: GeneralCheckpointInput): AuditEvent;

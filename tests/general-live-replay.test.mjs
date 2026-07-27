@@ -104,7 +104,21 @@ test("zero-cost general replay streams observable fixture states and completes",
   assert.equal(completed.report.generalAudit.status, "completed");
   assert.equal(completed.report.generalAudit.findingOrder.length, 2);
   assert.equal(completed.report.generalAudit.recommendations.length, 1);
-  assert.equal(completed.summary.generalAudit.observationChannel.health, "healthy");
+  assert.equal(completed.report.generalAudit.practices !== undefined, true);
+  assert.equal(
+    Object.values(completed.report.generalAudit.practices).filter(
+      ({ dispositionRecorded }) => dispositionRecorded,
+    ).length,
+    7,
+  );
+  assert.equal(
+    completed.summary.generalAudit.observationChannel.health,
+    "recovered",
+  );
+  assert.equal(
+    completed.summary.generalAudit.observationChannel.semanticDelivery.status,
+    "recovered",
+  );
   assert.equal(
     completed.summary.generalAudit.observationChannel.providerTools.completed,
     1,

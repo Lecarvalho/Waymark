@@ -1109,10 +1109,24 @@ export class AuditStore {
     });
   }
 
+  assessGeneralPractice(input) {
+    return this.appendGeneralCheckpoint({
+      ...input,
+      type: "general.practice.assessed",
+    });
+  }
+
   recordGeneralRecommendation(input) {
     return this.appendGeneralCheckpoint({
       ...input,
       type: "general.recommendation.recorded",
+    });
+  }
+
+  recordGeneralFrictionDisposition(input) {
+    return this.appendGeneralCheckpoint({
+      ...input,
+      type: "general.friction.disposition.recorded",
     });
   }
 

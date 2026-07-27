@@ -6,7 +6,9 @@ export const GENERAL_AUDIT_EVENT_TYPES: readonly [
   "general.finding.revised",
   "general.dimension.progress",
   "general.dimension.assessed",
+  "general.practice.assessed",
   "general.recommendation.recorded",
+  "general.friction.disposition.recorded",
   "general.continuation.recorded",
   "general.synthesis.completed",
   "general.audit.interrupted",
@@ -56,6 +58,23 @@ export const PRACTICE_GUIDE_IDS: readonly [
   "proximateInstructions",
   "testsMirrorBehavior",
   "separateGeneratedExternal",
+];
+export const PRACTICE_GUIDE_CATALOG: readonly Readonly<{
+  id: PracticeGuideId;
+  uiId: string;
+  title: string;
+}>[];
+export const GENERAL_PRACTICE_ASSESSMENTS: readonly [
+  "strong",
+  "mixed",
+  "weak",
+  "not_assessed",
+];
+export const GENERAL_FRICTION_DISPOSITIONS: readonly [
+  "covered",
+  "consolidated",
+  "accepted_limitation",
+  "deferred",
 ];
 
 export const GENERAL_AUDIT_SURFACES: readonly [
@@ -207,6 +226,10 @@ export interface GeneralRecommendation {
   rationale: string;
   findingIds: readonly string[];
   dimensionIds: readonly WaymarkDimensionId[];
+  practiceGuideIds: readonly PracticeGuideId[];
+  tokenMechanism: string;
+  validationCheck: string;
+  limitations: readonly string[];
   recordedAt: string;
   actor: string;
 }
@@ -216,6 +239,34 @@ export interface GeneralSurfaceInspection {
   summary: string;
   citations: readonly GeneralEvidenceCitation[];
   inspectedAt: string;
+  actor: string;
+}
+
+export interface GeneralPracticeAssessment {
+  principleId: PracticeGuideId;
+  uiId: string;
+  title: string;
+  assessment: "strong" | "mixed" | "weak" | "not_assessed";
+  summary: string;
+  surfacesInspected: readonly GeneralAuditSurface[];
+  supportingPositiveFindingIds: readonly string[];
+  supportingFrictionFindingIds: readonly string[];
+  limitations: readonly string[];
+  navigationTokenMechanism: string;
+  recommendationIds: readonly string[];
+  workflowEntryPoints: readonly string[];
+  workflowConclusion: string | null;
+  dispositionRecorded: boolean;
+  assessedAt: string | null;
+  actor: string | null;
+}
+
+export interface GeneralFrictionDisposition {
+  findingId: string;
+  disposition: "covered" | "consolidated" | "accepted_limitation" | "deferred";
+  recommendationId: string | null;
+  reason: string | null;
+  recordedAt: string;
   actor: string;
 }
 
@@ -299,6 +350,16 @@ export type GeneralRecommendationRecordedEvent = GeneralAuditEventBase<
   Omit<GeneralRecommendation, "recordedAt" | "actor">
 >;
 
+export type GeneralPracticeAssessedEvent = GeneralAuditEventBase<
+  "general.practice.assessed",
+  Omit<GeneralPracticeAssessment, "uiId" | "title" | "dispositionRecorded" | "assessedAt" | "actor">
+>;
+
+export type GeneralFrictionDispositionRecordedEvent = GeneralAuditEventBase<
+  "general.friction.disposition.recorded",
+  Omit<GeneralFrictionDisposition, "recordedAt" | "actor">
+>;
+
 export type GeneralContinuationRecordedEvent = GeneralAuditEventBase<
   "general.continuation.recorded",
   Omit<GeneralContinuation, "recordedAt" | "actor">
@@ -329,7 +390,9 @@ export type GeneralAuditEvent =
   | GeneralFindingRevisedEvent
   | GeneralDimensionProgressEvent
   | GeneralDimensionAssessedEvent
+  | GeneralPracticeAssessedEvent
   | GeneralRecommendationRecordedEvent
+  | GeneralFrictionDispositionRecordedEvent
   | GeneralContinuationRecordedEvent
   | GeneralSynthesisCompletedEvent
   | GeneralAuditInterruptedEvent;
@@ -351,6 +414,8 @@ export interface GeneralAuditReadModel {
   dimensions: Record<WaymarkDimensionId, GeneralDimensionAssessment>;
   evidenceCoverage: Record<WaymarkDimensionId, DimensionEvidenceCoverage>;
   recommendations: readonly GeneralRecommendation[];
+  practices: Record<PracticeGuideId, GeneralPracticeAssessment>;
+  frictionDispositions: Record<string, GeneralFrictionDisposition>;
   continuations: readonly GeneralContinuation[];
   assessedWeight: number;
   weightedPoints: number;

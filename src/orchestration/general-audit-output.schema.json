@@ -29,7 +29,9 @@
               "general.finding.revised",
               "general.dimension.progress",
               "general.dimension.assessed",
+              "general.practice.assessed",
               "general.recommendation.recorded",
+              "general.friction.disposition.recorded",
               "general.synthesis.completed"
             ]
           },

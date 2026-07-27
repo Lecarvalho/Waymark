@@ -124,6 +124,12 @@ function transportFailure(error) {
   return {
     code: error?.code ?? "CHECKPOINT_REJECTED",
     message: error instanceof Error ? error.message : String(error),
+    path:
+      typeof error?.details?.path === "string" ? error.details.path : null,
+    expectedShape:
+      typeof error?.details?.message === "string"
+        ? error.details.message
+        : null,
   };
 }
 
@@ -274,6 +280,9 @@ export async function startGeneralCheckpointTransport({
               error instanceof Error ? error.message : String(error),
               error?.code === "INVALID_INPUT" ? 400 : 409,
             );
+      if (normalized !== error && error?.details) {
+        normalized.details = error.details;
+      }
       if (
         normalized.code === "CHECKPOINT_JSON_INVALID" ||
         normalized.code === "CHECKPOINT_TOO_LARGE"

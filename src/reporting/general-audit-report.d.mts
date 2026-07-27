@@ -11,12 +11,14 @@ import type {
   GeneralFindingState,
   GeneralFindingLedgerEntry,
   GeneralRecommendation,
+  GeneralPracticeAssessment,
+  GeneralFrictionDisposition,
   GeneralSurfaceInspection,
   RepresentativeBehaviorPath,
   WaymarkDimensionId,
 } from "../domain/general-audit.mjs";
 
-export const GENERAL_REPORT_SCHEMA_VERSION: "general-report/1.0.0";
+export const GENERAL_REPORT_SCHEMA_VERSION: "general-report/1.1.0";
 export const GENERAL_STRONG_SCORE_MINIMUM: 80;
 
 export interface GeneralReportDimension {
@@ -138,7 +140,17 @@ export interface GeneralAuditReport {
     Record<GeneralEvidenceSource, GeneralEvidenceMatrixCell>
   >;
   dimensions: readonly GeneralReportDimension[];
+  practiceProfile: readonly GeneralPracticeAssessment[];
   recommendations: readonly GeneralRecommendation[];
+  recommendationCoverage: {
+    currentFrictionFindingCount: number;
+    coveredFrictionFindingCount: number;
+    deferredOrLimitedFindingCount: number;
+    undisposedFrictionFindingIds: readonly string[];
+    dispositions: readonly GeneralFrictionDisposition[];
+    recommendationsWithEvidenceCount: number;
+    orphanRecommendationIds: readonly string[];
+  };
   recommendationPriorities: readonly GeneralRecommendationPriority[];
   tokens: {
     phase: "general_research";
@@ -155,6 +167,12 @@ export interface GeneralAuditReport {
     hardLimitTokens: null;
     tokenEfficiencyScore: null;
   };
+  costDiagnostics: {
+    label: "Descriptive cost observation";
+    tokenEfficiencyScore: null;
+    processedTokensPerAcceptedCheckpoint: number | null;
+    processedTokensPerFinding: number | null;
+  } | null;
   completeness: {
     assessedDimensionCount: number;
     requiredDimensionCount: number;
@@ -162,6 +180,7 @@ export interface GeneralAuditReport {
     requiredWeight: 100;
     coverageComplete: boolean;
     synthesisComplete: boolean;
+    practiceProfileComplete: boolean;
     reportComplete: boolean;
   };
   weightedPoints: number;

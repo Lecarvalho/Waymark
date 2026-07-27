@@ -75,7 +75,15 @@ function findingRevision({
     title: `${findingId} title`,
     conclusion: `${findingId} evidence-backed conclusion`,
     dimensionIds: [dimensionId],
-    practiceGuideIds: ["organizeAroundBehavior"],
+    practiceGuideIds: [
+      "organizeAroundBehavior",
+      "explicitDependencyDirection",
+      "conceptOwningNames",
+      "canonicalWorkflow",
+      "proximateInstructions",
+      "testsMirrorBehavior",
+      "separateGeneratedExternal",
+    ],
     citations: [evidence],
     navigationCost:
       revisionNumber === 1
@@ -147,6 +155,38 @@ function completePositiveEvents() {
       }),
     );
   }
+  const principles = [
+    "organizeAroundBehavior",
+    "explicitDependencyDirection",
+    "conceptOwningNames",
+    "canonicalWorkflow",
+    "proximateInstructions",
+    "testsMirrorBehavior",
+    "separateGeneratedExternal",
+  ];
+  for (const principleId of principles) {
+    events.push(
+      event(sequence++, "general.practice.assessed", {
+        principleId,
+        assessment: "strong",
+        summary: `Repository-specific positive assessment for ${principleId}.`,
+        surfacesInspected: ["production_code", "tests", "workflows"],
+        supportingPositiveFindingIds: ["positive-ownershipClarity"],
+        supportingFrictionFindingIds: [],
+        limitations: [],
+        navigationTokenMechanism: "Direct ownership reduces retrieval work.",
+        recommendationIds: [],
+        workflowEntryPoints:
+          principleId === "canonicalWorkflow"
+            ? ["README: npm test", "package.json: npm test"]
+            : [],
+        workflowConclusion:
+          principleId === "canonicalWorkflow"
+            ? "The workflow entry points converge."
+            : null,
+      }),
+    );
+  }
   events.push(
     event(sequence, "general.synthesis.completed", {
       outcome: "completed",
@@ -186,6 +226,11 @@ test("a complete all-positive ledger produces a fixed auditor-assessed result", 
   });
   assert.equal(report.completeness.assessedWeight, 100);
   assert.equal(report.completeness.reportComplete, true);
+  assert.equal(report.practiceProfile.length, 7);
+  assert.equal(
+    report.practiceProfile.every(({ dispositionRecorded }) => dispositionRecorded),
+    true,
+  );
   assert.equal(report.tokens.totals.totalTokens, 1000);
   assert.equal(report.tokens.hardLimitTokens, null);
   assert.equal(report.tokens.tokenEfficiencyScore, null);
@@ -364,6 +409,10 @@ test("located-late timelines remain evidence and unsupported recommendations are
       rationale: "Reduce repeated ownership searches.",
       findingIds: ["late-owner"],
       dimensionIds: ["ownershipClarity"],
+      practiceGuideIds: ["organizeAroundBehavior"],
+      tokenMechanism: "Removes repeated ownership searches.",
+      validationCheck: "Repeat the ownership trace from the entry point.",
+      limitations: [],
     }),
   ];
   const report = reportFrom(events);
@@ -372,6 +421,11 @@ test("located-late timelines remain evidence and unsupported recommendations are
   assert.equal(report.findings[0].currentRevision.state, "located_late");
   assert.equal(report.findings[0].navigationCostHistory.length, 1);
   assert.equal(report.recommendations.length, 1);
+  assert.equal(report.recommendationCoverage.currentFrictionFindingCount, 1);
+  assert.deepEqual(
+    report.recommendationCoverage.undisposedFrictionFindingIds,
+    ["late-owner"],
+  );
   assert.equal(report.discoveryJourneys.length, 1);
   assert.equal(report.discoveryJourneys[0].locatedLate, true);
   assert.deepEqual(
@@ -454,6 +508,10 @@ test("a recommendation is removed from the current report when its finding is re
       rationale: "Reduce command discovery work.",
       findingIds: ["obsolete-friction"],
       dimensionIds: ["discoveryEfficiency"],
+      practiceGuideIds: ["organizeAroundBehavior"],
+      tokenMechanism: "Removes command discovery work.",
+      validationCheck: "Locate the canonical command from the root.",
+      limitations: [],
     }),
     event(4, "general.finding.revised", { revision: retracted }),
   ]);

@@ -394,9 +394,21 @@ test("the runner-provisioned MCP tool persists a live semantic checkpoint", asyn
   const listed = await request("tools/list");
   assert.deepEqual(
     listed.result.tools.map(({ name }) => name),
-    ["record"],
+    [
+      "record_surface",
+      "record_behavior_path",
+      "record_finding",
+      "revise_finding",
+      "record_dimension_progress",
+      "assess_dimension",
+      "assess_practice",
+      "record_recommendation",
+      "record_friction_disposition",
+      "complete_synthesis",
+      "record",
+    ],
   );
-  const recordTool = listed.result.tools[0];
+  const recordTool = listed.result.tools.find(({ name }) => name === "record");
   assert.deepEqual(recordTool.annotations, {
     title: "Record Waymark audit checkpoint",
     readOnlyHint: false,
@@ -428,15 +440,12 @@ test("the runner-provisioned MCP tool persists a live semantic checkpoint", asyn
     ["amendmentReason", "causedByCitations", "previousRevisionId"],
   );
   const called = await request("tools/call", {
-    name: "record",
+    name: "record_surface",
     arguments: {
       idempotencyKey: "mcp-production-surface",
-      type: "general.surface.inspected",
-      payload: {
-        surface: "production_code",
-        summary: "The MCP tool persisted this checkpoint while the role ran.",
-        citations: [],
-      },
+      surface: "production_code",
+      summary: "The MCP tool persisted this checkpoint while the role ran.",
+      citations: [],
     },
   });
   const acknowledgement = JSON.parse(called.result.content[0].text);
@@ -444,15 +453,62 @@ test("the runner-provisioned MCP tool persists a live semantic checkpoint", asyn
   assert.equal(acknowledgement.status, "acknowledged");
   assert.equal(acknowledgement.providerSessionId, "mcp-session");
 
+  const invalidPath = await request("tools/call", {
+    name: "record_behavior_path",
+    arguments: {
+      idempotencyKey: "mcp-behavior-path",
+      occurredAt: null,
+      pathId: "mcp-path",
+      name: "MCP behavior path",
+      entryPoint: { status: "invalid", label: "entry", citations: [] },
+      owner: { status: "unknown", label: "owner", reason: "Not inspected.", citations: [] },
+      dependencies: [],
+      consumers: [],
+      tests: [],
+    },
+  });
+  assert.equal(invalidPath.result.isError, true);
+  const invalidBody = JSON.parse(invalidPath.result.content[0].text);
+  assert.equal(invalidBody.error.path, "payload.entryPoint.status");
+
+  const behaviorCalled = await request("tools/call", {
+    name: "record_behavior_path",
+    arguments: {
+      idempotencyKey: "mcp-behavior-path",
+      occurredAt: null,
+      pathId: "mcp-path",
+      name: "MCP behavior path",
+      entryPoint: {
+        status: "known",
+        label: "entry",
+        citations: [{
+          path: "src/domain/general-audit.mjs",
+          startLine: 1,
+          endLine: 2,
+          symbol: null,
+          source: "production_code",
+        }],
+      },
+      owner: {
+        status: "unknown",
+        label: "owner",
+        reason: "Not inspected.",
+        citations: [],
+      },
+      dependencies: [],
+      consumers: [],
+      tests: [],
+    },
+  });
+  assert.equal(behaviorCalled.result.isError, undefined);
+
   const findingOccurredAt = "2026-07-25T14:02:00.000Z";
   const findingCalled = await request("tools/call", {
-    name: "record",
+    name: "record_finding",
     arguments: {
       idempotencyKey: "mcp-production-finding",
-      type: "general.finding.recorded",
       occurredAt: findingOccurredAt,
-      payload: {
-        revision: {
+      revision: {
           revisionId: "mcp-production-finding-r1",
           findingId: "mcp-production-finding",
           revisionNumber: 1,
@@ -466,7 +522,6 @@ test("the runner-provisioned MCP tool persists a live semantic checkpoint", asyn
           citations: [],
           navigationCost: null,
           provenance: {},
-        },
       },
     },
   });
@@ -478,6 +533,7 @@ test("the runner-provisioned MCP tool persists a live semantic checkpoint", asyn
 
   const report = store.readReport(run.id);
   assert.equal(report.generalAudit.surfaces.length, 1);
+  assert.equal(report.generalAudit.behaviorPathOrder.length, 1);
   assert.equal(
     report.generalAudit.findings["mcp-production-finding"].currentRevision
       .provenance.actor,
@@ -492,7 +548,7 @@ test("the runner-provisioned MCP tool persists a live semantic checkpoint", asyn
     report.events.filter(
       ({ type }) => type === "provider.checkpoint.acknowledged",
     ).length,
-    2,
+    3,
   );
   child.stdin.end();
 });
@@ -547,6 +603,20 @@ test("the general runner launches one auditor, streams findings, and completes f
   assert.equal(report.run.status, "completed");
   assert.equal(report.generalAudit.auditorAssessedResult !== null, true);
   assert.equal(report.generalAudit.behaviorPathOrder.length, 2);
+  assert.equal(
+    Object.values(report.generalAudit.practices).filter(
+      ({ dispositionRecorded }) => dispositionRecorded,
+    ).length,
+    7,
+  );
+  assert.equal(Object.keys(report.generalAudit.frictionDispositions).length, 1);
+  const preflight = report.events.find(
+    ({ type }) => type === "provider.preflight.completed",
+  );
+  assert.equal(preflight.payload.sandboxMode, "read-only");
+  assert.match(preflight.payload.outputSchema, /general-audit-output\.schema\.json$/);
+  assert.match(preflight.payload.checkpointServer, /^http:\/\/127\.0\.0\.1:/);
+  assert.equal(preflight.payload.injectedGitSafeDirectory.includes("\\"), false);
   assert.equal(report.aggregates.tokensByPhase.general_research, 200_000);
   assert.equal(
     report.events.some(({ type }) => type === "usage.soft_notice"),
@@ -694,6 +764,11 @@ test("general live usage exposes input and output separately before completion",
     await new Promise((resolve) => setTimeout(resolve, 25));
   }
   const snapshot = toRunSnapshot(store.readReport(run.id), 1);
+  const usageEvent = store
+    .readReport(run.id)
+    .events.find(({ type }) => type === "provider.usage.updated");
+  assert.equal(Number.isSafeInteger(usageEvent.payload.semanticCheckpointSequence), true);
+  assert.equal(usageEvent.payload.marginalTokensWithoutEvidence, 70);
   assert.equal(snapshot.status, "running");
   assert.deepEqual(snapshot.generalAudit.auditor.tokenUsage, {
     totalTokens: 70,
@@ -2168,13 +2243,13 @@ test("the Codex adapter pre-approves the runner-owned checkpoint tool for a read
 
   const launch = adapter.createLaunchSpec(assignment, "audit read-only");
   assert.ok(
-    launch.arguments.includes(
-      'mcp_servers.waymark_checkpoint.enabled_tools=["record"]',
+    launch.arguments.some((argument) =>
+      argument.includes('enabled_tools=["record_surface"'),
     ),
   );
   assert.ok(
     launch.arguments.includes(
-      'mcp_servers.waymark_checkpoint.tools.record.approval_mode="approve"',
+      'mcp_servers.waymark_checkpoint.tools.record_behavior_path.approval_mode="approve"',
     ),
   );
   assert.ok(
@@ -2222,13 +2297,13 @@ test("the Codex adapter gives an explicitly unrestricted auditor full access wit
     ),
   );
   assert.ok(
-    launch.arguments.includes(
-      'mcp_servers.waymark_checkpoint.enabled_tools=["record"]',
+    launch.arguments.some((argument) =>
+      argument.includes('enabled_tools=["record_surface"'),
     ),
   );
   assert.ok(
     launch.arguments.includes(
-      'mcp_servers.waymark_checkpoint.tools.record.approval_mode="approve"',
+      'mcp_servers.waymark_checkpoint.tools.assess_practice.approval_mode="approve"',
     ),
   );
   assert.ok(
@@ -2274,7 +2349,7 @@ test("the Codex adapter gives an explicitly unrestricted auditor full access wit
   );
   assert.ok(
     resume.arguments.includes(
-      'mcp_servers.waymark_checkpoint.tools.record.approval_mode="approve"',
+      'mcp_servers.waymark_checkpoint.tools.complete_synthesis.approval_mode="approve"',
     ),
   );
 });

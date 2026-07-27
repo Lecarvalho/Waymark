@@ -6,7 +6,9 @@ export const GENERAL_AUDIT_EVENT_TYPES = Object.freeze([
   "general.finding.revised",
   "general.dimension.progress",
   "general.dimension.assessed",
+  "general.practice.assessed",
   "general.recommendation.recorded",
+  "general.friction.disposition.recorded",
   "general.continuation.recorded",
   "general.synthesis.completed",
   "general.audit.interrupted",
@@ -58,6 +60,30 @@ export const PRACTICE_GUIDE_IDS = Object.freeze([
   "separateGeneratedExternal",
 ]);
 
+export const PRACTICE_GUIDE_CATALOG = Object.freeze([
+  Object.freeze({ id: "organizeAroundBehavior", uiId: "01", title: "Organize around behavior" }),
+  Object.freeze({ id: "explicitDependencyDirection", uiId: "02", title: "Make dependency direction explicit" }),
+  Object.freeze({ id: "conceptOwningNames", uiId: "03", title: "Name files for the concept they own" }),
+  Object.freeze({ id: "canonicalWorkflow", uiId: "04", title: "Provide one canonical workflow" }),
+  Object.freeze({ id: "proximateInstructions", uiId: "05", title: "Put instructions close to the code" }),
+  Object.freeze({ id: "testsMirrorBehavior", uiId: "06", title: "Make tests mirror behavior" }),
+  Object.freeze({ id: "separateGeneratedExternal", uiId: "07", title: "Separate generated and external code" }),
+]);
+
+export const GENERAL_PRACTICE_ASSESSMENTS = Object.freeze([
+  "strong",
+  "mixed",
+  "weak",
+  "not_assessed",
+]);
+
+export const GENERAL_FRICTION_DISPOSITIONS = Object.freeze([
+  "covered",
+  "consolidated",
+  "accepted_limitation",
+  "deferred",
+]);
+
 export const GENERAL_AUDIT_SURFACES = Object.freeze([
   "production_code",
   "tests",
@@ -98,6 +124,8 @@ const FINDING_SIGNAL_SET = new Set(GENERAL_FINDING_SIGNALS);
 const EVIDENCE_SOURCE_SET = new Set(GENERAL_EVIDENCE_SOURCES);
 const DIMENSION_ID_SET = new Set(WAYMARK_DIMENSION_IDS);
 const PRACTICE_GUIDE_ID_SET = new Set(PRACTICE_GUIDE_IDS);
+const PRACTICE_ASSESSMENT_SET = new Set(GENERAL_PRACTICE_ASSESSMENTS);
+const FRICTION_DISPOSITION_SET = new Set(GENERAL_FRICTION_DISPOSITIONS);
 const SURFACE_SET = new Set(GENERAL_AUDIT_SURFACES);
 const INACTIVE_FINDING_STATES = new Set(["contradicted", "retracted"]);
 
@@ -147,6 +175,27 @@ function emptyDimension(dimensionId) {
   };
 }
 
+function emptyPractice(principle) {
+  return {
+    principleId: principle.id,
+    uiId: principle.uiId,
+    title: principle.title,
+    assessment: "not_assessed",
+    summary: "No repository-specific assessment has been recorded.",
+    surfacesInspected: [],
+    supportingPositiveFindingIds: [],
+    supportingFrictionFindingIds: [],
+    limitations: ["Repository-specific evidence has not yet been recorded."],
+    navigationTokenMechanism: "Unavailable until this principle is assessed.",
+    recommendationIds: [],
+    workflowEntryPoints: [],
+    workflowConclusion: null,
+    dispositionRecorded: false,
+    assessedAt: null,
+    actor: null,
+  };
+}
+
 function initialState() {
   return {
     runId: null,
@@ -175,6 +224,13 @@ function initialState() {
       ]),
     ),
     recommendations: [],
+    frictionDispositions: {},
+    practices: Object.fromEntries(
+      PRACTICE_GUIDE_CATALOG.map((principle) => [
+        principle.id,
+        emptyPractice(principle),
+      ]),
+    ),
     continuations: [],
     assessedWeight: 0,
     weightedPoints: 0,
@@ -927,11 +983,106 @@ function applyDimensionProgress(state, event, assessed) {
   };
 }
 
+function validatePracticeFindingIds(state, payload, eventId, field, signal) {
+  if (!Array.isArray(payload[field])) {
+    fail("invalid_practice_support", `${field} must be an array.`, eventId);
+  }
+  const ids = [...new Set(payload[field])];
+  for (const findingId of ids) {
+    const revision = state.findings[findingId]?.currentRevision;
+    if (!revision) {
+      fail("unknown_practice_finding", `Practice support references unknown finding ${findingId}.`, eventId);
+    }
+    if (INACTIVE_FINDING_STATES.has(revision.state) || revision.signal !== signal) {
+      fail("invalid_practice_finding", `Finding ${findingId} is not current ${signal} evidence.`, eventId);
+    }
+    if (!revision.practiceGuideIds.includes(payload.principleId)) {
+      fail("mismatched_practice_finding", `Finding ${findingId} does not reference ${payload.principleId}.`, eventId);
+    }
+  }
+  return ids;
+}
+
+function applyPracticeAssessed(state, event) {
+  const payload = event.payload;
+  if (!PRACTICE_GUIDE_ID_SET.has(payload.principleId)) {
+    fail("invalid_practice_id", `Unknown Practice Guide principle ${payload.principleId}.`, event.id);
+  }
+  if (!PRACTICE_ASSESSMENT_SET.has(payload.assessment)) {
+    fail("invalid_practice_assessment", "Practice assessment must be strong, mixed, weak, or not_assessed.", event.id);
+  }
+  validateIdentifier(payload.summary, "practice summary", event.id);
+  validateIdentifier(payload.navigationTokenMechanism, "navigationTokenMechanism", event.id);
+  if (!Array.isArray(payload.surfacesInspected) || payload.surfacesInspected.some((surface) => !SURFACE_SET.has(surface))) {
+    fail("invalid_practice_surfaces", "surfacesInspected contains an unknown surface.", event.id);
+  }
+  if (!Array.isArray(payload.limitations) || !Array.isArray(payload.recommendationIds)) {
+    fail("invalid_practice_arrays", "Practice limitations and recommendationIds must be arrays.", event.id);
+  }
+  const positiveIds = validatePracticeFindingIds(
+    state, payload, event.id, "supportingPositiveFindingIds", "positive",
+  );
+  const frictionIds = validatePracticeFindingIds(
+    state, payload, event.id, "supportingFrictionFindingIds", "friction",
+  );
+  if (payload.assessment === "strong" && positiveIds.length === 0) {
+    fail("strong_practice_requires_positive_evidence", "A strong Practice Guide assessment requires cited positive evidence.", event.id);
+  }
+  if (["mixed", "weak"].includes(payload.assessment) && frictionIds.length === 0) {
+    fail("non_strong_practice_requires_friction", "A mixed or weak Practice Guide assessment requires cited friction.", event.id);
+  }
+  if (payload.assessment === "not_assessed" && payload.limitations.length === 0) {
+    fail("not_assessed_requires_limitation", "A not_assessed principle requires an explicit evidence limitation.", event.id);
+  }
+  if (payload.principleId === "canonicalWorkflow") {
+    if (!Array.isArray(payload.workflowEntryPoints) || payload.workflowEntryPoints.length === 0) {
+      fail("canonical_workflow_requires_entry_points", "canonicalWorkflow requires discovered workflowEntryPoints.", event.id);
+    }
+    validateIdentifier(payload.workflowConclusion, "workflowConclusion", event.id);
+  }
+  for (const limitation of payload.limitations) {
+    validateIdentifier(limitation, "practice limitation", event.id);
+  }
+  const codeJudgmentPrinciples = new Set([
+    "organizeAroundBehavior",
+    "explicitDependencyDirection",
+    "conceptOwningNames",
+    "testsMirrorBehavior",
+  ]);
+  if (payload.assessment !== "not_assessed" && codeJudgmentPrinciples.has(payload.principleId)) {
+    const citedRevisions = [...positiveIds, ...frictionIds].map(
+      (findingId) => state.findings[findingId].currentRevision,
+    );
+    if (!citedRevisions.some((revision) =>
+      revision.citations.some(({ source }) => source === "production_code" || source === "test"))) {
+      fail("practice_requires_code_or_test_evidence", `${payload.principleId} requires production-code or test evidence.`, event.id);
+    }
+  }
+  state.practices[payload.principleId] = {
+    ...state.practices[payload.principleId],
+    assessment: payload.assessment,
+    summary: payload.summary,
+    surfacesInspected: [...new Set(payload.surfacesInspected)],
+    supportingPositiveFindingIds: positiveIds,
+    supportingFrictionFindingIds: frictionIds,
+    limitations: [...payload.limitations],
+    navigationTokenMechanism: payload.navigationTokenMechanism,
+    recommendationIds: [...new Set(payload.recommendationIds)],
+    workflowEntryPoints: [...(payload.workflowEntryPoints ?? [])],
+    workflowConclusion: payload.workflowConclusion ?? null,
+    dispositionRecorded: true,
+    assessedAt: event.occurredAt,
+    actor: event.actor,
+  };
+}
+
 function applyRecommendationRecorded(state, event) {
   const payload = event.payload;
   validateIdentifier(payload.recommendationId, "recommendationId", event.id);
   validateIdentifier(payload.title, "recommendation title", event.id);
   validateIdentifier(payload.rationale, "recommendation rationale", event.id);
+  validateIdentifier(payload.tokenMechanism, "recommendation tokenMechanism", event.id);
+  validateIdentifier(payload.validationCheck, "recommendation validationCheck", event.id);
   if (
     state.recommendations.some(
       (recommendation) =>
@@ -959,14 +1110,21 @@ function applyRecommendationRecorded(state, event) {
     const revision = state.findings[findingId].currentRevision;
     if (
       INACTIVE_FINDING_STATES.has(revision.state) ||
-      revision.citations.length === 0
+      revision.citations.length === 0 ||
+      revision.signal !== "friction"
     ) {
       fail(
         "unsupported_recommendation_finding",
-        `Recommendation finding ${findingId} must be current and cited.`,
+        `Recommendation finding ${findingId} must be current, cited friction.`,
         event.id,
       );
     }
+  }
+  if (!Array.isArray(payload.practiceGuideIds) || payload.practiceGuideIds.some((id) => !PRACTICE_GUIDE_ID_SET.has(id))) {
+    fail("invalid_recommendation_practice", "Recommendation practiceGuideIds contains an unknown principle.", event.id);
+  }
+  if (!Array.isArray(payload.limitations)) {
+    fail("invalid_recommendation_limitations", "Recommendation limitations must be an array.", event.id);
   }
   if (
     !Array.isArray(payload.dimensionIds) ||
@@ -999,6 +1157,10 @@ function applyRecommendationRecorded(state, event) {
     rationale: payload.rationale,
     findingIds: [...new Set(payload.findingIds)],
     dimensionIds: [...new Set(payload.dimensionIds)],
+    practiceGuideIds: [...new Set(payload.practiceGuideIds)],
+    tokenMechanism: payload.tokenMechanism,
+    validationCheck: payload.validationCheck,
+    limitations: [...payload.limitations],
     recordedAt: event.occurredAt,
     actor: event.actor,
   });
@@ -1064,6 +1226,38 @@ function applyContinuationRecorded(state, event) {
   });
 }
 
+function applyFrictionDispositionRecorded(state, event) {
+  const payload = event.payload;
+  validateIdentifier(payload.findingId, "findingId", event.id);
+  if (!FRICTION_DISPOSITION_SET.has(payload.disposition)) {
+    fail("invalid_friction_disposition", "Unknown friction disposition.", event.id);
+  }
+  const revision = state.findings[payload.findingId]?.currentRevision;
+  if (!revision || revision.signal !== "friction" || INACTIVE_FINDING_STATES.has(revision.state)) {
+    fail("invalid_disposition_finding", "A disposition requires a current friction finding.", event.id);
+  }
+  const linksRecommendation = ["covered", "consolidated"].includes(payload.disposition);
+  if (linksRecommendation) {
+    validateIdentifier(payload.recommendationId, "recommendationId", event.id);
+    const recommendation = state.recommendations.find(
+      ({ recommendationId }) => recommendationId === payload.recommendationId,
+    );
+    if (!recommendation || !recommendation.findingIds.includes(payload.findingId)) {
+      fail("invalid_disposition_recommendation", "The linked recommendation must exist and cite this finding.", event.id);
+    }
+  } else {
+    validateIdentifier(payload.reason, "disposition reason", event.id);
+  }
+  state.frictionDispositions[payload.findingId] = {
+    findingId: payload.findingId,
+    disposition: payload.disposition,
+    recommendationId: linksRecommendation ? payload.recommendationId : null,
+    reason: linksRecommendation ? null : payload.reason,
+    recordedAt: event.occurredAt,
+    actor: event.actor,
+  };
+}
+
 function applySynthesisCompleted(state, event) {
   if (!["completed", "partial"].includes(event.payload.outcome)) {
     fail(
@@ -1081,6 +1275,56 @@ function applySynthesisCompleted(state, event) {
     );
   }
   recomputeDerivedState(state);
+  const recordedPractices = Object.values(state.practices).filter(
+    ({ dispositionRecorded }) => dispositionRecorded,
+  );
+  if (
+    event.payload.outcome === "completed" &&
+    recordedPractices.length !== PRACTICE_GUIDE_IDS.length
+  ) {
+    fail(
+      "incomplete_practice_profile",
+      "Synthesis requires one repository-specific disposition for all seven Practice Guide principles.",
+      event.id,
+    );
+  }
+  for (const practice of recordedPractices) {
+    const missingRecommendation = practice.recommendationIds.find(
+      (recommendationId) =>
+        !state.recommendations.some(
+          (recommendation) => recommendation.recommendationId === recommendationId,
+        ),
+    );
+    if (missingRecommendation) {
+      fail(
+        "unknown_practice_recommendation",
+        `Practice ${practice.principleId} references unknown recommendation ${missingRecommendation}.`,
+        event.id,
+      );
+    }
+    if (
+      ["mixed", "weak"].includes(practice.assessment) &&
+      practice.recommendationIds.length === 0 &&
+      practice.limitations.length === 0
+    ) {
+      fail(
+        "undisposed_practice_friction",
+        `Practice ${practice.principleId} requires a recommendation or explicit limitation.`,
+        event.id,
+      );
+    }
+  }
+  const undisposedFriction = activeCurrentRevisions(state)
+    .filter(({ signal }) => signal === "friction")
+    .map(({ findingId }) => findingId)
+    .filter((findingId) => !state.frictionDispositions[findingId]);
+  if (event.payload.outcome === "completed" && undisposedFriction.length > 0) {
+    fail(
+      "undisposed_friction",
+      `Current friction findings require dispositions: ${undisposedFriction.join(", ")}.`,
+      event.id,
+    );
+  }
   if (
     event.payload.outcome === "completed" &&
     state.auditorAssessedResult === null
@@ -1157,7 +1401,9 @@ const EVENT_APPLIERS = {
     applyDimensionProgress(state, event, false),
   "general.dimension.assessed": (state, event) =>
     applyDimensionProgress(state, event, true),
+  "general.practice.assessed": applyPracticeAssessed,
   "general.recommendation.recorded": applyRecommendationRecorded,
+  "general.friction.disposition.recorded": applyFrictionDispositionRecorded,
   "general.continuation.recorded": applyContinuationRecorded,
   "general.synthesis.completed": applySynthesisCompleted,
   "general.audit.interrupted": applyAuditInterrupted,

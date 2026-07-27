@@ -57,6 +57,14 @@
   color: var(--lime);
 }
 
+.general-finding[data-signal="friction"] .general-finding-state {
+  color: var(--amber);
+}
+
+.general-finding[data-signal="unknown"] .general-finding-state {
+  color: var(--muted);
+}
+
 .general-finding[data-state="contradicted"] .general-finding-state,
 .general-finding[data-state="retracted"] .general-finding-state {
   color: var(--red);

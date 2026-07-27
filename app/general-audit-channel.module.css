@@ -11,8 +11,13 @@
   background: var(--panel);
 }
 
+.status[data-health="recovered"],
 .status[data-health="degraded"] {
   border-left-color: var(--amber);
+}
+
+.status[data-health="waiting"] {
+  border-left-color: var(--blue);
 }
 
 .status[data-health="failed"] {
@@ -38,8 +43,13 @@
   font-size: 14px;
 }
 
+.status[data-health="recovered"] .summary > strong,
 .status[data-health="degraded"] .summary > strong {
   color: var(--amber);
+}
+
+.status[data-health="waiting"] .summary > strong {
+  color: var(--blue);
 }
 
 .status[data-health="failed"] .summary > strong {

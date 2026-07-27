@@ -40,6 +40,22 @@ const findingStateLabels = {
   unresolved: "Unresolved",
 } as const;
 
+const findingSignalLabels = {
+  positive: "Strength",
+  friction: "Needs attention",
+  unknown: "Unresolved",
+} as const;
+
+function findingSemanticLabel(
+  state: keyof typeof findingStateLabels,
+  signal: keyof typeof findingSignalLabels,
+) {
+  if (state === "contradicted") return "Contradicted";
+  if (state === "retracted") return "Retracted";
+  if (state === "provisional" || state === "unresolved") return "Unresolved";
+  return findingSignalLabels[signal];
+}
+
 const auditStatusLabels = {
   running: "Running",
   completed: "Completed",
@@ -95,6 +111,7 @@ export function GeneralAuditView({ snapshot }: GeneralAuditViewProps) {
 
   if (!report) return null;
 
+  const recommendationCoverage = report.recommendationCoverage ?? null;
   const assessedDimensions = report.dimensions.filter(
     ({ assessmentState }) => assessmentState === "assessed",
   ).length;
@@ -174,6 +191,16 @@ export function GeneralAuditView({ snapshot }: GeneralAuditViewProps) {
           </p>
           <div className={classes("general-hero-meta")}>
             <span>Read-only target</span>
+            <span>
+              Run ID: <code>{snapshot.id}</code>{" "}
+              <button
+                aria-label={`Copy run ID ${snapshot.id}`}
+                onClick={() => void navigator.clipboard.writeText(snapshot.id)}
+                type="button"
+              >
+                Copy
+              </button>
+            </span>
             <span>Checkpoint {report.latestCheckpointSequence}</span>
             <span>{snapshot.progress}% coverage progress</span>
           </div>
@@ -488,11 +515,23 @@ export function GeneralAuditView({ snapshot }: GeneralAuditViewProps) {
                         <p>{revision.conclusion}</p>
                       </div>
                       <span className={classes("general-finding-state")}>
-                        {findingStateLabels[revision.state]}
+                        <span aria-hidden="true">
+                          {revision.signal === "positive"
+                            ? "✓"
+                            : revision.signal === "friction"
+                              ? "!"
+                              : "?"}
+                        </span>{" "}
+                        {findingStateLabels[revision.state]} ·{" "}
+                        {findingSemanticLabel(revision.state, revision.signal)}
                       </span>
                       <span aria-hidden="true">+</span>
                     </summary>
                     <div className={classes("general-finding-detail")}>
+                      <p className={classes("sr-only")}>
+                        Revision state {findingStateLabels[revision.state]}; semantic signal{" "}
+                        {findingSemanticLabel(revision.state, revision.signal)}.
+                      </p>
                       <section className={classes("general-amendment")}>
                         <h3>Current state</h3>
                         <p>
@@ -596,6 +635,28 @@ export function GeneralAuditView({ snapshot }: GeneralAuditViewProps) {
               {report.recommendations.length} available
             </span>
           </div>
+          {recommendationCoverage ? (
+            <div className={classes("general-recommendation-coverage")}>
+              <strong>
+                {recommendationCoverage.coveredFrictionFindingCount} of{" "}
+                {recommendationCoverage.currentFrictionFindingCount} current
+                friction findings covered
+              </strong>
+              <span>
+                {recommendationCoverage.deferredOrLimitedFindingCount} deferred
+                or accepted limitations ·{" "}
+                {recommendationCoverage.orphanRecommendationIds.length} orphan
+                recommendations
+              </span>
+            </div>
+          ) : (
+            <div className={classes("general-recommendation-coverage")}>
+              <strong>Coverage unavailable for this historical report</strong>
+              <span>
+                Recommendation coverage was introduced in a newer report version.
+              </span>
+            </div>
+          )}
           {report.recommendations.length === 0 ? (
             <div className={classes("empty-report-state")}>
               Recommendations appear only after the auditor links a repository
@@ -609,13 +670,34 @@ export function GeneralAuditView({ snapshot }: GeneralAuditViewProps) {
                   <div>
                     <h3>{recommendation.title}</h3>
                     <p>{recommendation.rationale}</p>
+                    <dl>
+                      <div>
+                        <dt>Token mechanism</dt>
+                        <dd>
+                          {recommendation.tokenMechanism ??
+                            "Not recorded in this report version."}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>Validation check</dt>
+                        <dd>
+                          {recommendation.validationCheck ??
+                            "Not recorded in this report version."}
+                        </dd>
+                      </div>
+                    </dl>
                     <small>
                       Supported by {recommendation.findingIds.length}{" "}
                       {recommendation.findingIds.length === 1
                         ? "finding"
                         : "findings"}{" "}
-                      · {recommendation.dimensionIds.length} dimensions
+                      · {recommendation.dimensionIds.length} dimensions ·{" "}
+                      {recommendation.practiceGuideIds?.length ?? 0} Practice Guide
+                      principles
                     </small>
+                    {(recommendation.limitations?.length ?? 0) > 0 ? (
+                      <p>Limitations: {recommendation.limitations?.join(" ")}</p>
+                    ) : null}
                   </div>
                 </article>
               ))}
