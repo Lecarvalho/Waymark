@@ -10,7 +10,7 @@ export interface GeneralAuditorAssignment {
     path: string;
     identity: string;
     commitSha: string;
-    readOnly: true;
+    readOnly: boolean;
   };
   auditMode: "general";
   task: string;
@@ -20,6 +20,7 @@ export interface GeneralAuditorAssignment {
     measurementScope: "role_process_only";
   };
   toolPolicy: Record<string, unknown>;
+  permissionMode: "read_only" | "unrestricted_no_approval";
   continuation: ReturnType<typeof projectGeneralContinuation> | null;
 }
 

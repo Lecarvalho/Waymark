@@ -22,7 +22,7 @@ export function tokenSource(measurements) {
   return sources.size === 1 ? measurements[0].source : "mixed";
 }
 
-function summarizeTokens(measurements) {
+export function summarizeTokens(measurements) {
   if (measurements.length === 0) {
     return {
       totalTokens: null,

@@ -1,0 +1,47 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["unpublishedCheckpoints"],
+  "properties": {
+    "unpublishedCheckpoints": {
+      "type": "array",
+      "description": "Semantic checkpoints that were not acknowledged by the live Waymark MCP tool. Leave empty when every checkpoint was acknowledged.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "idempotencyKey",
+          "type",
+          "occurredAt",
+          "payloadJson"
+        ],
+        "properties": {
+          "idempotencyKey": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "general.surface.inspected",
+              "general.behavior_path.recorded",
+              "general.finding.recorded",
+              "general.finding.revised",
+              "general.dimension.progress",
+              "general.dimension.assessed",
+              "general.recommendation.recorded",
+              "general.synthesis.completed"
+            ]
+          },
+          "occurredAt": {
+            "type": ["string", "null"]
+          },
+          "payloadJson": {
+            "type": "string",
+            "description": "A JSON-encoded object matching the selected semantic event payload."
+          }
+        }
+      }
+    }
+  }
+}

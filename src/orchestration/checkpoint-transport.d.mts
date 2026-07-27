@@ -10,7 +10,7 @@ export class CheckpointTransportError extends Error {
 export interface GeneralCheckpointEnvelope {
   runId: string;
   actor: string;
-  providerSessionId: string;
+  providerSessionId?: string;
   idempotencyKey: string;
   type: GeneralAuditEventType;
   payload: JsonObject;

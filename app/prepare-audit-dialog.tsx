@@ -36,6 +36,7 @@ type ParticipantSelection = {
 };
 type ParticipantSelections = Record<Role, ParticipantSelection>;
 type AuditMode = "general" | "task_specific" | "system_explanation";
+type AuditorPermissionMode = "read_only" | "unrestricted_no_approval";
 
 const roleLabels: Record<Role, string> = {
   auditor: "Auditor",
@@ -201,6 +202,8 @@ export function PrepareAuditDialog() {
     useState<AuditTokenBudgets | null>(null);
   const [softUsageNoticeTokens, setSoftUsageNoticeTokens] =
     useState<number | null>(null);
+  const [auditorPermissionMode, setAuditorPermissionMode] =
+    useState<AuditorPermissionMode>("read_only");
   const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">(
     "idle",
   );
@@ -299,6 +302,7 @@ export function PrepareAuditDialog() {
         },
         tokenPolicy: "unbounded_by_waymark",
         softUsageNoticeTokens,
+        auditorPermissionMode,
       });
     }
     return buildPreparedAuditRequest({
@@ -323,6 +327,7 @@ export function PrepareAuditDialog() {
     activeRoles,
     resolvedTokenBudgets,
     softUsageNoticeTokens,
+    auditorPermissionMode,
   ]);
 
   const open = () => {
@@ -446,7 +451,10 @@ export function PrepareAuditDialog() {
                 <span>01</span>
                 <div>
                   <h3 id="audit-request-scope">Scope</h3>
-                  <p>Identify the immutable target before role work begins.</p>
+                  <p>
+                    Identify the target and record its starting point for
+                    provenance.
+                  </p>
                 </div>
               </div>
               <div className={classes("prepare-field-grid")}>
@@ -542,11 +550,39 @@ export function PrepareAuditDialog() {
                     </small>
                   </label>
                 ) : (
-                  <p className={classes("prepare-mode-note")}>
-                    {selectedAuditMode?.description ??
-                      "Broad, evidence-led repository research by one auditor."}{" "}
-                    No feature request or benchmark task suite is needed.
-                  </p>
+                  <>
+                    <p className={classes("prepare-mode-note")}>
+                      {selectedAuditMode?.description ??
+                        "Broad, evidence-led repository research by one auditor."}{" "}
+                      No feature request or benchmark task suite is needed.
+                    </p>
+                    <label
+                      className={classes("prepare-field")}
+                      data-span="wide"
+                    >
+                      <span>Auditor permissions</span>
+                      <select
+                        onChange={(event) => {
+                          setCopyState("idle");
+                          setAuditorPermissionMode(
+                            event.target.value as AuditorPermissionMode,
+                          );
+                        }}
+                        value={auditorPermissionMode}
+                      >
+                        <option value="read_only">Read-only sandbox</option>
+                        <option value="unrestricted_no_approval">
+                          Full access · no approval prompts
+                        </option>
+                      </select>
+                      <small>
+                        Full access lets the auditor run arbitrary commands and
+                        use network access, but it is still instructed never to
+                        change the target repository. Select it only for
+                        repositories and machines you trust.
+                      </small>
+                    </label>
+                  </>
                 )}
               </div>
             </section>

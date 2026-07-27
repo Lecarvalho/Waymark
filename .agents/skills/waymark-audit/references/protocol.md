@@ -23,17 +23,23 @@ A redesigned general run has this provider-neutral shape:
 {
   "targetRepositoryPath": "C:/repos/example",
   "repositoryIdentity": "example",
-  "commitSha": "immutable-sha",
+  "commitSha": "starting-sha-for-provenance",
   "name": "General repository navigation",
   "task": "Broad evidence-led repository navigability assessment",
   "participants": [
     {"role":"auditor","provider":"openai","model":"most-capable-model"}
   ],
-  "toolPolicy": {"target":"read-only","network":"declared"},
+  "toolPolicy": {
+    "target":"read-only",
+    "network":"declared",
+    "sandboxMode":"read-only",
+    "approvalPolicy":"never"
+  },
   "runConditions": {
     "auditMode": "general",
     "verificationPolicy": "repository_appropriate",
     "auditorReasoningEffort": "high",
+    "auditorPermissionMode": "read_only",
     "execution": {
       "isolation": "fresh_process",
       "contextPolicy": "assignment_only",
@@ -43,7 +49,7 @@ A redesigned general run has this provider-neutral shape:
     "softUsageNoticeTokens": null,
     "pricingSnapshot": null
   },
-  "protocolVersion": "general-audit-contract/1.0.0",
+  "protocolVersion": "general-audit-contract/1.1.0",
   "rubricVersion": "waymark-navigability/1.0.0"
 }
 ```
@@ -52,6 +58,25 @@ A redesigned general run has this provider-neutral shape:
 selection. Usage is recorded in the separate `general_research` phase.
 `softUsageNoticeTokens`, when present, informs the operator but never stops the
 auditor or determines report validity.
+
+`commitSha` records where the run began; it does not freeze the target. A
+general auditor reports the files and repository state it actually observes and
+does not fail solely because HEAD or the worktree changes during the run.
+
+General auditor permission modes are explicit runtime inputs:
+
+- `read_only` is the default and launches Codex with approval policy `never`
+  and sandbox mode `read-only`.
+- `unrestricted_no_approval` is an explicit user authorization. Persist
+  `toolPolicy.target=full-access`, `toolPolicy.network=enabled`,
+  `toolPolicy.sandboxMode=danger-full-access`, and
+  `toolPolicy.approvalPolicy=never`. The Codex adapter then launches the auditor
+  without approval prompts or sandbox restrictions. The assignment must still
+  state that full access is for command compatibility only and prohibit
+  modifying, creating, deleting, installing, formatting, or generating
+  anything in the target repository.
+
+Never launch full access while the journal claims the target was read-only.
 
 Create the run with the provider-neutral command, then launch the single
 auditor runner:
@@ -78,7 +103,7 @@ node bin/waymark.mjs --db <journal> run create --input-file <run.json>
 {
   "targetRepositoryPath": "C:/repos/example",
   "repositoryIdentity": "example",
-  "commitSha": "immutable-sha",
+  "commitSha": "starting-sha-for-provenance",
   "name": "Partial refund change surface",
   "task": "Trace the change surface for partial refunds",
   "participants": [
@@ -130,8 +155,9 @@ efforts, token budgets, service URL, expected journal, mode, or probe text.
 
 ## General auditor protocol
 
-The general auditor runs in one fresh, assignment-only provider process against
-the read-only target. The controlling conversation is not audit context. A
+The general auditor runs in one fresh, assignment-only provider process using
+the permission mode persisted with the run. The controlling conversation is not
+audit context. A
 provider-context continuation launches a fresh process for the same persisted
 auditor role when necessary. It receives the projected finding ledger,
 inspected surfaces, open questions, and remaining coverage rather than raw
@@ -219,11 +245,9 @@ General mode has no Waymark hard token limit and no token-efficiency score.
 Record available usage in `general_research`. Completion is driven by evidence
 coverage.
 
-Soft usage notices, repeated-no-progress protection, user cancellation, and
-provider-context continuation are operational safeguards, not benchmark
-validity rules. A soft notice does not stop work. No-progress protection should
-preserve current checkpoints and request synthesis or a clean partial outcome.
-User cancellation and provider failure retain acknowledged evidence. If
+Soft usage notices, user cancellation, and provider-context continuation are
+operational safeguards, not benchmark validity rules. A soft notice does not
+stop work. User cancellation and provider failure retain acknowledged evidence. If
 coverage or synthesis remains incomplete but usable cited evidence exists,
 finish `partial`, not `failed`.
 
@@ -274,7 +298,7 @@ prove provider API connectivity.
 Use `--codex-entry <path-to-codex.js>` or `WAYMARK_CODEX_ENTRY` when automatic
 launcher discovery is unavailable. Candidate and independent research runs in
 parallel. The runner imports candidate findings, then launches the orchestrator
-with only the task, immutable target, run policy, cited claims, and bounded
+with only the task, recorded target provenance, run policy, cited claims, and bounded
 investigation results. A successful command keeps the run active for
 deterministic verification. A candidate failure, interruption, or missing
 structured candidate result finishes the run as failed or cancelled. When the

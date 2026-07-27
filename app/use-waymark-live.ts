@@ -14,6 +14,7 @@ export type GeneralAuditServiceSnapshot = GeneralAuditReport & {
     model: string;
     status: string;
     tokens: number | null;
+    tokenUsage: TokenBreakdown | null;
     tokenSource:
       | "provider_reported"
       | "measured"
@@ -36,6 +37,19 @@ export type GeneralAuditServiceSnapshot = GeneralAuditReport & {
       | "error";
     latestActivitySequence: number | null;
     latestActivityType: string | null;
+  };
+  observationChannel: {
+    health: "healthy" | "degraded" | "failed";
+    acceptedSemanticCheckpoints: number;
+    rejectedSemanticCheckpoints: number;
+    providerTools: {
+      completed: number;
+      declined: number;
+      failed: number;
+    };
+    latestFailureReason: string | null;
+    latestFailureCommand: string | null;
+    latestFailureSequence: number | null;
   };
   latestCheckpointSequence: number;
   reportComplete: boolean;
@@ -123,6 +137,7 @@ export type WaymarkRunSnapshot = {
     model: string;
     status: string;
     tokens: number | null;
+    tokenUsage: TokenBreakdown;
     tokenSource:
       | "provider_reported"
       | "measured"
@@ -306,6 +321,7 @@ export type WaymarkRunSnapshot = {
 type TokenSource =
   | "provider_reported"
   | "measured"
+  | "measured_live"
   | "estimated"
   | "mixed"
   | null;

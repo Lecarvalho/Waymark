@@ -37,8 +37,13 @@ Resolve omitted fixed metadata as follows:
 - The supplied service URL and expected journal are a strict pair. Apply the
   health check and mismatch behavior in Fresh-session preflight.
 - For general mode, the auditor identity and reasoning effort are explicit
-  runtime inputs. Optional soft usage notices are operational settings, not
-  stopping thresholds.
+  runtime inputs. Auditor permission mode is also explicit: `read_only` keeps
+  the Codex read-only sandbox, while `unrestricted_no_approval` uses
+  `danger-full-access` with approval policy `never`. Omitted permission mode
+  resolves to `read_only`. Optional soft usage notices are operational
+  settings, not stopping thresholds. Full access removes command restrictions
+  only; the auditor remains instructed not to change anything in the target
+  repository.
 - For benchmark modes, participant identities, reasoning efforts, and phase
   token budgets are explicit runtime inputs and must be copied into the run
   exactly.
@@ -59,9 +64,13 @@ requested contract is not available in this checkout.
 
 ## General workflow
 
-1. Resolve the target's immutable repository identity and commit without
-   changing it. Create one general run with one auditor, read-only target
-   policy, `general_research` token measurement, and
+1. Resolve the target repository identity and record its starting commit as
+   provenance before launching it. The target does not need to be clean or
+   frozen; report the repository state the auditor actually observes, and do
+   not stop solely because HEAD or worktree status changes. Create one general
+   run with one auditor, the explicitly
+   selected and persisted auditor permission policy, `general_research` token
+   measurement, and
    `unbounded_by_waymark` token policy. Do not create candidate, independent,
    orchestrator, or benchmark-verifier participants. Launch it with
    `node bin/waymark.mjs --db <journal> general audit --run <run-id>`; never
@@ -105,8 +114,8 @@ requested contract is not available in this checkout.
    cancelled run retains every acknowledged finding.
 
 General completion is driven by evidence coverage, not token consumption.
-Measure and display usage. Soft usage notices, no-progress protection, user
-cancellation, and provider-context continuation are operational safeguards.
+Measure and display usage. Optional soft usage notices, user cancellation, and
+provider-context continuation are operational safeguards.
 Continuation resumes from the projected finding ledger and open coverage, not
 from the controlling conversation. These safeguards do not determine benchmark
 validity.
@@ -119,8 +128,10 @@ protocol diagnostics and recovery, not as a replacement launcher.
 
 ## Benchmark workflow
 
-1. Resolve the target's immutable repository identity and commit without changing
-   it. Create a run in the journal reported by the already-running Waymark
+1. Resolve the target repository identity and record its starting commit as
+   provenance. Do not require the repository to remain clean or frozen while
+   the audit runs; role evidence describes the state observed at each citation.
+   Create a run in the journal reported by the already-running Waymark
    service, with a concise, human-readable name, the verbatim probe,
    candidate and orchestrator identities, declared tool policy, fresh-process
    execution policy, phase token budgets, run conditions, and protocol/rubric
@@ -256,9 +267,16 @@ reuse their context or silently raise a hard limit after observing the result.
 
 Before the next audit:
 
-1. Confirm the target path, immutable commit, and clean read-only status.
+1. Confirm the target path, record the current commit when available, and
+   confirm the selected permission mode. Do not require a clean worktree or
+   stable HEAD; a changing repository is valid audit input.
    General mode uses the repository and service checks here but not the
    benchmark launcher, role, or budget checks.
+   When a general request explicitly selects `unrestricted_no_approval`,
+   confirm that authorization before creating the run and persist
+   `toolPolicy.target=full-access`,
+   `toolPolicy.sandboxMode=danger-full-access`, and
+   `toolPolicy.approvalPolicy=never`.
 2. Reuse the observer and service already started by the user. Call its
    `/health` endpoint and treat the returned `databasePath` as the authoritative
    journal. Pass that exact path with `--db` to every CLI command and create a
@@ -267,8 +285,8 @@ Before the next audit:
    processes. If the service is unavailable or its journal differs from the
    prepared request, stop and report the mismatch. Confirm that the UI shows
    the intended run ID before launching roles, then verify its SSE endpoint.
-3. Confirm the provider launcher, JSONL usage event, output schema, read-only
-   sandbox, and allowed read-command shapes with a cheap preflight. A no-model
+3. Confirm the provider launcher, JSONL usage event, output schema, selected
+   sandbox mode, and applicable command policy with a cheap preflight. A no-model
    preflight does not prove provider API connectivity. On a managed Codex host,
    treat the provider-spawning investigation launcher as requiring outer
    network escalation by default.
@@ -276,8 +294,7 @@ Before the next audit:
    validity ceilings. Targets express desired cost; hard ceilings must be
    chosen from a prior bounded measurement for that host/model/task class and
    stay fixed for the run. For general mode, confirm the
-   `unbounded_by_waymark` policy, optional soft notices, and no-progress
-   protection instead.
+   `unbounded_by_waymark` policy and optional soft notices instead.
 5. In benchmark modes, confirm the runner appends `investigation.started` for
    the candidate and independent roles and `orchestration.started` for the
    orchestrator before each launch. Stream observable tool/file/search events

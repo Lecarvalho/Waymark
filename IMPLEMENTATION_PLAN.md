@@ -81,7 +81,7 @@ React observer interface
 
 - concise audit name
 - target repository path
-- immutable repository identity and commit
+- repository identity and starting commit provenance
 - general assessment scope or benchmark probe
 - one auditor identity for general mode, or candidate, independent, and
   orchestrator identities for benchmark modes
@@ -193,8 +193,9 @@ benchmark validity rules and do not introduce a general hard token limit.
 
 - Real smoke-test run:
   `clapline-email-outbox-d692d68-20260724-01`
-- Target: Clapline commit `d692d68afa2680309e702b12752016b8d943a793`,
-  clean and read-only.
+- Target: Clapline starting commit
+  `d692d68afa2680309e702b12752016b8d943a793`; clean/read-only status was
+  observed for that historical run, not required as a general audit gate.
 - Candidate: `gpt-5.6-terra` at low reasoning, 12,000-token target,
   180,000-token fixed hard ceiling; observed 160,438 host-measured tokens.
 - Independent: `gpt-5.6-sol` at high reasoning, 24,000-token target,
@@ -256,8 +257,8 @@ benchmark validity rules and do not introduce a general hard token limit.
 
 - Failed calibration run:
   `clapline-email-outbox-d692d68-20260724-02`.
-- The run used a new SQLite journal with no prior runs. The Clapline target was
-  clean and read-only at immutable commit
+- The run used a new SQLite journal with no prior runs. The Clapline target's
+  recorded starting commit was
   `d692d68afa2680309e702b12752016b8d943a793` before launch and remained clean at
   that commit after all role processes completed.
 - Preflight validation passed before paid work: the installed Codex JavaScript
@@ -351,7 +352,7 @@ Remediation completed after the second attempt:
   `http://localhost:3000` reported that exact journal through service port
   4318, exposed one intended run before launch, and emitted the SSE `ready`
   event.
-- The Clapline target was clean and read-only at immutable commit
+- The Clapline target's recorded starting commit was
   `d692d68afa2680309e702b12752016b8d943a793` before launch and remained clean
   at that commit after the role processes stopped.
 - Preflight validation passed before paid work: the installed Codex 0.144.1
@@ -446,7 +447,7 @@ Remediation after attempts 4 through 6:
 - Successful calibration run:
   `clapline-email-outbox-d692d68-20260724-07`, protocol `1.1.0`, on clean
   journal `.waymark/clapline-20260724-attempt7.sqlite`.
-- The target was verified clean and read-only at immutable Clapline commit
+- The target's recorded starting Clapline commit was
   `d692d68afa2680309e702b12752016b8d943a793`. The authoritative launcher ran
   fresh, non-resumed, assignment-only candidate, independent, and orchestrator
   Codex processes. Candidate and independent used 8/8 commands; orchestrator
@@ -812,7 +813,7 @@ complete until every step passes:
 4. Run the repository's relevant lint, production build, tests, and diff checks.
    Resolve regressions before continuing.
 5. Run a real smoke test through the authoritative user-facing path with fixed
-   model identities, immutable inputs, and live persisted evidence. Benchmark
+   model identities, recorded starting provenance, and live persisted evidence. Benchmark
    smoke tests declare token targets and hard limits; general smoke tests
    measure usage without a Waymark hard limit and finish based on evidence
    coverage.

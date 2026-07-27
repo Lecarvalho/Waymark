@@ -11,6 +11,146 @@ function humanizeReason(value) {
     : "unknown failure";
 }
 
+const MAX_FAILURE_REASON_LENGTH = 240;
+const MAX_FAILURE_COMMAND_LENGTH = 512;
+
+function boundedFailureReason(value) {
+  if (typeof value !== "string") return null;
+  const normalized = value.replace(/\s+/g, " ").trim();
+  if (normalized.length === 0) return null;
+  if (normalized.length <= MAX_FAILURE_REASON_LENGTH) return normalized;
+  return `${normalized.slice(0, MAX_FAILURE_REASON_LENGTH - 1).trimEnd()}…`;
+}
+
+function boundedFailureCommand(value) {
+  if (typeof value !== "string") return null;
+  const normalized = value.replace(/\s+/g, " ").trim();
+  if (normalized.length === 0) return null;
+  if (normalized.length <= MAX_FAILURE_COMMAND_LENGTH) return normalized;
+  return `${normalized.slice(0, MAX_FAILURE_COMMAND_LENGTH - 1).trimEnd()}…`;
+}
+
+function eventFailureReason(event) {
+  const payload = event.payload ?? {};
+  const directReason =
+    boundedFailureReason(payload.failureReason) ??
+    boundedFailureReason(payload.message) ??
+    boundedFailureReason(payload.reason);
+  if (directReason) return directReason;
+
+  if (payload.error && typeof payload.error === "object") {
+    const errorReason =
+      boundedFailureReason(payload.error.message) ??
+      boundedFailureReason(payload.error.code);
+    if (errorReason) return errorReason;
+  }
+  if (typeof payload.error === "string") {
+    const errorReason = boundedFailureReason(payload.error);
+    if (errorReason) return errorReason;
+  }
+
+  if (event.type === "provider.tool.completed") {
+    const tool = humanizeReason(payload.toolType);
+    if (payload.status === "declined") return `${tool} was declined.`;
+    if (
+      payload.status === "failed" ||
+      (Number.isSafeInteger(payload.exitCode) && payload.exitCode > 0)
+    ) {
+      return `${tool} failed${
+        Number.isSafeInteger(payload.exitCode)
+          ? ` with exit code ${payload.exitCode}`
+          : ""
+      }.`;
+    }
+  }
+  if (event.type === "provider.checkpoint.rejected") {
+    return "A semantic checkpoint was rejected.";
+  }
+  if (event.type === "provider.error") return "The provider reported an error.";
+  return null;
+}
+
+function toolOutcome(event) {
+  if (event.payload?.status === "declined") return "declined";
+  if (
+    event.payload?.status === "failed" ||
+    (Number.isSafeInteger(event.payload?.exitCode) &&
+      event.payload.exitCode !== 0)
+  ) {
+    return "failed";
+  }
+  return "completed";
+}
+
+export function generalAuditObservationChannel(events, status) {
+  const acknowledged = events.filter(
+    ({ type }) => type === "provider.checkpoint.acknowledged",
+  );
+  const rejected = events.filter(
+    ({ type }) => type === "provider.checkpoint.rejected",
+  );
+  const toolCompletions = events.filter(
+    ({ type }) => type === "provider.tool.completed",
+  );
+  const providerErrors = events.filter(
+    ({ type }) => type === "provider.error",
+  );
+  const interruptions = events.filter(
+    ({ type }) => type === "general.audit.interrupted",
+  );
+  const providerTools = {
+    completed: 0,
+    declined: 0,
+    failed: 0,
+  };
+  for (const event of toolCompletions) {
+    providerTools[toolOutcome(event)] += 1;
+  }
+
+  const failureEvents = [
+    ...rejected,
+    ...providerErrors,
+    ...interruptions,
+    ...toolCompletions.filter(
+      (event) => toolOutcome(event) !== "completed",
+    ),
+  ].sort((left, right) => left.sequence - right.sequence);
+  const latestFailure = failureEvents.at(-1);
+  const latestAcknowledgementSequence = acknowledged.at(-1)?.sequence ?? null;
+  const latestRejectionSequence = rejected.at(-1)?.sequence ?? null;
+  const terminal = status !== "running";
+  const deliveryFailed =
+    terminal &&
+    latestRejectionSequence !== null &&
+    (latestAcknowledgementSequence === null ||
+      latestRejectionSequence > latestAcknowledgementSequence);
+  const noEvidenceRecovered = status === "failed" && acknowledged.length === 0;
+  const health =
+    deliveryFailed || noEvidenceRecovered
+      ? "failed"
+      : rejected.length > 0 ||
+          providerErrors.length > 0 ||
+          providerTools.declined > 0 ||
+          providerTools.failed > 0 ||
+          (terminal && acknowledged.length === 0)
+        ? "degraded"
+        : "healthy";
+
+  return {
+    health,
+    acceptedSemanticCheckpoints: acknowledged.length,
+    rejectedSemanticCheckpoints: rejected.length,
+    providerTools,
+    latestFailureReason: latestFailure
+      ? eventFailureReason(latestFailure)
+      : null,
+    latestFailureCommand: latestFailure
+      ? boundedFailureCommand(latestFailure.payload?.command)
+      : null,
+    latestFailureSequence: latestFailure?.sequence ?? null,
+  };
+}
+
 export function generalRunStatus(generalReport, runStatus) {
   const ledgerStatus = generalReport?.ledgerStatus;
   if (["completed", "partial", "failed", "cancelled"].includes(ledgerStatus)) {
@@ -290,10 +430,12 @@ export function projectGeneralAuditSnapshot({
           model: auditor.model,
           status: auditorSnapshot?.status ?? "Not run",
           tokens: auditorSnapshot?.tokens ?? null,
+          tokenUsage: auditorSnapshot?.tokenUsage ?? null,
           tokenSource: auditorSnapshot?.tokenSource ?? null,
         }
       : null,
     providerSession: generalProviderSession(report.events, status),
+    observationChannel: generalAuditObservationChannel(report.events, status),
     latestCheckpointSequence: report.generalReport.generatedFromSequence,
     reportComplete: report.generalReport.completeness.reportComplete,
     history: buildGeneralAuditHistory(report, historyReports),

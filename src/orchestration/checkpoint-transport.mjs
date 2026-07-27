@@ -60,10 +60,10 @@ function checkpointEnvelope(value) {
   return {
     runId: requiredString(value.runId, "runId"),
     actor: requiredString(value.actor, "actor"),
-    providerSessionId: requiredString(
-      value.providerSessionId,
-      "providerSessionId",
-    ),
+    providerSessionId:
+      value.providerSessionId === undefined
+        ? null
+        : requiredString(value.providerSessionId, "providerSessionId"),
     idempotencyKey: requiredString(value.idempotencyKey, "idempotencyKey"),
     type: requiredString(value.type, "type"),
     payload: value.payload,
@@ -195,7 +195,10 @@ export async function startGeneralCheckpointTransport({
           409,
         );
       }
-      if (envelope.providerSessionId !== providerSessionId) {
+      if (
+        envelope.providerSessionId !== null &&
+        envelope.providerSessionId !== providerSessionId
+      ) {
         throw new CheckpointTransportError(
           "PROVIDER_SESSION_MISMATCH",
           "checkpoint providerSessionId does not match the bound session",

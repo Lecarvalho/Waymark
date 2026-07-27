@@ -35,6 +35,9 @@ const repositoryRoot = dirname(fileURLToPath(new URL("../package.json", import.m
 const fakeProviderPath = fileURLToPath(
   new URL("../fixtures/providers/fake-jsonl-provider.mjs", import.meta.url),
 );
+const checkpointMcpPath = fileURLToPath(
+  new URL("../src/orchestration/waymark-checkpoint-mcp.mjs", import.meta.url),
+);
 
 function createGeneralTransportRun(store, id = "checkpoint-general") {
   return store.createRun({
@@ -327,10 +330,178 @@ test("general checkpoint transport rejects unauthorized and malformed callbacks 
   );
 });
 
+test("the runner-provisioned MCP tool persists a live semantic checkpoint", async (t) => {
+  const directory = mkdtempSync(join(tmpdir(), "waymark-checkpoint-mcp-"));
+  const store = new AuditStore({ databasePath: join(directory, "audit.sqlite") });
+  t.after(() => store.close());
+  const run = createGeneralTransportRun(store, "checkpoint-mcp");
+  store.startGeneralAudit({
+    runId: run.id,
+    actor: run.participants[0].id,
+    idempotencyKey: "mcp-general-start",
+    payload: {
+      repositoryIdentity: run.repositoryIdentity,
+      commitSha: run.commitSha,
+      protocolVersion: run.protocolVersion,
+    },
+  });
+  const transport = await startGeneralCheckpointTransport({
+    store,
+    runId: run.id,
+    auditorId: run.participants[0].id,
+    provider: run.participants[0].provider,
+  });
+  t.after(() => transport.close());
+  transport.bindProviderSession("mcp-session");
+
+  const child = spawn(process.execPath, [checkpointMcpPath], {
+    env: {
+      ...process.env,
+      WAYMARK_CHECKPOINT_RUN_ID: transport.runId,
+      WAYMARK_CHECKPOINT_ACTOR: transport.auditorId,
+      WAYMARK_CHECKPOINT_ENDPOINT: transport.endpoint,
+      WAYMARK_CHECKPOINT_AUTHORIZATION: transport.authorization,
+    },
+    stdio: ["pipe", "pipe", "pipe"],
+    windowsHide: true,
+  });
+  t.after(() => {
+    if (child.exitCode === null && child.signalCode === null) child.kill();
+  });
+  const pending = new Map();
+  const lines = createInterface({ input: child.stdout, crlfDelay: Infinity });
+  lines.on("line", (line) => {
+    const response = JSON.parse(line);
+    pending.get(response.id)?.(response);
+    pending.delete(response.id);
+  });
+  let requestId = 0;
+  const request = (method, params = {}) =>
+    new Promise((resolve) => {
+      requestId += 1;
+      pending.set(requestId, resolve);
+      child.stdin.write(
+        `${JSON.stringify({ jsonrpc: "2.0", id: requestId, method, params })}\n`,
+      );
+    });
+
+  const initialized = await request("initialize", {
+    protocolVersion: "2025-06-18",
+    capabilities: {},
+    clientInfo: { name: "waymark-test", version: "1.0.0" },
+  });
+  assert.equal(initialized.result.serverInfo.name, "waymark-checkpoint");
+  const listed = await request("tools/list");
+  assert.deepEqual(
+    listed.result.tools.map(({ name }) => name),
+    ["record"],
+  );
+  const recordTool = listed.result.tools[0];
+  assert.deepEqual(recordTool.annotations, {
+    title: "Record Waymark audit checkpoint",
+    readOnlyHint: false,
+    destructiveHint: false,
+    idempotentHint: true,
+    openWorldHint: false,
+  });
+  const surfaceVariant = recordTool.inputSchema.oneOf.find(
+    (variant) =>
+      variant.properties.type.const === "general.surface.inspected",
+  );
+  assert.deepEqual(
+    Object.keys(surfaceVariant.properties.payload.properties).sort(),
+    ["citations", "summary", "surface"],
+  );
+  assert.equal(
+    surfaceVariant.properties.payload.additionalProperties,
+    false,
+  );
+  const findingVariant = recordTool.inputSchema.oneOf.find(
+    (variant) =>
+      variant.properties.type.const === "general.finding.recorded",
+  );
+  const findingProvenance =
+    findingVariant.properties.payload.properties.revision.properties
+      .provenance;
+  assert.deepEqual(
+    Object.keys(findingProvenance.properties).sort(),
+    ["amendmentReason", "causedByCitations", "previousRevisionId"],
+  );
+  const called = await request("tools/call", {
+    name: "record",
+    arguments: {
+      idempotencyKey: "mcp-production-surface",
+      type: "general.surface.inspected",
+      payload: {
+        surface: "production_code",
+        summary: "The MCP tool persisted this checkpoint while the role ran.",
+        citations: [],
+      },
+    },
+  });
+  const acknowledgement = JSON.parse(called.result.content[0].text);
+  assert.equal(called.result.isError, undefined);
+  assert.equal(acknowledgement.status, "acknowledged");
+  assert.equal(acknowledgement.providerSessionId, "mcp-session");
+
+  const findingOccurredAt = "2026-07-25T14:02:00.000Z";
+  const findingCalled = await request("tools/call", {
+    name: "record",
+    arguments: {
+      idempotencyKey: "mcp-production-finding",
+      type: "general.finding.recorded",
+      occurredAt: findingOccurredAt,
+      payload: {
+        revision: {
+          revisionId: "mcp-production-finding-r1",
+          findingId: "mcp-production-finding",
+          revisionNumber: 1,
+          state: "confirmed",
+          signal: "positive",
+          title: "The live checkpoint contract is explicit",
+          conclusion:
+            "The tool schema exposes exact semantic payload fields before the call.",
+          dimensionIds: ["discoveryEfficiency"],
+          practiceGuideIds: ["canonicalWorkflow"],
+          citations: [],
+          navigationCost: null,
+          provenance: {},
+        },
+      },
+    },
+  });
+  const findingAcknowledgement = JSON.parse(
+    findingCalled.result.content[0].text,
+  );
+  assert.equal(findingCalled.result.isError, undefined);
+  assert.equal(findingAcknowledgement.status, "acknowledged");
+
+  const report = store.readReport(run.id);
+  assert.equal(report.generalAudit.surfaces.length, 1);
+  assert.equal(
+    report.generalAudit.findings["mcp-production-finding"].currentRevision
+      .provenance.actor,
+    run.participants[0].id,
+  );
+  assert.equal(
+    report.generalAudit.findings["mcp-production-finding"].currentRevision
+      .provenance.occurredAt,
+    findingOccurredAt,
+  );
+  assert.equal(
+    report.events.filter(
+      ({ type }) => type === "provider.checkpoint.acknowledged",
+    ).length,
+    2,
+  );
+  child.stdin.end();
+});
+
 test("provider output schemas stay within the strict structured-output subset", () => {
   const schemaPaths = [
     "../src/orchestration/investigation-output.schema.json",
     "../src/orchestration/orchestration-output.schema.json",
+    "../src/orchestration/general-audit-output.schema.json",
   ];
   for (const schemaPath of schemaPaths) {
     const schema = JSON.parse(
@@ -410,6 +581,37 @@ test("general provider failure preserves cited findings as a partial report", as
   assert.match(report.generalAudit.interruption.reason, /exit 7/);
 });
 
+test("general final output recovers semantic checkpoints that were not published live", async (t) => {
+  const directory = mkdtempSync(join(tmpdir(), "waymark-general-fallback-"));
+  const store = new AuditStore({ databasePath: join(directory, "audit.sqlite") });
+  t.after(() => store.close());
+  const run = createGeneralRunnerRun(store, "runner-general-fallback");
+
+  const result = await runGeneralAudit({
+    store,
+    runId: run.id,
+    adapters: [generalFakeAdapter("general-final-fallback")],
+  });
+
+  assert.equal(result.status, "partial");
+  const report = store.readReport(run.id);
+  assert.deepEqual(report.generalAudit.findingOrder, [
+    "fallback-live-evidence",
+  ]);
+  assert.match(
+    report.generalAudit.synthesis.summary,
+    /Recovered unpublished checkpoints/,
+  );
+  assert.equal(
+    report.events.filter(
+      ({ type, payload }) =>
+        type === "provider.checkpoint.acknowledged" &&
+        payload.recoverySource === "provider_final_output",
+    ).length,
+    2,
+  );
+});
+
 test("general provider failure before usable evidence is failed", async (t) => {
   const directory = mkdtempSync(join(tmpdir(), "waymark-general-failed-"));
   const store = new AuditStore({ databasePath: join(directory, "audit.sqlite") });
@@ -447,6 +649,69 @@ test("general cancellation preserves the ledger and uses cancelled", async (t) =
   assert.equal(store.readRun(run.id).status, "cancelled");
 });
 
+test("general live usage exposes input and output separately before completion", async (t) => {
+  const directory = mkdtempSync(join(tmpdir(), "waymark-general-live-usage-"));
+  const store = new AuditStore({ databasePath: join(directory, "audit.sqlite") });
+  t.after(() => store.close());
+  const run = createGeneralRunnerRun(store, "runner-general-live-usage");
+  const controller = new AbortController();
+  const adapter = generalFakeAdapter("await-interrupt");
+  adapter.startUsageMonitor = ({ onUsage }) => {
+    onUsage({
+      cumulative: {
+        inputTokens: 55,
+        cachedInputTokens: 25,
+        outputTokens: 15,
+        totalTokens: 70,
+      },
+      context: {
+        inputTokens: 35,
+        cachedInputTokens: 20,
+        outputTokens: 5,
+        totalTokens: 40,
+      },
+      contextWindowTokens: 258_400,
+      contextPercent: 0.02,
+    });
+    return () => {};
+  };
+  const running = runGeneralAudit({
+    store,
+    runId: run.id,
+    adapters: [adapter],
+    signal: controller.signal,
+    killGraceMs: 50,
+  });
+
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    if (
+      store
+        .readReport(run.id)
+        .events.some(({ type }) => type === "provider.usage.updated")
+    ) {
+      break;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  const snapshot = toRunSnapshot(store.readReport(run.id), 1);
+  assert.equal(snapshot.status, "running");
+  assert.deepEqual(snapshot.generalAudit.auditor.tokenUsage, {
+    totalTokens: 70,
+    inputTokens: 55,
+    cachedInputTokens: 25,
+    uncachedInputTokens: 30,
+    outputTokens: 15,
+    unclassifiedTokens: 0,
+    cacheCreationTokens: null,
+    source: "measured_live",
+  });
+  assert.equal(snapshot.generalAudit.findings.length, 0);
+
+  controller.abort();
+  const result = await running;
+  assert.equal(result.status, "cancelled");
+});
+
 test("general context continuation keeps one auditor identity and projected ledger", async (t) => {
   const directory = mkdtempSync(join(tmpdir(), "waymark-general-continuation-"));
   const store = new AuditStore({ databasePath: join(directory, "audit.sqlite") });
@@ -481,33 +746,6 @@ test("general context continuation keeps one auditor identity and projected ledg
     [run.participants[0].id],
   );
   assert.equal(report.generalAudit.findingOrder.length, 1);
-});
-
-test("general no-progress protection returns a partial report without discarding findings", async (t) => {
-  const directory = mkdtempSync(join(tmpdir(), "waymark-general-no-progress-"));
-  const store = new AuditStore({ databasePath: join(directory, "audit.sqlite") });
-  t.after(() => store.close());
-  const run = createGeneralRunnerRun(store, "runner-general-no-progress");
-
-  const result = await runGeneralAudit({
-    store,
-    runId: run.id,
-    adapters: [generalFakeAdapter("general-no-progress")],
-    noProgressPolicy: {
-      identicalSearchLimit: 3,
-      repeatedFailureLimit: 3,
-      toolEventsWithoutEvidenceLimit: 50,
-    },
-    killGraceMs: 50,
-  });
-
-  assert.equal(result.status, "partial");
-  const report = store.readReport(run.id);
-  assert.equal(report.generalAudit.findingOrder.length, 1);
-  assert.match(
-    report.generalAudit.interruption.reason,
-    /repeated_identical_searches/,
-  );
 });
 
 test("the CLI routes a general run only through the single-auditor runner", () => {
@@ -1855,6 +2093,12 @@ test("the Codex adapter uses the JavaScript entry point and isolated exec flags"
   assert.ok(launch.arguments.includes("--ignore-rules"));
   assert.ok(launch.arguments.includes("--json"));
   assert.ok(launch.arguments.includes('approval_policy="never"'));
+  assert.equal(
+    launch.arguments.some((argument) =>
+      String(argument).includes("mcp_servers.waymark_checkpoint"),
+    ),
+    false,
+  );
   assert.deepEqual(
     launch.arguments.slice(
       launch.arguments.indexOf("--sandbox"),
@@ -1900,6 +2144,181 @@ test("the Codex adapter uses the JavaScript entry point and isolated exec flags"
     },
   });
   assert.equal(usage.totalTokens, 80);
+});
+
+test("the Codex adapter pre-approves the runner-owned checkpoint tool for a read-only auditor", () => {
+  const adapter = createCodexProcessAdapter({ entryPath: fakeProviderPath });
+  const assignment = {
+    runId: "general-read-only",
+    role: "auditor",
+    permissionMode: "read_only",
+    participant: {
+      role: "auditor",
+      provider: "openai",
+      model: "gpt-test",
+    },
+    reasoningEffort: "medium",
+    target: {
+      path: repositoryRoot,
+      identity: "waymark",
+      commitSha: "abc123",
+      readOnly: true,
+    },
+  };
+
+  const launch = adapter.createLaunchSpec(assignment, "audit read-only");
+  assert.ok(
+    launch.arguments.includes(
+      'mcp_servers.waymark_checkpoint.enabled_tools=["record"]',
+    ),
+  );
+  assert.ok(
+    launch.arguments.includes(
+      'mcp_servers.waymark_checkpoint.tools.record.approval_mode="approve"',
+    ),
+  );
+  assert.ok(
+    launch.arguments.includes("mcp_servers.waymark_checkpoint.required=true"),
+  );
+  assert.deepEqual(
+    launch.arguments.slice(
+      launch.arguments.indexOf("--sandbox"),
+      launch.arguments.indexOf("--sandbox") + 2,
+    ),
+    ["--sandbox", "read-only"],
+  );
+});
+
+test("the Codex adapter gives an explicitly unrestricted auditor full access without prompts", () => {
+  const adapter = createCodexProcessAdapter({ entryPath: fakeProviderPath });
+  const assignment = {
+    runId: "general-full-access",
+    role: "auditor",
+    permissionMode: "unrestricted_no_approval",
+    participant: {
+      role: "auditor",
+      provider: "openai",
+      model: "gpt-test",
+    },
+    reasoningEffort: "medium",
+    target: {
+      path: repositoryRoot,
+      identity: "waymark",
+      commitSha: "abc123",
+      readOnly: false,
+    },
+  };
+
+  const launch = adapter.createLaunchSpec(assignment, "audit freely");
+  assert.ok(launch.arguments.includes('approval_policy="never"'));
+  assert.ok(
+    launch.arguments.some((argument) =>
+      argument.startsWith("mcp_servers.waymark_checkpoint.command="),
+    ),
+  );
+  assert.ok(
+    launch.arguments.includes(
+      'mcp_servers.waymark_checkpoint.env_vars=["WAYMARK_CHECKPOINT_RUN_ID","WAYMARK_CHECKPOINT_ACTOR","WAYMARK_CHECKPOINT_ENDPOINT","WAYMARK_CHECKPOINT_AUTHORIZATION"]',
+    ),
+  );
+  assert.ok(
+    launch.arguments.includes(
+      'mcp_servers.waymark_checkpoint.enabled_tools=["record"]',
+    ),
+  );
+  assert.ok(
+    launch.arguments.includes(
+      'mcp_servers.waymark_checkpoint.tools.record.approval_mode="approve"',
+    ),
+  );
+  assert.ok(
+    launch.arguments.includes("mcp_servers.waymark_checkpoint.required=true"),
+  );
+  const schemaIndex = launch.arguments.indexOf("--output-schema");
+  assert.match(
+    launch.arguments[schemaIndex + 1],
+    /general-audit-output\.schema\.json$/,
+  );
+  assert.deepEqual(
+    launch.arguments.slice(
+      launch.arguments.indexOf("--sandbox"),
+      launch.arguments.indexOf("--sandbox") + 2,
+    ),
+    ["--sandbox", "danger-full-access"],
+  );
+  const attached = adapter.attachCheckpointTransport(launch, {
+    runId: "general-full-access",
+    auditorId: "general-full-access-auditor",
+    endpoint: "http://127.0.0.1:43210/v1/general-checkpoints",
+    authorization: "Bearer checkpoint-test",
+  });
+  assert.equal(
+    attached.environment.WAYMARK_CHECKPOINT_ENDPOINT,
+    "http://127.0.0.1:43210/v1/general-checkpoints",
+  );
+  assert.equal(
+    attached.environment.WAYMARK_CHECKPOINT_AUTHORIZATION,
+    "Bearer checkpoint-test",
+  );
+
+  const resume = adapter.createResumeLaunchSpec(
+    assignment,
+    "continue audit",
+    "session-1",
+  );
+  assert.ok(resume.arguments.includes('sandbox_mode="danger-full-access"'));
+  assert.ok(
+    resume.arguments.some((argument) =>
+      argument.startsWith("mcp_servers.waymark_checkpoint.command="),
+    ),
+  );
+  assert.ok(
+    resume.arguments.includes(
+      'mcp_servers.waymark_checkpoint.tools.record.approval_mode="approve"',
+    ),
+  );
+});
+
+test("the Codex adapter keeps a bounded reason for policy-blocked tools", () => {
+  const normalized = normalizeCodexEvent({
+    type: "item.completed",
+    item: {
+      id: "item-blocked",
+      type: "command_execution",
+      command: "Get-Content sensitive-source.cs",
+      status: "declined",
+      exit_code: -1,
+      aggregated_output:
+        "private source contents that must not persist\nrejected: blocked by policy",
+    },
+  });
+
+  assert.equal(normalized.type, "provider.tool.completed");
+  assert.equal(normalized.payload.failureReason, "blocked by policy");
+  assert.equal(normalized.payload.status, "declined");
+  assert.equal(normalized.payload.exitCode, -1);
+  assert.equal(
+    JSON.stringify(normalized).includes("private source contents"),
+    false,
+  );
+  assert.equal("aggregatedOutput" in normalized.payload, false);
+  assert.equal("output" in normalized.payload, false);
+});
+
+test("the Codex adapter does not infer diagnostics from successful tool output", () => {
+  const normalized = normalizeCodexEvent({
+    type: "item.completed",
+    item: {
+      id: "item-success",
+      type: "command_execution",
+      command: "rg blocked-by-policy docs",
+      status: "completed",
+      exit_code: 0,
+      aggregated_output: "Example text: rejected: blocked by policy",
+    },
+  });
+
+  assert.equal("failureReason" in normalized.payload, false);
 });
 
 test("the Codex rollout monitor normalizes cumulative and context usage", () => {

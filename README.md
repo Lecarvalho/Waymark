@@ -57,6 +57,28 @@ the same database through `/health`, `npm run dev` reuses it instead of starting
 another service. If the journal differs, startup stops with an explicit error;
 it never creates a replacement database silently.
 
+### Watch a zero-cost live audit replay
+
+With `npm run dev` already running, open the observer interface and run:
+
+```bash
+npm run replay:general-live
+```
+
+This creates one new run named **[Synthetic replay] Live general audit** in the
+journal reported by the service's `/health` endpoint. The observer displays
+incremental input, cached-input, uncached-input, output, and processed-token
+updates along with tool activity, checkpoint delivery, findings, a finding
+revision, dimension assessments, recommendations, and terminal completion.
+The harness uses deterministic fixture events: it invokes no model, spends no
+provider tokens, and does not read or modify a target repository.
+
+Updates are spaced 650 ms apart by default. Use
+`npm run replay:general-live -- --delay-ms 1200` for a slower replay, or
+`--delay-ms 0` for automated checks. `--service <url>` selects another running
+Waymark service. `--journal <path>` is an optional safety assertion and the
+replay stops if it does not match the service's authoritative journal.
+
 ## Prepare an audit request
 
 Use the secondary **Prepare audit request** action in the observer interface to

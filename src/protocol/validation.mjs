@@ -65,6 +65,10 @@ const GENERAL_STATES = new Set(GENERAL_FINDING_STATES);
 const GENERAL_SIGNALS = new Set(GENERAL_FINDING_SIGNALS);
 const GENERAL_DIMENSIONS = new Set(WAYMARK_DIMENSION_IDS);
 const GENERAL_PRACTICES = new Set(PRACTICE_GUIDE_IDS);
+const GENERAL_AUDITOR_PERMISSION_MODES = new Set([
+  "read_only",
+  "unrestricted_no_approval",
+]);
 
 export class ProtocolValidationError extends Error {
   constructor(message, details = undefined) {
@@ -197,6 +201,34 @@ export function validateCreateRun(value, { now, createId }) {
         "participants",
         "general audits require exactly one auditor role",
       );
+    }
+    const auditorPermissionMode =
+      runConditions.auditorPermissionMode ?? "read_only";
+    enumeration(
+      auditorPermissionMode,
+      GENERAL_AUDITOR_PERMISSION_MODES,
+      "runConditions.auditorPermissionMode",
+    );
+    if (auditorPermissionMode === "unrestricted_no_approval") {
+      const toolPolicy = object(input.toolPolicy, "toolPolicy");
+      if (toolPolicy.target !== "full-access") {
+        fail(
+          "toolPolicy.target",
+          "must be full-access for an unrestricted general auditor",
+        );
+      }
+      if (toolPolicy.sandboxMode !== "danger-full-access") {
+        fail(
+          "toolPolicy.sandboxMode",
+          "must be danger-full-access for an unrestricted general auditor",
+        );
+      }
+      if (toolPolicy.approvalPolicy !== "never") {
+        fail(
+          "toolPolicy.approvalPolicy",
+          "must be never for an unrestricted general auditor",
+        );
+      }
     }
   } else {
     for (const requiredRole of ["candidate", "orchestrator"]) {

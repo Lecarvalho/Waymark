@@ -1,0 +1,137 @@
+.status {
+  display: grid;
+  grid-template-columns: minmax(210px, 0.8fr) minmax(420px, 1.4fr);
+  gap: 16px 24px;
+  align-items: center;
+  margin-bottom: 16px;
+  padding: 14px 18px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--lime);
+  border-radius: 6px;
+  background: var(--panel);
+}
+
+.status[data-health="degraded"] {
+  border-left-color: var(--amber);
+}
+
+.status[data-health="failed"] {
+  border-left-color: var(--red);
+}
+
+.summary {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 2px 10px;
+  align-items: baseline;
+}
+
+.summary > span,
+.status dt,
+.status p > span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.summary > strong {
+  color: var(--lime);
+  font-size: 14px;
+}
+
+.status[data-health="degraded"] .summary > strong {
+  color: var(--amber);
+}
+
+.status[data-health="failed"] .summary > strong {
+  color: var(--red);
+}
+
+.summary > small {
+  grid-column: 1 / -1;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.status dl {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(120px, 1fr));
+  margin: 0;
+}
+
+.status dl > div {
+  padding: 0 16px;
+  border-left: 1px solid var(--line);
+}
+
+.status dt {
+  margin-bottom: 2px;
+}
+
+.status dd {
+  margin: 0;
+  color: var(--text);
+  font-family: var(--font-geist-mono);
+  font-size: 16px;
+  font-weight: 650;
+}
+
+.status dl small {
+  display: block;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.status > p {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 12px;
+  margin: 0;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+
+.status > p strong {
+  overflow: hidden;
+  color: var(--text);
+  font-family: var(--font-geist-mono);
+  font-size: 12px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.status > p code {
+  grid-column: 2;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 760px) {
+  .status {
+    grid-template-columns: 1fr;
+  }
+
+  .status dl {
+    grid-template-columns: 1fr;
+  }
+
+  .status dl > div {
+    padding: 10px 0;
+    border-top: 1px solid var(--line);
+    border-left: 0;
+  }
+
+  .status > p {
+    grid-template-columns: 1fr;
+    gap: 4px;
+  }
+
+  .status > p code {
+    grid-column: 1;
+  }
+}

@@ -43,18 +43,23 @@ service. Never present fallback values as live measurements.
 4. Two agents agreeing is supporting evidence, not proof.
 5. Unverifiable claims remain explicitly `unverified`.
 6. Token efficiency is meaningful only after an adequacy or correctness gate.
-7. Record the repository commit, task or versioned task suite, audit mode, model
-   identity, tool policy, rubric version, and run conditions with every audit.
+7. Record the starting repository commit as provenance, plus the task or
+   versioned task suite, audit mode, model identity, tool policy, rubric
+   version, and run conditions with every audit. Do not require the target to
+   remain clean or frozen; report the state actually observed.
 8. Separate candidate navigation tokens from validation and report-generation
    tokens.
 9. Provider-reported, host-measured, estimated, and unavailable token values
    must be labeled distinctly.
-10. The target repository is read-only. Use an explicitly disposable worktree
-    for any future implementation probe.
+10. The target repository is read-only by default. A general audit may use
+    user-authorized unrestricted execution only when that permission mode is
+    explicit in the prepared request and persisted tool policy. Use an
+    explicitly disposable worktree for any future implementation probe.
 11. Audited model roles run in fresh processes with assignment-only context;
     never inherit the controlling development conversation.
-12. Every run declares phase token targets and hard limits. A hard-limit
-    overrun is visible and disqualifies the run as a successful benchmark.
+12. Benchmark runs declare phase token targets and hard limits. A hard-limit
+    overrun is visible and disqualifies that run as a successful benchmark.
+    General runs may remain explicitly `unbounded_by_waymark`.
 13. Count only role-process work in the audit. Waymark development, debugging,
     UI verification, and operator conversation belong outside the run.
 

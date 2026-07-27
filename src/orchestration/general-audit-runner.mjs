@@ -11,13 +11,6 @@ import {
 
 const MAX_STDERR_CHARACTERS = 8_000;
 const DEFAULT_CONTEXT_CONTINUATION_PERCENT = 85;
-const DEFAULT_NO_PROGRESS_POLICY = Object.freeze({
-  identicalSearchLimit: 3,
-  repeatedFailureLimit: 3,
-  toolEventsWithoutEvidenceLimit: 20,
-});
-const SEARCH_COMMAND_PATTERN =
-  /(?:^|[\s;&|])(rg|grep|find|fd|select-string|get-childitem)(?:\s|$)/i;
 
 export class GeneralAuditRunnerError extends Error {
   constructor(code, message, details = undefined) {
@@ -37,23 +30,6 @@ function processFailure(error) {
 
 function findAdapter(adapters, participant) {
   return adapters.find((adapter) => adapter.supports(participant));
-}
-
-function normalizeThresholds(value) {
-  if (value === undefined || value === null) {
-    return { ...DEFAULT_NO_PROGRESS_POLICY };
-  }
-  return Object.fromEntries(
-    Object.entries(DEFAULT_NO_PROGRESS_POLICY).map(([name, fallback]) => {
-      const candidate = value[name];
-      return [
-        name,
-        Number.isSafeInteger(candidate) && candidate > 0
-          ? candidate
-          : fallback,
-      ];
-    }),
-  );
 }
 
 function runJsonlProcess(
@@ -145,10 +121,6 @@ function auditProjection(store, runId) {
   return store.readReport(runId).generalAudit;
 }
 
-function semanticSequence(projection) {
-  return projection?.lastSequence ?? 0;
-}
-
 function finishFromLedger(store, runId, reason) {
   const projection = auditProjection(store, runId);
   if (!["completed", "partial", "failed", "cancelled"].includes(projection.status)) {
@@ -215,6 +187,86 @@ function recordUsage(store, run, auditor, usage, attempt) {
   });
 }
 
+function importFinalCheckpoints(
+  store,
+  run,
+  auditor,
+  providerSessionId,
+  output,
+) {
+  if (
+    output === null ||
+    typeof output !== "object" ||
+    Array.isArray(output) ||
+    !Array.isArray(output.unpublishedCheckpoints)
+  ) {
+    return;
+  }
+  for (const checkpoint of output.unpublishedCheckpoints) {
+    try {
+      if (
+        checkpoint === null ||
+        typeof checkpoint !== "object" ||
+        Array.isArray(checkpoint)
+      ) {
+        throw new TypeError("fallback checkpoint must be an object");
+      }
+      const payload = JSON.parse(checkpoint.payloadJson);
+      const event = store.appendGeneralCheckpoint({
+        runId: run.id,
+        actor: auditor.id,
+        idempotencyKey: checkpoint.idempotencyKey,
+        type: checkpoint.type,
+        payload,
+        ...(checkpoint.occurredAt === null ||
+        checkpoint.occurredAt === undefined
+          ? {}
+          : { occurredAt: checkpoint.occurredAt }),
+      });
+      store.appendGeneralCheckpointDiagnostic({
+        runId: run.id,
+        actor: auditor.id,
+        type: "provider.checkpoint.acknowledged",
+        payload: {
+          provider: auditor.provider,
+          providerSessionId,
+          idempotencyKey: checkpoint.idempotencyKey,
+          semanticType: checkpoint.type,
+          eventId: event.id,
+          eventSequence: event.sequence,
+          recoverySource: "provider_final_output",
+        },
+      });
+    } catch (error) {
+      store.appendGeneralCheckpointDiagnostic({
+        runId: run.id,
+        actor: auditor.id,
+        type: "provider.checkpoint.rejected",
+        payload: {
+          provider: auditor.provider,
+          providerSessionId,
+          idempotencyKey:
+            typeof checkpoint?.idempotencyKey === "string"
+              ? checkpoint.idempotencyKey.slice(0, 512)
+              : null,
+          semanticType:
+            typeof checkpoint?.type === "string"
+              ? checkpoint.type.slice(0, 512)
+              : null,
+          recoverySource: "provider_final_output",
+          error: {
+            code: error?.code ?? "CHECKPOINT_FALLBACK_INVALID",
+            message:
+              error instanceof Error
+                ? error.message.slice(0, 512)
+                : String(error).slice(0, 512),
+          },
+        },
+      });
+    }
+  }
+}
+
 function continuationCheckpoint(store, run, auditor, providerSessionId, attempt) {
   const projection = auditProjection(store, run.id);
   const continuation = projectGeneralContinuation(projection);
@@ -244,7 +296,6 @@ export async function runGeneralAudit({
   softUsageNoticeTokens,
   contextContinuationPercent = DEFAULT_CONTEXT_CONTINUATION_PERCENT,
   maxContinuations = 2,
-  noProgressPolicy,
 }) {
   const run = store.readRun(runId);
   if (run.status !== "active") {
@@ -303,7 +354,6 @@ export async function runGeneralAudit({
     auditorId: auditor.id,
     provider: auditor.provider,
   });
-  const thresholds = normalizeThresholds(noProgressPolicy);
   const resolvedSoftNotice =
     softUsageNoticeTokens ??
     run.runConditions.softUsageNoticeTokens ??
@@ -342,15 +392,11 @@ export async function runGeneralAudit({
       launch = adapter.attachCheckpointTransport(launch, transport);
       let providerSessionId = null;
       let latestUsage = null;
+      let latestFinalOutput;
       let stopUsageMonitor = null;
       let processControl = null;
       let continuationRequested = false;
-      let noProgressReason = null;
-      let lastSemanticSequence = semanticSequence(auditProjection(store, runId));
-      let identicalSearches = 0;
-      let lastSearchCommand = null;
-      let repeatedFailures = 0;
-      let toolEventsWithoutEvidence = 0;
+      let latestLiveUsageSignature = null;
 
       const observeUsage = (usage, rollout = null) => {
         if (
@@ -358,6 +404,26 @@ export async function runGeneralAudit({
           (latestUsage === null || usage.totalTokens >= latestUsage.totalTokens)
         ) {
           latestUsage = usage;
+        }
+        if (usage && rollout) {
+          const livePayload = {
+            phase: "general_research",
+            cumulative: usage,
+            context: rollout.context,
+            contextWindowTokens: rollout.contextWindowTokens ?? null,
+            contextPercent: rollout.contextPercent ?? null,
+            message: `auditor: ${usage.totalTokens.toLocaleString("en-US")} cumulative tokens`,
+          };
+          const signature = JSON.stringify(livePayload);
+          if (signature !== latestLiveUsageSignature) {
+            latestLiveUsageSignature = signature;
+            store.appendEvent({
+              runId,
+              actor: auditor.id,
+              type: "provider.usage.updated",
+              payload: livePayload,
+            });
+          }
         }
         const attemptTokens = usage?.totalTokens ?? 0;
         const observedTotal = aggregateTokens + attemptTokens;
@@ -401,6 +467,8 @@ export async function runGeneralAudit({
             processControl = control;
           },
           onEvent(event) {
+            const finalOutput = adapter.extractFinalOutput?.(event);
+            if (finalOutput !== undefined) latestFinalOutput = finalOutput;
             const normalized = adapter.normalizeEvent?.(event);
             if (normalized) {
               store.appendEvent({
@@ -426,56 +494,6 @@ export async function runGeneralAudit({
                       })
                     : null;
               }
-
-              const currentSequence = semanticSequence(
-                auditProjection(store, runId),
-              );
-              if (currentSequence > lastSemanticSequence) {
-                lastSemanticSequence = currentSequence;
-                identicalSearches = 0;
-                lastSearchCommand = null;
-                repeatedFailures = 0;
-                toolEventsWithoutEvidence = 0;
-              }
-              if (normalized.type.startsWith("provider.tool.")) {
-                toolEventsWithoutEvidence += 1;
-                const command = normalized.payload.command;
-                if (
-                  normalized.type === "provider.tool.started" &&
-                  typeof command === "string" &&
-                  SEARCH_COMMAND_PATTERN.test(command)
-                ) {
-                  identicalSearches =
-                    command === lastSearchCommand ? identicalSearches + 1 : 1;
-                  lastSearchCommand = command;
-                }
-                if (
-                  normalized.type === "provider.tool.completed" &&
-                  (normalized.payload.exitCode > 0 ||
-                    ["failed", "declined"].includes(
-                      normalized.payload.status,
-                    ))
-                ) {
-                  repeatedFailures += 1;
-                }
-                if (
-                  identicalSearches >= thresholds.identicalSearchLimit
-                ) {
-                  noProgressReason = "repeated_identical_searches";
-                } else if (
-                  repeatedFailures >= thresholds.repeatedFailureLimit
-                ) {
-                  noProgressReason = "repeated_command_failures";
-                } else if (
-                  toolEventsWithoutEvidence >=
-                  thresholds.toolEventsWithoutEvidenceLimit
-                ) {
-                  noProgressReason = "no_new_semantic_evidence";
-                }
-                if (noProgressReason !== null) {
-                  processControl?.terminate("no_progress");
-                }
-              }
             }
             const usage = adapter.extractUsage?.(event);
             if (usage) observeUsage(usage);
@@ -494,6 +512,13 @@ export async function runGeneralAudit({
         stopUsageMonitor?.();
       }
 
+      importFinalCheckpoints(
+        store,
+        run,
+        auditor,
+        providerSessionId,
+        latestFinalOutput,
+      );
       recordUsage(store, run, auditor, latestUsage, attempt);
       aggregateTokens += latestUsage?.totalTokens ?? 0;
       attempts.push({
@@ -541,10 +566,8 @@ export async function runGeneralAudit({
         continue;
       }
       const reason =
-        noProgressReason === null
-          ? processResult.failure?.message ??
-            `Provider process ended without synthesis (exit ${String(processResult.exitCode)}).`
-          : `No-progress circuit breaker: ${noProgressReason}.`;
+        processResult.failure?.message ??
+        `Provider process ended without synthesis (exit ${String(processResult.exitCode)}).`;
       const terminal = interruptFromLedger(
         store,
         run,

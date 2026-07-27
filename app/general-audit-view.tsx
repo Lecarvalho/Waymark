@@ -101,8 +101,27 @@ export function GeneralAuditView({ snapshot }: GeneralAuditViewProps) {
   const missingDimensions = report.dimensions.filter(
     ({ assessmentState }) => assessmentState !== "assessed",
   );
-  const auditorTokens =
-    report.auditor?.tokens ?? report.tokens.totals.totalTokens ?? null;
+  const persistedTokenUsage =
+    report.tokens.measurementCount > 0
+      ? {
+          totalTokens: report.tokens.totals.totalTokens,
+          inputTokens: report.tokens.totals.inputTokens,
+          cachedInputTokens: report.tokens.totals.cachedInputTokens,
+          uncachedInputTokens:
+            report.tokens.totals.inputTokens === null ||
+            report.tokens.totals.cachedInputTokens === null
+              ? null
+              : Math.max(
+                  0,
+                  report.tokens.totals.inputTokens -
+                    report.tokens.totals.cachedInputTokens,
+                ),
+          outputTokens: report.tokens.totals.outputTokens,
+        }
+      : null;
+  const auditorTokenUsage =
+    report.auditor?.tokenUsage ?? persistedTokenUsage;
+  const auditorTokens = auditorTokenUsage?.totalTokens ?? null;
   const stages = [
     {
       label: "Repository survey",
@@ -221,7 +240,7 @@ export function GeneralAuditView({ snapshot }: GeneralAuditViewProps) {
           </small>
         </article>
         <article data-kind="activity">
-          <span>Auditor tokens</span>
+          <span>Processed tokens</span>
           <strong>{formatTokenCount(auditorTokens)}</strong>
           <small>{formatTokenSource(report.auditor?.tokenSource ?? null)}</small>
         </article>
@@ -236,6 +255,50 @@ export function GeneralAuditView({ snapshot }: GeneralAuditViewProps) {
             preserved revisions
           </small>
         </article>
+      </section>
+
+      <section
+        aria-label="Live auditor token usage"
+        className={classes("general-token-breakdown")}
+      >
+        <header>
+          <div>
+            <span>Live token usage</span>
+            <strong>Input and output tracked separately</strong>
+          </div>
+          <small>{formatTokenSource(report.auditor?.tokenSource ?? null)}</small>
+        </header>
+        <dl>
+          <div data-kind="processed">
+            <dt>Processed</dt>
+            <dd>{formatTokenCount(auditorTokenUsage?.totalTokens ?? null)}</dd>
+            <small>Input + output</small>
+          </div>
+          <div>
+            <dt>Input</dt>
+            <dd>{formatTokenCount(auditorTokenUsage?.inputTokens ?? null)}</dd>
+            <small>Includes cached input</small>
+          </div>
+          <div>
+            <dt>Cached input</dt>
+            <dd>
+              {formatTokenCount(auditorTokenUsage?.cachedInputTokens ?? null)}
+            </dd>
+            <small>Subset of input</small>
+          </div>
+          <div>
+            <dt>Uncached input</dt>
+            <dd>
+              {formatTokenCount(auditorTokenUsage?.uncachedInputTokens ?? null)}
+            </dd>
+            <small>Input minus cached</small>
+          </div>
+          <div>
+            <dt>Output</dt>
+            <dd>{formatTokenCount(auditorTokenUsage?.outputTokens ?? null)}</dd>
+            <small>Generated tokens</small>
+          </div>
+        </dl>
       </section>
 
       <section className={classes("general-auditor-strip")} aria-label="General audit owner">

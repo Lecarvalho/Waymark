@@ -9,6 +9,7 @@
     "dev": "node scripts/dev.mjs",
     "dev:web": "vinext dev",
     "dev:service": "node server/waymark-server.mjs",
+    "replay:general-live": "node scripts/replay-general-live.mjs",
     "build": "vinext build",
     "start": "vinext start",
     "test": "npm run build && node --test tests/*.test.mjs",

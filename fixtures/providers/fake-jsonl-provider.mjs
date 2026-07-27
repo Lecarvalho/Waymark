@@ -136,12 +136,85 @@ async function postGeneralFinding({
   });
 }
 
+if (mode === "general-final-fallback") {
+  const actor = process.env.WAYMARK_CHECKPOINT_ACTOR;
+  const occurredAt = "2026-07-25T15:00:00.000Z";
+  const findingPayload = {
+    revision: {
+      revisionId: "fallback-revision-1",
+      findingId: "fallback-live-evidence",
+      revisionNumber: 1,
+      state: "confirmed",
+      signal: "positive",
+      title: "Final output preserved unpublished evidence",
+      conclusion:
+        "A structured fallback retained evidence when live publication was unavailable.",
+      dimensionIds: ["discoveryEfficiency"],
+      practiceGuideIds: ["canonicalWorkflow"],
+      citations: [generalCodeCitation],
+      navigationCost: {
+        searches: 1,
+        filesOpened: 1,
+        fileHops: 0,
+        deadEnds: 0,
+        commands: 1,
+        processedTokens: 500,
+        elapsedMs: 1000,
+      },
+      provenance: {
+        previousRevisionId: null,
+        amendmentReason: null,
+        actor,
+        occurredAt,
+        causedByCitations: [generalCodeCitation],
+      },
+    },
+  };
+  emit({
+    type: "item.completed",
+    item: {
+      id: "auditor-fallback-message",
+      type: "agent_message",
+      text: JSON.stringify({
+        unpublishedCheckpoints: [
+          {
+            idempotencyKey: "fallback-finding",
+            type: "general.finding.recorded",
+            occurredAt,
+            payloadJson: JSON.stringify(findingPayload),
+          },
+          {
+            idempotencyKey: "fallback-synthesis",
+            type: "general.synthesis.completed",
+            occurredAt: "2026-07-25T15:01:00.000Z",
+            payloadJson: JSON.stringify({
+              outcome: "partial",
+              summary: "Recovered unpublished checkpoints from final output.",
+              limitations: ["The live checkpoint channel was unavailable."],
+            }),
+          },
+        ],
+      }),
+    },
+  });
+  emit({
+    type: "turn.completed",
+    usage: {
+      input_tokens: 1200,
+      cached_input_tokens: 100,
+      output_tokens: 300,
+    },
+  });
+  process.exit(0);
+}
+
 if (
   [
     "general-completed",
     "general-partial-crash",
     "general-no-progress",
     "general-continuation",
+    "general-interleaved-command-results",
   ].includes(mode)
 ) {
   await new Promise((resolve) => setTimeout(resolve, 25));
@@ -175,6 +248,40 @@ if (
     }
     setInterval(() => {}, 10_000);
     await new Promise(() => {});
+  }
+
+  if (mode === "general-interleaved-command-results") {
+    const results = [
+      { command: "Get-ChildItem Env:", status: "declined", exit_code: -1 },
+      {
+        command: "Get-Content -LiteralPath README.md",
+        status: "completed",
+        exit_code: 0,
+      },
+      { command: "rg missing-term .", status: "failed", exit_code: 1 },
+      {
+        command: "Get-ChildItem Env: | Where-Object Name",
+        status: "declined",
+        exit_code: -1,
+      },
+    ];
+    for (const [index, result] of results.entries()) {
+      const item = {
+        id: `general-result-${index}`,
+        type: "command_execution",
+        command: result.command,
+        status: "in_progress",
+      };
+      emit({ type: "item.started", item });
+      emit({
+        type: "item.completed",
+        item: {
+          ...item,
+          status: result.status,
+          exit_code: result.exit_code,
+        },
+      });
+    }
   }
 
   if (

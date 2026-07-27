@@ -17,6 +17,7 @@ interface PreparedAuditRequestBase {
 export interface PreparedGeneralAuditRequest
   extends PreparedAuditRequestBase {
   auditMode: "general";
+  auditorPermissionMode?: "read_only" | "unrestricted_no_approval";
   participants: {
     auditor: PreparedAuditParticipant;
   };

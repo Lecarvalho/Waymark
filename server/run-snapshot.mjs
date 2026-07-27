@@ -15,8 +15,8 @@ import {
 import { projectReportContent } from "./report-content-snapshot.mjs";
 import {
   collectTokenContext,
-  numberOrNull,
   projectTokenUsage,
+  summarizeTokens,
   tokenSource,
 } from "./token-usage-snapshot.mjs";
 
@@ -163,6 +163,17 @@ function projectParticipants(report, tokenContext, adjudicatedClaims) {
     const participantLiveUsage = participantActors
       .map((actor) => tokenContext.latestLiveUsageByActor.get(actor))
       .find((usage) => usage !== undefined);
+    const participantTokenUsage =
+      participantTokenMeasurements.length > 0
+        ? summarizeTokens(participantTokenMeasurements)
+        : participantLiveUsage
+          ? summarizeTokens([
+              {
+                ...participantLiveUsage.cumulative,
+                source: "measured_live",
+              },
+            ])
+          : summarizeTokens([]);
 
     return {
       role: participant.role,
@@ -171,14 +182,8 @@ function projectParticipants(report, tokenContext, adjudicatedClaims) {
       status: verifierCompleted
         ? "Complete"
         : participantStatus(participant, report.events, report.run.status),
-      tokens:
-        participantTokenMeasurements.length > 0
-          ? participantTokenMeasurements.reduce(
-              (total, measurement) => total + measurement.totalTokens,
-              0,
-            )
-          : (numberOrNull(participantLiveUsage?.cumulative?.totalTokens) ??
-            null),
+      tokens: participantTokenUsage.totalTokens,
+      tokenUsage: participantTokenUsage,
       tokenSource:
         tokenSource(participantTokenMeasurements) ??
         (participantLiveUsage ? "measured_live" : null),

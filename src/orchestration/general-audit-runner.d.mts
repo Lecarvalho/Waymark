@@ -15,11 +15,6 @@ export function runGeneralAudit(input: {
   softUsageNoticeTokens?: number | number[] | null;
   contextContinuationPercent?: number;
   maxContinuations?: number;
-  noProgressPolicy?: {
-    identicalSearchLimit?: number;
-    repeatedFailureLimit?: number;
-    toolEventsWithoutEvidenceLimit?: number;
-  };
 }): Promise<{
   runId: string;
   status: "completed" | "partial" | "failed" | "cancelled";

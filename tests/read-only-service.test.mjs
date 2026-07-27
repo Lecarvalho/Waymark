@@ -45,6 +45,9 @@ test("read-only router preserves health, method, and not-found policies", async 
     ok: true,
     service: "waymark",
     databasePath: "C:/tmp/waymark-fixture.sqlite",
+    capabilities: {
+      generalLiveTokenBreakdown: true,
+    },
   });
 
   const options = await fetch(`${url}/api/runs`, { method: "OPTIONS" });

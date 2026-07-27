@@ -7,6 +7,10 @@ const AUDIT_MODES = new Set([
 ]);
 const BENCHMARK_ROLES = ["candidate", "independent", "orchestrator"];
 const GENERAL_ROLE = "auditor";
+const GENERAL_AUDITOR_PERMISSION_MODES = new Set([
+  "read_only",
+  "unrestricted_no_approval",
+]);
 
 function requiredString(value, path) {
   if (typeof value !== "string" || value.trim() === "") {
@@ -100,6 +104,13 @@ export function validatePreparedAuditRequest(input) {
         "softUsageNoticeTokens must be a positive integer or null",
       );
     }
+    const auditorPermissionMode =
+      input.auditorPermissionMode ?? "read_only";
+    if (!GENERAL_AUDITOR_PERMISSION_MODES.has(auditorPermissionMode)) {
+      throw new TypeError(
+        "auditorPermissionMode must be read_only or unrestricted_no_approval",
+      );
+    }
     return {
       ...base,
       participants: {
@@ -110,6 +121,7 @@ export function validatePreparedAuditRequest(input) {
       },
       tokenPolicy: "unbounded_by_waymark",
       softUsageNoticeTokens,
+      auditorPermissionMode,
     };
   }
 
@@ -142,6 +154,7 @@ export function buildPreparedAuditRequest(input) {
   const tokenLines =
     request.auditMode === "general"
       ? [
+          `- Auditor permissions: ${request.auditorPermissionMode}`,
           "- Token policy: unbounded_by_waymark",
           "- Token usage: measured",
           `- Soft usage notice: ${

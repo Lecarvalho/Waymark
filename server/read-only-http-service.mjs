@@ -48,6 +48,9 @@ export function createReadOnlyHttpService({
           ok: true,
           service: "waymark",
           databasePath,
+          capabilities: {
+            generalLiveTokenBreakdown: true,
+          },
         });
         return;
       }

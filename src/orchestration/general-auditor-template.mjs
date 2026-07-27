@@ -31,6 +31,8 @@ function continuationContext(value) {
 }
 
 export function createGeneralAuditorAssignment({ run, auditor, continuation }) {
+  const permissionMode =
+    run.runConditions.auditorPermissionMode ?? "read_only";
   return {
     runId: run.id,
     role: "auditor",
@@ -40,7 +42,7 @@ export function createGeneralAuditorAssignment({ run, auditor, continuation }) {
       path: run.targetRepositoryPath,
       identity: run.repositoryIdentity,
       commitSha: run.commitSha,
-      readOnly: true,
+      readOnly: permissionMode === "read_only",
     },
     auditMode: "general",
     task: run.task,
@@ -50,11 +52,14 @@ export function createGeneralAuditorAssignment({ run, auditor, continuation }) {
       measurementScope: "role_process_only",
     },
     toolPolicy: run.toolPolicy,
+    permissionMode,
     continuation,
   };
 }
 
 export function renderGeneralAuditorPrompt(assignment) {
+  const unrestricted =
+    assignment.permissionMode === "unrestricted_no_approval";
   const practiceGuide = PRACTICE_GUIDE_IDS.map(
     (id) => `- ${id}: ${PRACTICE_GUIDE_LABELS[id]}`,
   );
@@ -65,13 +70,23 @@ export function renderGeneralAuditorPrompt(assignment) {
     "You are the sole Waymark general-audit auditor in a fresh provider process.",
     "You have assignment-only context. Do not assume or reference any controlling conversation.",
     `Repository: ${assignment.target.identity}`,
-    `Commit: ${assignment.target.commitSha}`,
-    `Read-only target: ${assignment.target.path}`,
+    `Starting commit (provenance only): ${assignment.target.commitSha}`,
+    `${unrestricted ? "Full-access target" : "Read-only target"}: ${assignment.target.path}`,
     `Audit task: ${assignment.task}`,
     "",
     "Boundary:",
     "- Measure AI coding navigability only, not security, correctness, maintainability, accessibility, or general code quality.",
-    "- Keep the target repository read-only. Do not install, format, generate, or edit.",
+    "- The repository may evolve while this audit runs. Inspect and cite what is present when you read it; do not fail or stop solely because HEAD or worktree status changes.",
+    ...(unrestricted
+      ? [
+          "- The user explicitly authorized unrestricted command execution without approval prompts.",
+          "- You may run any command needed for the audit, including compound shell commands, repository workflows, and networked tools.",
+          "- Full access is for command compatibility only. Do not modify, create, delete, install, format, or generate anything in the target repository.",
+          "- This remains a navigation audit. Do not implement product changes.",
+        ]
+      : [
+          "- Keep the target repository read-only. Do not install, format, generate, or edit.",
+        ]),
     "- You are the only model role. Do not launch candidate, independent, orchestrator, verifier, or reporter roles.",
     "- Completion is driven by cited evidence coverage. There is no Waymark token ceiling or token-efficiency score.",
     "",
@@ -96,23 +111,28 @@ export function renderGeneralAuditorPrompt(assignment) {
     "- Assess a dimension only after its evidence requirements were attempted. Preserve not_assessed when evidence remains insufficient.",
     "",
     "Checkpoint channel:",
-    "- The environment provides WAYMARK_CHECKPOINT_RUN_ID, WAYMARK_CHECKPOINT_ACTOR, WAYMARK_CHECKPOINT_ENDPOINT, and WAYMARK_CHECKPOINT_AUTHORIZATION.",
-    "- POST JSON with Authorization set to WAYMARK_CHECKPOINT_AUTHORIZATION. Every envelope is:",
+    "- Use the Waymark MCP server's `record` tool after each defensible semantic finding or meaningful revision.",
+    "- Do not inspect checkpoint environment variables or use shell, PowerShell, curl, or another HTTP client to publish checkpoints.",
+    "- The runner owns run, auditor, authorization, and provider-session identity. Tool input is:",
     json({
-      runId: "<WAYMARK_CHECKPOINT_RUN_ID>",
-      actor: "<WAYMARK_CHECKPOINT_ACTOR>",
-      providerSessionId: "<current provider session id>",
       idempotencyKey: "<stable unique semantic key>",
       type: "<general semantic event type>",
       occurredAt: "<ISO-8601 timestamp>",
       payload: {},
     }),
+    "- Treat a checkpoint as durable only when the tool returns `status: acknowledged`. Correct and retry a rejected checkpoint before relying on it.",
     "- The runner has already recorded general.audit.started. Do not send another start event.",
     "- Supported event types are general.surface.inspected, general.behavior_path.recorded, general.finding.recorded, general.finding.revised, general.dimension.progress, general.dimension.assessed, general.recommendation.recorded, and general.synthesis.completed.",
-    "- Follow the repository-local Waymark protocol shapes exactly when it is available. A rejected checkpoint must be corrected before relying on it.",
-    "- A finding revision includes stable findingId/revisionId, revisionNumber, state, signal, title, conclusion, dimensionIds, practiceGuideIds, citations, navigationCost, and provenance.",
+    "- The MCP tool's discriminated input schema is the authoritative payload contract. Select the branch matching `type` and do not add fields.",
+    "- Finding payloads wrap their data in `payload.revision`. A revision includes stable findingId/revisionId, revisionNumber, state, signal, title, conclusion, dimensionIds, practiceGuideIds, citations, navigationCost, and provenance linkage.",
+    "- Finding provenance input contains only previousRevisionId, amendmentReason, and causedByCitations. The checkpoint server injects authenticated actor identity and the effective checkpoint timestamp.",
+    "- navigationCost is null or measured numeric counters from the tool schema; never use qualitative levels or prose observations there.",
     "- Each citation includes repository-relative path, one-based startLine/endLine, symbol (or null), and evidence source.",
     "- Finish with general.synthesis.completed. Use completed only when all six dimensions have adequate assessed evidence; otherwise use partial when usable cited evidence exists.",
+    "",
+    "Final fallback:",
+    "- Return the required structured object with `unpublishedCheckpoints`.",
+    "- Include only semantic checkpoints that did not receive an acknowledged MCP response. Encode each payload object exactly as JSON in `payloadJson`; use an empty array when all live checkpoints were acknowledged.",
     ...continuationContext(assignment.continuation),
   ].join("\n");
 }

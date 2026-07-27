@@ -10,6 +10,12 @@ const DEFAULT_OUTPUT_SCHEMA = fileURLToPath(
 const DEFAULT_ORCHESTRATION_OUTPUT_SCHEMA = fileURLToPath(
   new URL("./orchestration-output.schema.json", import.meta.url),
 );
+const DEFAULT_GENERAL_AUDIT_OUTPUT_SCHEMA = fileURLToPath(
+  new URL("./general-audit-output.schema.json", import.meta.url),
+);
+const DEFAULT_CHECKPOINT_MCP_SERVER = fileURLToPath(
+  new URL("./waymark-checkpoint-mcp.mjs", import.meta.url),
+);
 const SUPPORTED_PROVIDERS = new Set(["codex", "openai", "openai-codex"]);
 
 function nonNegativeInteger(value) {
@@ -29,6 +35,55 @@ function conciseText(value, maximum = 4_000) {
   return value.length <= maximum
     ? value
     : `${value.slice(0, maximum)}\n[truncated]`;
+}
+
+function tomlString(value) {
+  return JSON.stringify(String(value).replaceAll("\\", "/"));
+}
+
+function checkpointMcpArguments(assignment) {
+  if (assignment.role !== "auditor") return [];
+  return [
+    "-c",
+    `mcp_servers.waymark_checkpoint.command=${tomlString(process.execPath)}`,
+    "-c",
+    `mcp_servers.waymark_checkpoint.args=[${tomlString(DEFAULT_CHECKPOINT_MCP_SERVER)}]`,
+    "-c",
+    'mcp_servers.waymark_checkpoint.env_vars=["WAYMARK_CHECKPOINT_RUN_ID","WAYMARK_CHECKPOINT_ACTOR","WAYMARK_CHECKPOINT_ENDPOINT","WAYMARK_CHECKPOINT_AUTHORIZATION"]',
+    "-c",
+    'mcp_servers.waymark_checkpoint.enabled_tools=["record"]',
+    "-c",
+    'mcp_servers.waymark_checkpoint.tools.record.approval_mode="approve"',
+    "-c",
+    "mcp_servers.waymark_checkpoint.required=true",
+    "-c",
+    "mcp_servers.waymark_checkpoint.startup_timeout_sec=10",
+    "-c",
+    "mcp_servers.waymark_checkpoint.tool_timeout_sec=15",
+  ];
+}
+
+function providerFailureReason(eventType, item) {
+  if (
+    eventType !== "item.completed" ||
+    !["declined", "failed"].includes(item.status)
+  ) {
+    return undefined;
+  }
+  const candidates = [
+    item.failure_reason,
+    item.failureReason,
+    item.message,
+    item.aggregated_output,
+    typeof item.error === "string" ? item.error : item.error?.message,
+  ];
+  return candidates.some(
+    (value) =>
+      typeof value === "string" &&
+      /(?:rejected:\s*)?blocked by policy\s*$/i.test(value.trim()),
+  )
+    ? "blocked by policy"
+    : undefined;
 }
 
 function tokenUsage(value) {
@@ -319,6 +374,7 @@ export function normalizeCodexEvent(event) {
   }
 
   const state = event.type.slice("item.".length);
+  const failureReason = providerFailureReason(event.type, item);
   const payload = {
     provider: "codex",
     toolType: typeof item.type === "string" ? item.type : "unknown",
@@ -331,6 +387,7 @@ export function normalizeCodexEvent(event) {
     ...(Number.isSafeInteger(item.exit_code) ? { exitCode: item.exit_code } : {}),
     ...(typeof item.server === "string" ? { server: item.server } : {}),
     ...(typeof item.tool === "string" ? { tool: item.tool } : {}),
+    ...(failureReason === undefined ? {} : { failureReason }),
   };
   return { type: `provider.tool.${state}`, payload };
 }
@@ -346,6 +403,11 @@ export function createCodexProcessAdapter({
     environment?.CODEX_HOME ??
     process.env.CODEX_HOME ??
     join(homedir(), ".codex");
+  const sandboxMode = (assignment) =>
+    assignment.role === "auditor" &&
+    assignment.permissionMode === "unrestricted_no_approval"
+      ? "danger-full-access"
+      : "read-only";
   return {
     id: "codex",
     requiresFinalOutput: true,
@@ -359,7 +421,7 @@ export function createCodexProcessAdapter({
         assignment.role === "orchestrator"
           ? orchestrationOutputSchemaPath
           : assignment.role === "auditor"
-            ? null
+            ? DEFAULT_GENERAL_AUDIT_OUTPUT_SCHEMA
             : outputSchemaPath;
       return {
         command: launcher.command,
@@ -374,13 +436,14 @@ export function createCodexProcessAdapter({
             : []),
           "-c",
           'approval_policy="never"',
+          ...checkpointMcpArguments(assignment),
           "--ignore-user-config",
           "--ignore-rules",
           "--json",
           "--color",
           "never",
           "--sandbox",
-          "read-only",
+          sandboxMode(assignment),
           "--cd",
           assignment.target.path,
           "--model",
@@ -404,7 +467,7 @@ export function createCodexProcessAdapter({
         assignment.role === "orchestrator"
           ? orchestrationOutputSchemaPath
           : assignment.role === "auditor"
-            ? null
+            ? DEFAULT_GENERAL_AUDIT_OUTPUT_SCHEMA
             : outputSchemaPath;
       return {
         command: launcher.command,
@@ -421,7 +484,8 @@ export function createCodexProcessAdapter({
           "-c",
           'approval_policy="never"',
           "-c",
-          'sandbox_mode="read-only"',
+          `sandbox_mode="${sandboxMode(assignment)}"`,
+          ...checkpointMcpArguments(assignment),
           "--ignore-user-config",
           "--ignore-rules",
           "--json",

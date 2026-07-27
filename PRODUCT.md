@@ -45,7 +45,12 @@ report surface.
 ## Core Commitments
 
 - Report measured AI coding navigability, not broad software quality.
-- Keep the target repository read-only during discovery.
+- Record the starting commit as provenance without freezing the target.
+  Repository evolution during an audit is valid; report the state actually
+  observed rather than failing on HEAD or worktree drift.
+- Keep the target repository read-only during discovery by default. A general
+  audit may instead use explicitly user-authorized unrestricted execution when
+  that permission mode is recorded with the run; never silently widen access.
 - In benchmark modes, separate candidate performance, candidate confidence,
   and report reliability, and prefer executable or deterministic verification
   over model agreement.
@@ -107,9 +112,9 @@ General terminal outcomes are:
 
 General audits have no Waymark hard token limit and no token-efficiency score.
 Measured token usage remains visible. Evidence coverage, rather than a token
-ceiling, drives completion. Soft usage notices, no-progress protection, user
-cancellation, and provider-context continuation are operational safeguards,
-not benchmark validity rules.
+ceiling, drives completion. Optional soft usage notices, user cancellation, and
+provider-context continuation are operational safeguards, not benchmark
+validity rules.
 
 ## Interface Posture
 
@@ -120,8 +125,10 @@ decorative urgency.
 
 The interface may prepare an audit request without starting one. The user
 selects the repository, audit mode, task or explanation question, and available
-provider/model/reasoning combinations, then explicitly copies a compact handoff
-containing those runtime inputs. Fixed workflow, safety, and mode-specific
+provider/model/reasoning combinations. General audits also select either the
+default read-only sandbox or explicit full access without approval prompts. The
+user then explicitly copies a compact handoff containing those runtime inputs.
+Fixed workflow, safety, and mode-specific
 assessment or scoring policy come from the versioned repository-local audit
 skill. Model and
 reasoning choices come from runtime adapter capabilities rather than a

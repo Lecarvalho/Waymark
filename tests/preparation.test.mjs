@@ -91,6 +91,7 @@ function preparedGeneralInput() {
     },
     tokenPolicy: "unbounded_by_waymark",
     softUsageNoticeTokens: null,
+    auditorPermissionMode: "read_only",
   };
 }
 
@@ -356,6 +357,7 @@ test("prepared general audits select one auditor without benchmark budgets", () 
   assert.match(prompt, /Token policy: unbounded_by_waymark/);
   assert.match(prompt, /Token usage: measured/);
   assert.match(prompt, /Soft usage notice: none/);
+  assert.match(prompt, /Auditor permissions: read_only/);
   assert.match(prompt, /Create one new general run with this auditor/);
   assert.doesNotMatch(prompt, /candidate:/);
   assert.doesNotMatch(prompt, /independent:/);
@@ -397,6 +399,17 @@ test("general preparation retains an optional non-stopping usage notice", () => 
   assert.match(prompt, /Token policy: unbounded_by_waymark/);
 });
 
+test("general preparation records explicit unrestricted auditor permission", () => {
+  const input = preparedGeneralInput();
+  input.auditorPermissionMode = "unrestricted_no_approval";
+
+  const prompt = buildPreparedAuditRequest(input);
+  assert.match(
+    prompt,
+    /Auditor permissions: unrestricted_no_approval/,
+  );
+});
+
 test("the audit skill owns the single-auditor general contract", () => {
   const skill = readFileSync(
     new URL("../.agents/skills/waymark-audit/SKILL.md", import.meta.url),
@@ -429,7 +442,10 @@ test("general mode reaches one fresh auditor as a seven-principle assessment", (
       commitSha: "0123456789abcdef",
       task: "Broad evidence-led repository navigability assessment",
       toolPolicy: { target: "read-only" },
-      runConditions: { auditorReasoningEffort: "high" },
+      runConditions: {
+        auditorReasoningEffort: "high",
+        auditorPermissionMode: "unrestricted_no_approval",
+      },
     },
     auditor: {
       role: "auditor",
@@ -442,6 +458,12 @@ test("general mode reaches one fresh auditor as a seven-principle assessment", (
   const prompt = renderGeneralAuditorPrompt(assignment);
   assert.match(prompt, /sole Waymark general-audit auditor/);
   assert.match(prompt, /only model role/);
+  assert.match(prompt, /explicitly authorized unrestricted command execution/);
+  assert.match(
+    prompt,
+    /Do not modify, create, delete, install, format, or generate anything/,
+  );
+  assert.equal(assignment.target.readOnly, false);
   assert.match(prompt, /Do not launch candidate, independent, orchestrator/);
   assert.match(prompt, /Practice Guide:/);
   assert.match(prompt, /separate generated and external code/);
